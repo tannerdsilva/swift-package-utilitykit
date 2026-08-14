@@ -16,7 +16,7 @@ struct FindCommand: ParsableCommand {
     )
 
     @Argument(help: "Symbol name to find (substring match by default).")
-    var symbol: String
+    var symbol: String = ""
 
     @Argument(help: "Files or directories to search.")
     var paths: [String] = ["."]
@@ -42,8 +42,17 @@ struct FindCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum number of results.")
     var limit: Int?
 
-    
+    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(FindResult.jsonSchema)
+            return
+        }
+        guard !symbol.isEmpty else {
+            throw ValidationError("symbol is required")
+        }
         let files = collectSwiftFiles(
             from: paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
@@ -138,4 +147,23 @@ struct FindResult: Codable, Sendable, CustomStringConvertible {
         let mods = modifiers.isEmpty ? "" : "\(modifiers.joined(separator: " ")) "
         return "\(file):\(line):\(column)  [\(kind)]  \(mods)\(signature)"
     }
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "FindResult",
+      "type": "object",
+      "properties": {
+        "name":       { "type": "string", "description": "Symbol name" },
+        "kind":       { "type": "string", "description": "Declaration kind" },
+        "file":       { "type": "string", "description": "Source file path" },
+        "line":       { "type": "integer", "description": "1-based line number" },
+        "column":     { "type": "integer", "description": "1-based column number" },
+        "signature":  { "type": "string", "description": "One-line declaration signature" },
+        "docComment": { "type": "string", "description": "Documentation comment text" },
+        "modifiers":  { "type": "array", "items": { "type": "string" }, "description": "Declaration modifiers" }
+      },
+      "required": ["name", "kind", "file", "line", "column", "signature", "docComment", "modifiers"]
+    }
+    """
 }

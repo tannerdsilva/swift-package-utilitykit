@@ -11,10 +11,10 @@ struct DiffCommand: ParsableCommand {
     )
 
     @Argument(help: "First source file (or `-` for stdin).")
-    var file1: String
+    var file1: String = ""
 
     @Argument(help: "Second source file (or `-` for stdin).")
-    var file2: String
+    var file2: String = ""
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
@@ -32,6 +32,12 @@ struct DiffCommand: ParsableCommand {
         if schema {
             print(DiffResult.jsonSchema)
             return
+        }
+        guard !file1.isEmpty else {
+            throw ValidationError("file1 is required")
+        }
+        guard !file2.isEmpty else {
+            throw ValidationError("file2 is required")
         }
 
         let source1 = try readSource(file1)

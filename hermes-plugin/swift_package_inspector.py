@@ -377,6 +377,47 @@ def _search_with_swift_code_query(pattern: str, target: str,
     return []
 
 
+def _scan_with_swift_code_query(
+    patterns: list[tuple[str, str]],
+    target: str,
+) -> list[dict]:
+    """Run ``swift-code-query search`` with a combined regex from *patterns*.
+
+    Each pattern is a ``(display_name, regex)`` pair.  The helper builds a
+    combined regex (``pat1|pat2|...``), runs the search, and attaches the
+    matching ``display_name`` to each result by re-testing the line content.
+
+    Returns a list of dicts with at least ``file``, ``line``, ``line_content``,
+    and ``api`` (the display name of the matched pattern).
+    """
+    if not patterns:
+        return []
+
+    # build a combined regex with named groups so we can identify which
+    # pattern matched.  use non-capturing groups for the individual patterns.
+    combined = "|".join(f"(?:{pat})" for _, pat in patterns)
+    try:
+        matches = _search_with_swift_code_query(combined, target, is_regex=True)
+    except RuntimeError:
+        return []
+
+    # re-test each match's line content to determine which pattern fired
+    results: list[dict] = []
+    for m in matches:
+        line = m.get("line_content", "")
+        for display, pat in patterns:
+            if re.search(pat, line):
+                results.append({
+                    "file": m.get("file", ""),
+                    "line": m.get("line", 0),
+                    "column": m.get("column", 0),
+                    "line_content": line,
+                    "api": display,
+                })
+                break  # first match wins
+    return results
+
+
 def _is_test_source(path: str) -> bool:
     """True if a Swift file lives in a test target or is a *Tests.swift file."""
     s = path.replace("\\", "/")
@@ -474,42 +515,41 @@ def scan_unsafe_ptrs(target: str) -> dict:
     severity ranking (same logic as the original Python-only version).
     """
     target = _resolve_target(target)
-    files = _iter_swift_files(target)
-    findings: list[dict] = []
+    raw = _scan_with_swift_code_query(_UNSAFE_PTR_PATTERNS, target)
+    if not raw:
+        return {"ok": True, "target": target, "count": 0, "findings": []}
 
-    for path in files:
+    # group by file for scope clustering
+    by_file: dict[str, list[dict]] = {}
+    for hit in raw:
+        by_file.setdefault(hit["file"], []).append(hit)
+
+    findings: list[dict] = []
+    for file_path, hits in by_file.items():
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = open(file_path, encoding="utf-8", errors="replace").read().splitlines()
         except Exception as exc:
             findings.append({
-                "file": str(path), "line": 0, "api": "READ_ERROR",
+                "file": file_path, "line": 0, "api": "READ_ERROR",
                 "match": str(exc), "severity_hint": "low",
             })
             continue
-        hits: list[tuple] = []
-        for idx, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if stripped.startswith("//"):
-                continue
-            for display, pat in _UNSAFE_PTR_PATTERNS:
-                if re.search(pat, line):
-                    hits.append((idx, display))
 
         scopes = _function_scopes(lines)
         clustered: dict[int, list] = {}
-        for line_no, api in hits:
-            sid = scopes[line_no - 1]
-            clustered.setdefault(sid, []).append(line_no)
+        for hit in hits:
+            sid = scopes[hit["line"] - 1]
+            clustered.setdefault(sid, []).append(hit["line"])
 
-        context = "test" if _is_test_source(str(path)) else "source"
+        context = "test" if _is_test_source(file_path) else "source"
         for sid, hit_lines in clustered.items():
             rep = min(hit_lines)
-            api = next(a for (ln, a) in hits if ln == rep)
+            api = next(h["api"] for h in hits if h["line"] == rep)
             member = _enclosing_member(lines, scopes, rep - 1)
             reach = _reachability(member)
             base = _severity_for(api)
             findings.append({
-                "file": str(path), "line": rep, "api": api, "match": api,
+                "file": file_path, "line": rep, "api": api, "match": api,
                 "severity_hint": _severity_for(api),
                 "severity": _severity_from(context, reach, base),
                 "context": context, "reachability": reach,
@@ -590,28 +630,18 @@ def scan_secrets(target: str) -> dict:
     and ranks findings (same logic as the original Python-only version).
     """
     target = _resolve_target(target)
-    findings: list[dict] = []
-    files = _iter_swift_files(target)
+    raw = _scan_with_swift_code_query(_SECRET_PATTERNS, target)
+    if not raw:
+        return {"ok": True, "target": target, "count": 0, "findings": []}
 
-    for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            findings.append({
-                "file": str(path), "line": 0, "kind": "READ_ERROR",
-                "match": str(exc), "severity_hint": "low",
-            })
-            continue
-        for label, pat in _SECRET_PATTERNS:
-            rx = re.compile(pat, re.IGNORECASE)
-            for m in rx.finditer(text):
-                line_no = text.count("\n", 0, m.start()) + 1
-                findings.append({
-                    "file": str(path), "line": line_no, "kind": label,
-                    "match": m.group(0)[:80],
-                    "severity_hint": "critical" if label in (
-                        "private_key", "aws_secret_key") else "high",
-                })
+    findings: list[dict] = []
+    for hit in raw:
+        findings.append({
+            "file": hit["file"], "line": hit["line"], "kind": hit["api"],
+            "match": hit.get("line_content", "")[:80],
+            "severity_hint": "critical" if hit["api"] in (
+                "private_key", "aws_secret_key") else "high",
+        })
 
     best_by_line: dict[tuple, dict] = {}
     for f in findings:
@@ -636,42 +666,45 @@ def scan_process_safety(target: str) -> dict:
     post-processes for scope clustering and severity ranking.
     """
     target = _resolve_target(target)
-    files = _iter_swift_files(target)
-    findings: list[dict] = []
+    raw = _scan_with_swift_code_query(_PROCESS_SAFETY_PATTERNS, target)
+    if not raw:
+        return {"ok": True, "target": target, "count": 0, "findings": []}
 
-    for path in files:
+    # group by file for scope clustering
+    by_file: dict[str, list[dict]] = {}
+    for hit in raw:
+        by_file.setdefault(hit["file"], []).append(hit)
+
+    findings: list[dict] = []
+    for file_path, hits in by_file.items():
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = open(file_path, encoding="utf-8", errors="replace").read().splitlines()
         except Exception as exc:
             findings.append({
-                "file": str(path), "line": 0, "kind": "READ_ERROR",
+                "file": file_path, "line": 0, "kind": "READ_ERROR",
                 "match": str(exc), "severity": "low",
             })
             continue
         scopes = _function_scopes(lines)
-        context = "test" if _is_test_source(str(path)) else "source"
-        for idx, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if stripped.startswith("//"):
-                continue
-            for label, pat in _PROCESS_SAFETY_PATTERNS:
-                if re.search(pat, line):
-                    member = _enclosing_member(lines, scopes, idx - 1)
-                    reach = _reachability(member)
-                    base = {
-                        "raw_fork_without_exec": "high",
-                        "missing_cloexec": "high",
-                        "fd_mutation": "medium",
-                        "fork_and_handoff": "high",
-                        "posix_spawn": "low",
-                    }[label]
-                    findings.append({
-                        "file": str(path), "line": idx, "kind": "process_safety",
-                        "api": label, "match": label,
-                        "severity": _severity_from(context, reach, base),
-                        "context": context, "reachability": reach,
-                    })
-                    break
+        context = "test" if _is_test_source(file_path) else "source"
+        for hit in hits:
+            idx = hit["line"]
+            member = _enclosing_member(lines, scopes, idx - 1)
+            reach = _reachability(member)
+            base = {
+                "raw_fork_without_exec": "high",
+                "missing_cloexec": "high",
+                "fd_mutation": "medium",
+                "fork_and_handoff": "high",
+                "posix_spawn": "low",
+            }[hit["api"]]
+            findings.append({
+                "file": file_path, "line": idx, "kind": "process_safety",
+                "match": hit.get("line_content", "").strip()[:200],
+                "api": hit["api"],
+                "severity": _severity_from(context, reach, base),
+                "context": context, "reachability": reach,
+            })
 
     return {"ok": True, "target": target, "count": len(findings), "findings": findings}
 

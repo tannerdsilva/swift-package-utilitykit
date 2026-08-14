@@ -14,7 +14,7 @@ struct MembersCommand: ParsableCommand {
     var paths: [String] = ["."]
 
     @Option(name: .long, help: "Type name to list members for.")
-    var type: String
+    var type: String = ""
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")
     var include: String?
@@ -38,6 +38,9 @@ struct MembersCommand: ParsableCommand {
         if schema {
             print(MemberItem.jsonSchema)
             return
+        }
+        guard !type.isEmpty else {
+            throw ValidationError("type name is required")
         }
 
         let files = collectSwiftFiles(

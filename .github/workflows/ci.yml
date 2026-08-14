@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Swift toolchain
+        run: |
+          swift --version | head -1
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile hermes-plugin/swift_package_inspector.py
+          python3 -m py_compile hermes-plugin/__init__.py
+          python3 -m py_compile hermes-plugin/test_tools.py
+
+      - name: Check install script syntax
+        run: bash -n scripts/install.sh
+
+  lint:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for tab indentation in Swift files
+        run: |
+          ! grep -rnP "\t" Sources/ --include="*.swift" | grep -v "Tests/" | grep -v "Plugins/" | head -20
