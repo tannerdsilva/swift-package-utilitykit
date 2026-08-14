@@ -170,10 +170,18 @@ remove:
 	@echo ""
 	@echo "=== Removing swift-package-utilitykit ==="
 	@_binaries=""; \
-	for bin in $(BINARIES); do \
-		if [ -f "$(INSTALL_DIR)/$$bin" ]; then \
-			_binaries="$$_binaries $$bin"; \
-		fi; \
+	_checked_dirs=""; \
+	_remove_dirs="$(INSTALL_DIR) $(HOME)/.local/bin /usr/local/bin"; \
+	if [ -n "$(BIN_DIR)" ]; then \
+		_remove_dirs="$(BIN_DIR) $$_remove_dirs"; \
+	fi; \
+	for d in $$_remove_dirs; do \
+		_checked_dirs="$$_checked_dirs $$d"; \
+		for bin in $(BINARIES); do \
+			if [ -f "$$d/$$bin" ]; then \
+				_binaries="$$_binaries $$d/$$bin"; \
+			fi; \
+		done; \
 	done; \
 	_plugin=""; \
 	if [ -L "$(PLUGIN_DST)" ] || [ -d "$(PLUGIN_DST)" ]; then \
@@ -184,6 +192,7 @@ remove:
 		exit 0; \
 	fi; \
 	echo "  Found: binaries($${_binaries:-none}) plugin($${_plugin:-none})"; \
+	echo "  Checked:$$_checked_dirs"; \
 	if [ "$(INSTALL_INTERACTIVE)" = "1" ] && [ -t 0 ] && [ "$(FORCE)" != "1" ]; then \
 		printf "  Remove all? [y/N] "; \
 		read -r _confirm; \
@@ -192,10 +201,14 @@ remove:
 			*) echo "  Cancelled."; exit 0;; \
 		esac; \
 	fi; \
-	for bin in $(BINARIES); do \
-		if [ -f "$(INSTALL_DIR)/$$bin" ]; then \
-			$(SUDO) rm -f "$(INSTALL_DIR)/$$bin"; \
-			echo "  Removed: $(INSTALL_DIR)/$$bin"; \
+	for bin_path in $$_binaries; do \
+		_dir=$$(dirname "$$bin_path"); \
+		if [ ! -w "$$_dir" ] 2>/dev/null; then \
+			sudo rm -f "$$bin_path"; \
+			echo "  Removed: $$bin_path (sudo)"; \
+		else \
+			rm -f "$$bin_path"; \
+			echo "  Removed: $$bin_path"; \
 		fi; \
 	done; \
 	if [ -L "$(PLUGIN_DST)" ] || [ -d "$(PLUGIN_DST)" ]; then \

@@ -81,11 +81,20 @@ do_remove() {
     local found_bins=""
     local found_plugin=""
 
-    for bin in $BINARIES; do
-        if [ -f "$INSTALL_DIR/$bin" ]; then
-            found_bins="$found_bins $bin"
-        fi
+    # check multiple common install locations
+    local remove_dirs="$INSTALL_DIR $HOME/.local/bin /usr/local/bin"
+    if [ -n "${BIN_DIR:-}" ]; then
+        remove_dirs="$BIN_DIR $remove_dirs"
+    fi
+
+    for d in $remove_dirs; do
+        for bin in $BINARIES; do
+            if [ -f "$d/$bin" ]; then
+                found_bins="$found_bins $d/$bin"
+            fi
+        done
     done
+
     if [ -L "$PLUGIN_DST" ] || [ -d "$PLUGIN_DST" ]; then
         found_plugin="$PLUGIN_NAME"
     fi
@@ -106,16 +115,15 @@ do_remove() {
         esac
     fi
 
-    # Check if we need sudo for binary removal
-    local SUDO_CMD=""
-    if [ ! -w "$INSTALL_DIR" ] 2>/dev/null; then
-        SUDO_CMD="sudo"
-    fi
-
-    for bin in $BINARIES; do
-        if [ -f "$INSTALL_DIR/$bin" ]; then
-            $SUDO_CMD rm -f "$INSTALL_DIR/$bin"
-            ok "Removed $INSTALL_DIR/$bin"
+    for bin_path in $found_bins; do
+        local dir
+        dir=$(dirname "$bin_path")
+        if [ ! -w "$dir" ] 2>/dev/null; then
+            sudo rm -f "$bin_path"
+            ok "Removed $bin_path (sudo)"
+        else
+            rm -f "$bin_path"
+            ok "Removed $bin_path"
         fi
     done
 

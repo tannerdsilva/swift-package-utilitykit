@@ -53,6 +53,14 @@ struct BuildCommand: ParsableCommand {
             return
         }
 
+        // validate path — default to current directory if empty
+        let resolvedPath: String
+        if path.isEmpty {
+            resolvedPath = "."
+        } else {
+            resolvedPath = path
+        }
+
         let startTime = Date()
 
         // build the command line
@@ -77,7 +85,7 @@ struct BuildCommand: ParsableCommand {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = args
-        process.currentDirectoryURL = URL(fileURLWithPath: path)
+        process.currentDirectoryURL = URL(fileURLWithPath: resolvedPath)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

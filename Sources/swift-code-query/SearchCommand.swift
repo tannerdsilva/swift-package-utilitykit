@@ -52,6 +52,14 @@ struct SearchCommand: ParsableCommand {
             throw ValidationError("no matching source files found")
         }
 
+        // validate regex upfront if --regex is set
+        if regex {
+            let opts: NSRegularExpression.Options = ignoreCase ? [.caseInsensitive] : []
+            guard (try? NSRegularExpression(pattern: pattern, options: opts)) != nil else {
+                throw ValidationError("invalid regex pattern: '\(pattern)'")
+            }
+        }
+
         var allMatches: [SearchMatch] = []
         for file in files {
             do {
