@@ -7,12 +7,22 @@
 # Usage:
 #   make                    build debug binaries
 #   make release            build release binaries
-#   make install            install debug binaries to PREFIX/bin
+#   make install            install debug binaries to BIN_DIR
 #   make install-release    build release + install binaries
 #   make install-plugin     build release + install binaries + install Hermes plugin
 #   make remove             remove installed binaries and Hermes plugin
 #   make test               run all tests
 #   make clean              remove build artifacts
+#
+# Default install path (user-local, no sudo):
+#   $(HOME)/.local/bin
+#
+# Override with PREFIX (sets parent directory, binaries go to PREFIX/bin):
+#   make install PREFIX=/usr/local          # system-wide (requires sudo)
+#   make install PREFIX=$(HOME)/.local      # user-local (default)
+#
+# Override with BIN_DIR (full path, takes precedence over PREFIX/bin):
+#   make install BIN_DIR=/opt/my-tools/bin  # custom location
 #
 # Interactive / noninteractive (applies to all install/remove targets):
 #   INSTALL_INTERACTIVE=1   (default) prompt before actions when stdin is a tty
@@ -25,7 +35,7 @@
 # Removal:
 #   FORCE=1                 skip confirmation prompt during removal
 
-PREFIX              ?= /usr/local
+PREFIX              ?= $(HOME)/.local
 SWIFT               ?= swift
 VERSION             ?= 0.1.0
 HERMES_PLUGINS      ?= $(HOME)/.hermes/plugins
@@ -36,8 +46,16 @@ PLUGIN_NAME = swift-package-utilitykit
 PLUGIN_SRC  = $(CURDIR)/hermes-plugin
 PLUGIN_DST  = $(HERMES_PLUGINS)/$(PLUGIN_NAME)
 
-# Detect if we need sudo for PREFIX/bin
-ifneq ($(shell test -w $(PREFIX)/bin 2>/dev/null && echo writable),writable)
+# Resolve the actual install directory for binaries.
+# BIN_DIR takes precedence; otherwise PREFIX/bin.
+ifneq ($(BIN_DIR),)
+    INSTALL_DIR := $(BIN_DIR)
+else
+    INSTALL_DIR := $(PREFIX)/bin
+endif
+
+# Detect if we need sudo for INSTALL_DIR
+ifneq ($(shell test -w $(INSTALL_DIR) 2>/dev/null && echo writable),writable)
     SUDO := sudo
 else
     SUDO :=
@@ -60,7 +78,7 @@ release:
 install: build
 	@echo ""
 	@echo "=== Installing binaries ==="
-	@echo "  Target:  $(PREFIX)/bin/{$(BINARIES)}"
+	@echo "  Target:  $(INSTALL_DIR)/{$(BINARIES)}"
 	@echo "  Sudo:    $(if $(SUDO),yes (not writable),no)"
 	@_confirm="y"; \
 	if [ "$(INSTALL_INTERACTIVE)" = "1" ] && [ -t 0 ]; then \
@@ -69,14 +87,14 @@ install: build
 		_confirm=$${_confirm:-y}; \
 	fi; \
 	case "$$_confirm" in y|Y|yes|YES) ;; *) echo "  Cancelled."; exit 0;; esac
-	$(SUDO) install -d "$(PREFIX)/bin"
-	$(foreach bin,$(BINARIES),$(SUDO) install .build/debug/$(bin) "$(PREFIX)/bin/$(bin)";)
+	$(SUDO) install -d "$(INSTALL_DIR)"
+	$(foreach bin,$(BINARIES),$(SUDO) install .build/debug/$(bin) "$(INSTALL_DIR)/$(bin)";)
 	@echo "  Done."
 
 install-release: release
 	@echo ""
 	@echo "=== Installing binaries (release) ==="
-	@echo "  Target:  $(PREFIX)/bin/{$(BINARIES)}"
+	@echo "  Target:  $(INSTALL_DIR)/{$(BINARIES)}"
 	@echo "  Sudo:    $(if $(SUDO),yes (not writable),no)"
 	@_confirm="y"; \
 	if [ "$(INSTALL_INTERACTIVE)" = "1" ] && [ -t 0 ]; then \
@@ -85,8 +103,8 @@ install-release: release
 		_confirm=$${_confirm:-y}; \
 	fi; \
 	case "$$_confirm" in y|Y|yes|YES) ;; *) echo "  Cancelled."; exit 0;; esac
-	$(SUDO) install -d "$(PREFIX)/bin"
-	$(foreach bin,$(BINARIES),$(SUDO) install .build/release/$(bin) "$(PREFIX)/bin/$(bin)";)
+	$(SUDO) install -d "$(INSTALL_DIR)"
+	$(foreach bin,$(BINARIES),$(SUDO) install .build/release/$(bin) "$(INSTALL_DIR)/$(bin)";)
 	@echo "  Done."
 
 # --- install plugin ----------------------------------------------------------
@@ -138,11 +156,11 @@ install-plugin: install-release
 	fi
 	@echo ""
 	@echo "=== Installation complete ==="
-	@echo "  Binaries:  $(PREFIX)/bin/{$(BINARIES)}"
+	@echo "  Binaries:  $(INSTALL_DIR)/{$(BINARIES)}"
 	@echo "  Plugin:    $(PLUGIN_DST)"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  1. Verify binaries are in PATH:  swift-code-query --version"
+	@echo "  1. Ensure $(INSTALL_DIR) is in your PATH"
 	@echo "  2. Restart Hermes or run:        hermes plugin reload"
 	@echo "  3. Test the plugin:              hermes tool list | grep pkg_"
 
@@ -153,7 +171,7 @@ remove:
 	@echo "=== Removing swift-package-utilitykit ==="
 	@_binaries=""; \
 	for bin in $(BINARIES); do \
-		if [ -f "$(PREFIX)/bin/$$bin" ]; then \
+		if [ -f "$(INSTALL_DIR)/$$bin" ]; then \
 			_binaries="$$_binaries $$bin"; \
 		fi; \
 	done; \
@@ -175,9 +193,9 @@ remove:
 		esac; \
 	fi; \
 	for bin in $(BINARIES); do \
-		if [ -f "$(PREFIX)/bin/$$bin" ]; then \
-			$(SUDO) rm -f "$(PREFIX)/bin/$$bin"; \
-			echo "  Removed: $(PREFIX)/bin/$$bin"; \
+		if [ -f "$(INSTALL_DIR)/$$bin" ]; then \
+			$(SUDO) rm -f "$(INSTALL_DIR)/$$bin"; \
+			echo "  Removed: $(INSTALL_DIR)/$$bin"; \
 		fi; \
 	done; \
 	if [ -L "$(PLUGIN_DST)" ] || [ -d "$(PLUGIN_DST)" ]; then \

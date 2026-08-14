@@ -16,7 +16,8 @@
 #   In interactive mode the prompt handles this; --symlink/--copy are ignored.
 #
 # Options (via env vars):
-#   PREFIX=/opt/homebrew    Install binaries elsewhere (default: /usr/local)
+#   PREFIX=/opt/homebrew    Parent directory for binaries (default: ~/.local)
+#   BIN_DIR=/opt/bin        Exact binary install path (overrides PREFIX/bin)
 #   SWIFT_CODE_QUERY_PATH   Custom path for swift-code-query binary
 #   HERMES_PLUGINS_DIR      Custom Hermes plugins directory
 
@@ -24,13 +25,21 @@ set -euo pipefail
 
 # ---- config -----------------------------------------------------------------
 
-PREFIX="${PREFIX:-/usr/local}"
+PREFIX="${PREFIX:-$HOME/.local}"
 HERMES_PLUGINS_DIR="${HERMES_PLUGINS_DIR:-$HOME/.hermes/plugins}"
 PLUGIN_NAME="swift-package-utilitykit"
 BINARIES="swift-code-query normalizer-tool"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd 2>/dev/null || echo "/tmp/swift-package-utilitykit")"
 PLUGIN_SRC="$REPO_DIR/hermes-plugin"
 PLUGIN_DST="$HERMES_PLUGINS_DIR/$PLUGIN_NAME"
+
+# Resolve the actual binary install directory.
+# BIN_DIR takes precedence; otherwise PREFIX/bin.
+if [ -n "${BIN_DIR:-}" ]; then
+    INSTALL_DIR="$BIN_DIR"
+else
+    INSTALL_DIR="$PREFIX/bin"
+fi
 
 # ---- parse flags ------------------------------------------------------------
 
@@ -73,7 +82,7 @@ do_remove() {
     local found_plugin=""
 
     for bin in $BINARIES; do
-        if [ -f "$PREFIX/bin/$bin" ]; then
+        if [ -f "$INSTALL_DIR/$bin" ]; then
             found_bins="$found_bins $bin"
         fi
     done
@@ -99,14 +108,14 @@ do_remove() {
 
     # Check if we need sudo for binary removal
     local SUDO_CMD=""
-    if [ ! -w "$PREFIX/bin" ] 2>/dev/null; then
+    if [ ! -w "$INSTALL_DIR" ] 2>/dev/null; then
         SUDO_CMD="sudo"
     fi
 
     for bin in $BINARIES; do
-        if [ -f "$PREFIX/bin/$bin" ]; then
-            $SUDO_CMD rm -f "$PREFIX/bin/$bin"
-            ok "Removed $PREFIX/bin/$bin"
+        if [ -f "$INSTALL_DIR/$bin" ]; then
+            $SUDO_CMD rm -f "$INSTALL_DIR/$bin"
+            ok "Removed $INSTALL_DIR/$bin"
         fi
     done
 
@@ -156,16 +165,16 @@ do_install() {
 
     # ---- install binaries ---------------------------------------------------
 
-    info "Installing binaries to $PREFIX/bin..."
+    info "Installing binaries to $INSTALL_DIR..."
 
     local SUDO_CMD=""
-    if [ ! -w "$PREFIX/bin" ] 2>/dev/null; then
+    if [ ! -w "$INSTALL_DIR" ] 2>/dev/null; then
         SUDO_CMD="sudo"
-        info "Using sudo for $PREFIX/bin (not writable by current user)"
+        info "Using sudo for $INSTALL_DIR (not writable by current user)"
     fi
 
     if is_interactive; then
-        printf "  Install binaries to $PREFIX/bin? [Y/n] "
+        printf "  Install binaries to $INSTALL_DIR? [Y/n] "
         read -r _confirm
         _confirm="${_confirm:-y}"
         case "$_confirm" in
@@ -174,10 +183,10 @@ do_install() {
         esac
     fi
 
-    $SUDO_CMD mkdir -p "$PREFIX/bin"
+    $SUDO_CMD mkdir -p "$INSTALL_DIR"
     for bin in $BINARIES; do
-        $SUDO_CMD install ".build/release/$bin" "$PREFIX/bin/$bin"
-        ok "  $PREFIX/bin/$bin"
+        $SUDO_CMD install ".build/release/$bin" "$INSTALL_DIR/$bin"
+        ok "  $INSTALL_DIR/$bin"
     done
 
     # ---- install plugin -----------------------------------------------------
@@ -229,7 +238,7 @@ do_install() {
         VER=$(swift-code-query --version 2>&1)
         ok "  swift-code-query $VER"
     else
-        warn "  swift-code-query not found in PATH. Add $PREFIX/bin to your PATH."
+        warn "  swift-code-query not found in PATH. Add $INSTALL_DIR to your PATH."
     fi
 
     if command -v hermes &>/dev/null; then
@@ -245,11 +254,11 @@ do_install() {
     echo ""
     printf "\033[32m✓ Installation complete!\033[0m\n"
     echo ""
-    echo "  Binaries:  $PREFIX/bin/{swift-code-query,normalizer-tool}"
+    echo "  Binaries:  $INSTALL_DIR/{swift-code-query,normalizer-tool}"
     echo "  Plugin:    $PLUGIN_DST ($mode)"
     echo ""
     echo "  Next steps:"
-    echo "    1. Ensure $PREFIX/bin is in your PATH"
+    echo "    1. Ensure $INSTALL_DIR is in your PATH"
     echo "    2. Restart Hermes or run:  hermes plugin reload"
     echo "    3. Verify tools:           swift-code-query --version"
     echo "    4. Test plugin:            hermes tool list | grep pkg_"
