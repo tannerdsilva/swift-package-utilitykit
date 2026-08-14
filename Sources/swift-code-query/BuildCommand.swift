@@ -84,18 +84,23 @@ struct BuildCommand: ParsableCommand {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        // use a Sendable box to safely collect output across threads
+        final class OutputBox: @unchecked Sendable {
+            var stdoutData = Data()
+            var stderrData = Data()
+        }
+        let box = OutputBox()
+
         try process.run()
 
         // read output with timeout
         let group = DispatchGroup()
-        var stdoutData = Data()
-        var stderrData = Data()
 
         DispatchQueue.global().async(group: group) {
-            stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            box.stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         }
         DispatchQueue.global().async(group: group) {
-            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            box.stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         }
 
         let timeoutResult = group.wait(timeout: .now() + .seconds(timeout))
@@ -123,8 +128,8 @@ struct BuildCommand: ParsableCommand {
         process.waitUntilExit()
 
         let duration = Date().timeIntervalSince(startTime)
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let stdout = String(data: box.stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: box.stderrData, encoding: .utf8) ?? ""
         let combined = stdout + "\n" + stderr
 
         // parse the output
