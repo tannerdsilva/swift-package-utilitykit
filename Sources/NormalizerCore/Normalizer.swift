@@ -20,6 +20,11 @@ public enum Normalizer {
             lines = collapseBlankLines(lines)
         }
 
+        // apply comment mode
+        if options.commentMode == .hide {
+            lines = lines.map { hideComments(in: $0) }
+        }
+
         if lines.isEmpty {
             return ""
         }
@@ -125,6 +130,58 @@ public enum Normalizer {
         result += String(repeating: " ", count: remainder)
         result += String(chars[index...])
         return result
+    }
+
+    // MARK: - comment handling
+
+    /// replaces comment text with a placeholder, preserving indentation and
+    /// the comment structure (line vs block).
+    ///
+    /// handles three comment kinds:
+    ///   - docc comments (`///`)
+    ///   - line comments (`//`)
+    ///   - block comments (`/* ... */`)
+    ///
+    /// a simple line-based heuristic is used: lines that start with `//`,
+    /// `///`, or contain `/*` are treated as comments. this is not
+    /// AST-perfect (it can't distinguish `//` inside a string literal),
+    /// but it is safe — it never removes content, only replaces it with
+    /// a placeholder.
+    static func hideComments(in line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return line }
+
+        // detect comment lines
+        if trimmed.hasPrefix("///") {
+            // docc comment — preserve indentation, replace content
+            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
+            return indent + "/// comment invisible"
+        }
+
+        if trimmed.hasPrefix("//") {
+            // line comment — preserve indentation, replace content
+            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
+            return indent + "// comment invisible"
+        }
+
+        // block comments: detect lines that are part of a /* */ block.
+        // a line containing /* or */ or entirely inside a block comment.
+        if trimmed.hasPrefix("/*") || trimmed.hasSuffix("*/") || trimmed.contains("/*") || trimmed.contains("*/") {
+            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
+            // check if this is a single-line block comment
+            if trimmed.hasPrefix("/*") && trimmed.hasSuffix("*/") {
+                return indent + "/* comment invisible */"
+            }
+            if trimmed.hasPrefix("/*") {
+                return indent + "/* comment invisible"
+            }
+            if trimmed.hasSuffix("*/") {
+                return indent + "comment invisible */"
+            }
+            return indent + "* comment invisible"
+        }
+
+        return line
     }
 
     // MARK: - blank-line collapse

@@ -130,4 +130,101 @@ struct NormalizerTests {
 		let out = Normalizer.normalize(input, options: .minified)
 		#expect(out == "let x = 1;\nlet y = 2;\n")
 	}
+
+	// MARK: - comment handling
+
+	@Test("Standard mode preserves docc comments")
+	func standardPreservesDocComments() {
+		let input = "/// this is a doc comment\nfunc foo() {}\n"
+		let out = Normalizer.normalize(input, options: .standard)
+		#expect(out == "/// this is a doc comment\nfunc foo() {}\n")
+	}
+
+	@Test("Standard mode preserves line comments")
+	func standardPreservesLineComments() {
+		let input = "// this is a comment\nlet x = 1\n"
+		let out = Normalizer.normalize(input, options: .standard)
+		#expect(out == "// this is a comment\nlet x = 1\n")
+	}
+
+	@Test("Standard mode preserves block comments")
+	func standardPreservesBlockComments() {
+		let input = "/* block comment */\nlet x = 1\n"
+		let out = Normalizer.normalize(input, options: .standard)
+		#expect(out == "/* block comment */\nlet x = 1\n")
+	}
+
+	@Test("Minified mode hides docc comments with placeholder")
+	func minifiedHidesDocComments() {
+		let input = "/// this is a doc comment\nfunc foo() {}\n"
+		let out = Normalizer.normalize(input, options: .minified)
+		#expect(out == "/// comment invisible\nfunc foo() {}\n")
+	}
+
+	@Test("Minified mode hides line comments with placeholder")
+	func minifiedHidesLineComments() {
+		let input = "// this is a comment\nlet x = 1\n"
+		let out = Normalizer.normalize(input, options: .minified)
+		#expect(out == "// comment invisible\nlet x = 1\n")
+	}
+
+	@Test("Minified mode hides block comments with placeholder")
+	func minifiedHidesBlockComments() {
+		let input = "/* block comment */\nlet x = 1\n"
+		let out = Normalizer.normalize(input, options: .minified)
+		#expect(out == "/* comment invisible */\nlet x = 1\n")
+	}
+
+	@Test("Minified mode hides indented comments preserving indentation")
+	func minifiedHidesIndentedComments() {
+		let input = "func foo() {\n    /// doc comment\n    // line comment\n    /* block */\n    return 1\n}\n"
+		let out = Normalizer.normalize(input, options: .minified)
+		// minify strips leading whitespace, so comments lose indentation
+		#expect(out == "func foo() {\n/// comment invisible\n// comment invisible\n/* comment invisible */\nreturn 1\n}\n")
+	}
+
+	@Test("Comment mode preserve keeps all comments as-is")
+	func commentModePreserveKeepsComments() {
+		var opts = NormalizationOptions.standard
+		opts.commentMode = .preserve
+		let input = "/// doc\n// line\n/* block */\nlet x = 1\n"
+		let out = Normalizer.normalize(input, options: opts)
+		#expect(out == "/// doc\n// line\n/* block */\nlet x = 1\n")
+	}
+
+	@Test("hideComments replaces docc comment with placeholder")
+	func hideCommentsReplacesDocComment() {
+		let out = Normalizer.hideComments(in: "    /// important doc")
+		#expect(out == "    /// comment invisible")
+	}
+
+	@Test("hideComments replaces line comment with placeholder")
+	func hideCommentsReplacesLineComment() {
+		let out = Normalizer.hideComments(in: "  // some note")
+		#expect(out == "  // comment invisible")
+	}
+
+	@Test("hideComments replaces single-line block comment with placeholder")
+	func hideCommentsReplacesBlockComment() {
+		let out = Normalizer.hideComments(in: "  /* long text */")
+		#expect(out == "  /* comment invisible */")
+	}
+
+	@Test("hideComments leaves non-comment lines unchanged")
+	func hideCommentsLeavesCodeUnchanged() {
+		let out = Normalizer.hideComments(in: "    let x = 1")
+		#expect(out == "    let x = 1")
+	}
+
+	@Test("hideComments leaves empty lines unchanged")
+	func hideCommentsLeavesEmptyLines() {
+		let out = Normalizer.hideComments(in: "")
+		#expect(out == "")
+	}
+
+	@Test("hideComments leaves whitespace-only lines unchanged")
+	func hideCommentsLeavesWhitespaceLines() {
+		let out = Normalizer.hideComments(in: "   ")
+		#expect(out == "   ")
+	}
 }

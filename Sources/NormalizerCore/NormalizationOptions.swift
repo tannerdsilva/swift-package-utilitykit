@@ -1,5 +1,16 @@
 import Foundation
 
+/// how comments should be handled during normalization.
+public enum CommentMode: Sendable, Equatable {
+    /// preserve comments as-is (default for non-minified formatting).
+    case preserve
+    /// replace comment text with a placeholder (`// comment invisible`).
+    /// the comment structure (line vs block) and indentation are preserved,
+    /// but the content is hidden — useful for LLM-optimized output where
+    /// comments waste tokens but removing them entirely would lose context.
+    case hide
+}
+
 /// a set of syntactic normalization passes to apply to source files.
 public struct NormalizationOptions: Sendable, Equatable {
     /// the line ending to normalize files to.
@@ -15,6 +26,8 @@ public struct NormalizationOptions: Sendable, Equatable {
     /// whether to aggressively minify for LLM consumption (strip indentation,
     /// collapse all runs of whitespace, remove blank lines).
     public var minify: Bool
+    /// how to handle comments during normalization.
+    public var commentMode: CommentMode
 
     public enum LineEnding: Sendable, Equatable {
         /// unix newline, "\n". the universal default.
@@ -40,27 +53,29 @@ public struct NormalizationOptions: Sendable, Equatable {
     }
 
     /// sensible defaults: LF endings, trailing whitespace stripped, a final
-    /// newline guaranteed, and indentation normalized to tabs (each complete
-    /// run of 4 leading spaces becomes one tab).
+    /// newline guaranteed, indentation normalized to tabs (each complete
+    /// run of 4 leading spaces becomes one tab), comments preserved.
     public static let standard = NormalizationOptions(
         lineEnding: .lf,
         stripTrailingWhitespace: true,
         ensureFinalNewline: true,
         collapseBlankLines: false,
         indentation: .spacesToTabs(4),
-        minify: false
+        minify: false,
+        commentMode: .preserve
     )
 
     /// LLM-optimized: strip all indentation, remove blank lines, collapse
-    /// whitespace, LF endings, no trailing whitespace, final newline.
-    /// Based on research showing LLMs maintain accuracy on unformatted code
-    /// while saving ~24.5% input tokens.
+    /// whitespace, hide comments, LF endings, no trailing whitespace, final
+    /// newline. Based on research showing LLMs maintain accuracy on
+    /// unformatted code while saving ~24.5% input tokens.
     public static let minified = NormalizationOptions(
         lineEnding: .lf,
         stripTrailingWhitespace: true,
         ensureFinalNewline: true,
         collapseBlankLines: true,
         indentation: .preserve,
-        minify: true
+        minify: true,
+        commentMode: .hide
     )
 }

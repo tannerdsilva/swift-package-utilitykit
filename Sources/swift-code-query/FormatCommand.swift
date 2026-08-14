@@ -14,14 +14,17 @@ struct FormatCommand: ParsableCommand {
     @Argument(help: "Swift source file(s) to format.")
     var files: [String]
 
-    @Flag(name: .long, help: "Minify for LLM consumption (strip all non-semantic whitespace).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Minify for LLM consumption (strip all non-semantic whitespace).")
     var minify = false
 
-    @Flag(name: .long, help: "Pretty-print with canonical formatting (default).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print with canonical formatting (default).")
     var pretty = false
 
-    @Flag(name: .long, help: "Report what would change without writing.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Report what would change without writing.")
     var dryRun = false
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Preserve comments in minified output (default: hide with placeholder).")
+    var preserveComments = false
 
     mutating func run() throws {
         let useMinify = minify && !pretty
@@ -32,7 +35,7 @@ struct FormatCommand: ParsableCommand {
 
             let formatted: String
             if useMinify {
-                formatted = try minifySource(original, filePath: filePath)
+                formatted = try minifySource(original, filePath: filePath, preserveComments: preserveComments)
             } else {
                 // use the existing NormalizerCore with standard options
                 formatted = Normalizer.normalize(original, options: .standard)
@@ -55,10 +58,12 @@ struct FormatCommand: ParsableCommand {
     /// AST-safe minification: strip all leading/trailing trivia from tokens
     /// while preserving required single spaces between tokens on the same line,
     /// and keeping one newline between top-level declarations.
-    private func minifySource(_ source: String, filePath: String) throws -> String {
+    ///
+    /// Comments are replaced with a `// comment invisible` placeholder by
+    /// default (LLM-optimized). Pass `preserveComments: true` to keep them.
+    private func minifySource(_ source: String, filePath: String, preserveComments: Bool) throws -> String {
         let tree = Parser.parse(source: source)
         var result = ""
-        var lastEndPosition = AbsolutePosition(utf8Offset: 0)
 
         for token in tree.statements.tokens(viewMode: .sourceAccurate) {
             let leadingTrivia = token.leadingTrivia
@@ -66,7 +71,6 @@ struct FormatCommand: ParsableCommand {
 
             // determine if we need a separator before this token
             let needsNewline: Bool = {
-                // check if original had a newline in leading trivia
                 for piece in leadingTrivia {
                     if case .newlines = piece { return true }
                 }
@@ -74,7 +78,6 @@ struct FormatCommand: ParsableCommand {
             }()
 
             let needsSpace: Bool = {
-                // if original had any whitespace (space/tab) in leading trivia, keep a space
                 for piece in leadingTrivia {
                     if case .spaces = piece { return true }
                     if case .tabs = piece { return true }
@@ -82,18 +85,34 @@ struct FormatCommand: ParsableCommand {
                 return false
             }()
 
-            // preserve doc comments and regular comments from leading trivia
+            // handle comments from leading trivia
             var commentPrefix = ""
             for piece in leadingTrivia {
                 switch piece {
                 case .docLineComment(let text):
-                    commentPrefix += text + "\n"
+                    if preserveComments {
+                        commentPrefix += text + "\n"
+                    } else {
+                        commentPrefix += "/// comment invisible\n"
+                    }
                 case .docBlockComment(let text):
-                    commentPrefix += text + "\n"
+                    if preserveComments {
+                        commentPrefix += text + "\n"
+                    } else {
+                        commentPrefix += "/// comment invisible\n"
+                    }
                 case .lineComment(let text):
-                    commentPrefix += text + "\n"
+                    if preserveComments {
+                        commentPrefix += text + "\n"
+                    } else {
+                        commentPrefix += "// comment invisible\n"
+                    }
                 case .blockComment(let text):
-                    commentPrefix += text + "\n"
+                    if preserveComments {
+                        commentPrefix += text + "\n"
+                    } else {
+                        commentPrefix += "/* comment invisible */\n"
+                    }
                 default:
                     break
                 }
@@ -113,17 +132,33 @@ struct FormatCommand: ParsableCommand {
             // append the token text
             result += token.text
 
-            // preserve trailing comments
+            // handle comments from trailing trivia
             for piece in trailingTrivia {
                 switch piece {
                 case .docLineComment(let text):
-                    result += " " + text + "\n"
+                    if preserveComments {
+                        result += " " + text + "\n"
+                    } else {
+                        result += " /// comment invisible\n"
+                    }
                 case .docBlockComment(let text):
-                    result += " " + text + "\n"
+                    if preserveComments {
+                        result += " " + text + "\n"
+                    } else {
+                        result += " /// comment invisible\n"
+                    }
                 case .lineComment(let text):
-                    result += " " + text + "\n"
+                    if preserveComments {
+                        result += " " + text + "\n"
+                    } else {
+                        result += " // comment invisible\n"
+                    }
                 case .blockComment(let text):
-                    result += " " + text + "\n"
+                    if preserveComments {
+                        result += " " + text + "\n"
+                    } else {
+                        result += " /* comment invisible */\n"
+                    }
                 default:
                     break
                 }
