@@ -16,7 +16,7 @@ struct IndexCommand: ParsableCommand {
     @Option(name: .long, help: "Output format: json, compact, csv, jsonl.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Write index to this file instead of stdout.")
@@ -28,7 +28,7 @@ struct IndexCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
-    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
 
     mutating func run() throws {
@@ -88,9 +88,8 @@ struct IndexCommand: ParsableCommand {
 
         if let outputPath = output {
             try outputStr.write(toFile: outputPath, atomically: true, encoding: .utf8)
-            print("index written to \(outputPath)")
         } else {
-            print(outputStr)
+            try writeOutput(outputStr, to: "")
         }
     }
 }

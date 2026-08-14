@@ -18,10 +18,10 @@ struct ApiCommand: ParsableCommand {
     @Option(name: .long, help: "Output format: json, compact, csv, short, jsonl.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output.")
     var prettyPrint = false
 
-    @Flag(name: .long, help: "Include internal declarations (default: public only).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include internal declarations (default: public only).")
     var includeInternal = false
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")
@@ -33,8 +33,11 @@ struct ApiCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum number of declarations.")
     var limit: Int?
 
-    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
-        var schema = false
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
+    var outputPath: String = ""
 
     mutating func run() throws {
         if schema {
@@ -74,7 +77,7 @@ struct ApiCommand: ParsableCommand {
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(items, format: fmt)
-        print(outputStr)
+        try writeOutput(outputStr, to: outputPath)
     }
 }
 

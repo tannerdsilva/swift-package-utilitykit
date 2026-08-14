@@ -569,9 +569,60 @@ def scan_unsafe_ptrs(target: str) -> dict:
 def scan_force_unwraps(target: str) -> dict:
     """Scan Swift sources for force-unwrap ``!`` usage, classified by subkind.
 
-    Delegates to ``swift-code-query search`` for the regex matching, then
-    post-processes for scope clustering and severity ranking.
+    Delegates to ``swift-code-query force-unwraps`` for AST-guaranteed
+    detection, then post-processes for scope clustering and severity ranking.
     """
+    target = _resolve_target(target)
+    cmd = [_SWIFT_CODE_QUERY, "force-unwraps", target,
+           "--output-format", "json"]
+    result = _run_swift_code_query(cmd)
+    if not result.get("ok", True) or "error" in result:
+        # fall back to regex-based scan
+        return _scan_force_unwraps_fallback(target)
+
+    try:
+        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
+    except (json.JSONDecodeError, KeyError):
+        return _scan_force_unwraps_fallback(target)
+
+    if not raw:
+        return {"ok": True, "target": target, "count": 0, "findings": []}
+
+    # group by file for scope analysis
+    files_data: dict[str, list[dict]] = {}
+    for item in raw:
+        f = item["file"]
+        files_data.setdefault(f, []).append(item)
+
+    findings: list[dict] = []
+    for file_path, items in files_data.items():
+        try:
+            lines = Path(file_path).read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            lines = []
+        scopes = _function_scopes(lines)
+
+        for item in items:
+            idx = item["line"]
+            kind = item["kind"]
+            context = "test" if _is_test_source(file_path) else "source"
+            member = _enclosing_member(lines, scopes, idx - 1) if lines else ""
+            reach = _reachability(member)
+            base = "high" if kind in ("try_force", "as_cast") else "medium"
+
+            findings.append({
+                "file": file_path, "line": idx, "kind": "force_unwrap",
+                "match": item.get("context", "")[:200],
+                "primary": kind, "subkinds": {kind: 1},
+                "severity": _severity_from(context, reach, base),
+                "context": context, "reachability": reach,
+            })
+
+    return {"ok": True, "target": target, "count": len(findings), "findings": findings}
+
+
+def _scan_force_unwraps_fallback(target: str) -> dict:
+    """Fallback regex-based force-unwrap scan when swift-code-query is unavailable."""
     target = _resolve_target(target)
     files = _iter_swift_files(target)
     findings: list[dict] = []
