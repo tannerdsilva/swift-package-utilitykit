@@ -706,3 +706,12 @@ If tests fail with "binary not found", build the debug binary explicitly:
 swift build --product swift-code-query
 swift test
 ```
+
+### Performance: no caching
+
+Every `swift-code-query` command parses every source file independently.
+Running `find`, `query`, and `api` on the same 100-file project parses
+300 ASTs.  This is by design — the tool prioritizes correctness and
+simplicity over caching.  For repeated queries on the same codebase,
+use `index` (single parse, comprehensive output) or pipe results through
+`jq`/`dasel` for filtering instead of re-running the tool.

@@ -28,7 +28,14 @@ struct IndexCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
+    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(ProjectIndex.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths.isEmpty ? ["."] : paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
@@ -94,6 +101,38 @@ struct ProjectIndex: Codable, Sendable {
     let totalDeclarations: Int
     let totalImports: Int
     let files: [FileIndex]
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "ProjectIndex",
+      "type": "object",
+      "properties": {
+        "generated":          { "type": "string", "description": "ISO 8601 generation timestamp" },
+        "fileCount":          { "type": "integer", "description": "Number of source files indexed" },
+        "totalDeclarations":  { "type": "integer", "description": "Total declarations across all files" },
+        "totalImports":       { "type": "integer", "description": "Total import statements across all files" },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FileIndex" },
+          "description": "Per-file index entries"
+        }
+      },
+      "required": ["generated", "fileCount", "totalDeclarations", "totalImports", "files"],
+      "definitions": {
+        "FileIndex": {
+          "type": "object",
+          "properties": {
+            "file":         { "type": "string", "description": "Source file path" },
+            "lineCount":    { "type": "integer", "description": "Number of lines" },
+            "declarations": { "type": "array", "items": { "type": "object" }, "description": "Declaration info objects" },
+            "imports":      { "type": "array", "items": { "type": "object" }, "description": "Import info objects" }
+          },
+          "required": ["file", "lineCount", "declarations", "imports"]
+        }
+      }
+    }
+    """
 }
 
 struct FileIndex: Codable, Sendable {
