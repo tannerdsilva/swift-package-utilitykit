@@ -1,0 +1,31 @@
+# swift-package-utilitykit — gitignore
+#
+# Swift build artifacts
+.build/
+.build-audit/
+DerivedData/
+*.xcworkspace/
+*.xcuserdata/
+
+# SPM
+.swiftpm/
+Package.resolved
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Editor
+.idea/
+.vscode/
+*.sw?
