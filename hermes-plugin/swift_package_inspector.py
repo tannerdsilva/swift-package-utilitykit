@@ -144,53 +144,73 @@ def _parse_build_diagnostics(stdout: str, stderr: str) -> dict:
 
 def build(target: str, build_args: Optional[List[str]] = None,
           build_target: Optional[str] = None) -> dict:
-    """Run ``swift build`` on the package and return an authoritative verdict."""
+    """Run ``swift build`` via ``swift-code-query build`` and return structured JSON.
+
+    Delegates to the Swift binary which parses the raw build output into
+    structured phases, diagnostics, and a summary — much more LLM-friendly
+    than raw stdout.
+    """
     target = _resolve_target(target)
     pkg = _package_path(target)
     pkg_dir = pkg.parent
 
-    args = ["swift", "build"]
-    if build_args:
-        args.extend(build_args)
-    else:
-        args.append("--build-path")
-        args.append(str(pkg_dir / ".build-audit"))
+    cmd = [_SWIFT_CODE_QUERY, "build", str(pkg_dir), "--timeout", "600"]
     if build_target:
-        args.append("--target")
-        args.append(build_target)
+        cmd += ["--target", build_target]
+    if build_args:
+        # pass extra args as a single quoted string
+        cmd += ["--extra-args", " ".join(build_args)]
+    cmd += ["--output-format", "json"]
 
     try:
-        proc = _run_swift(args, str(pkg_dir), timeout=600)
-    except FileNotFoundError:
+        result = _run_swift_code_query(cmd)
+    except Exception as exc:
         return {"ok": False, "build_succeeded": False,
-                "error": "swift executable not found on PATH",
+                "error": f"swift-code-query build failed: {exc}",
                 "stdout": "", "stderr": "", "exit_code": None,
                 "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
                                "has_warnings": False, "has_errors": False}}
-    except subprocess.TimeoutExpired:
-        return {"ok": True, "build_succeeded": False,
-                "error": "build timed out after 600s",
-                "stdout": "", "stderr": "", "exit_code": "timeout",
+
+    if not result.get("ok", True) or "error" in result:
+        return {"ok": False, "build_succeeded": False,
+                "error": result.get("error", "unknown error"),
+                "stdout": "", "stderr": "", "exit_code": None,
                 "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
                                "has_warnings": False, "has_errors": False}}
 
-    diagnostics = _parse_build_diagnostics(proc.stdout, proc.stderr)
+    try:
+        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
+        if isinstance(raw, list) and len(raw) == 1:
+            raw = raw[0]
+    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        return {"ok": False, "build_succeeded": False,
+                "error": f"failed to parse build result: {exc}",
+                "stdout": str(result.get("stdout", "")),
+                "stderr": str(result.get("stderr", "")), "exit_code": None,
+                "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
+                               "has_warnings": False, "has_errors": False}}
+
+    diag = raw.get("diagnostics", {})
     return {
         "ok": True,
-        "build_succeeded": proc.returncode == 0,
-        "exit_code": proc.returncode,
+        "build_succeeded": raw.get("succeeded", False),
+        "exit_code": raw.get("exitCode"),
         "target": target,
         "package_path": str(pkg_dir),
-        "diagnostics": diagnostics,
-        "summary": (
-            f"build {'succeeded' if proc.returncode == 0 else 'failed'} "
-            f"(exit {proc.returncode}); "
-            f"{diagnostics['error_count']} error(s), "
-            f"{diagnostics['warning_count']} warning(s), "
-            f"{diagnostics['note_count']} note(s)"
-        ),
-        "raw_stdout": proc.stdout[-20000:],
-        "raw_stderr": proc.stderr[-20000:],
+        "duration": raw.get("duration", 0),
+        "phases": raw.get("phases", []),
+        "diagnostics": {
+            "warning_count": diag.get("warningCount", 0),
+            "error_count": diag.get("errorCount", 0),
+            "note_count": diag.get("noteCount", 0),
+            "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
+            "errors": [e.get("message", "") for e in diag.get("errors", [])],
+            "notes": [n.get("message", "") for n in diag.get("notes", [])],
+            "has_warnings": diag.get("warningCount", 0) > 0,
+            "has_errors": diag.get("errorCount", 0) > 0,
+        },
+        "summary": raw.get("summary", ""),
+        "raw_log": raw.get("rawLog", ""),
     }
 
 
@@ -199,61 +219,61 @@ def build(target: str, build_args: Optional[List[str]] = None,
 # ---------------------------------------------------------------------------
 
 def test(target: str, filter: Optional[str] = None) -> dict:
-    """Run ``swift test`` on the package and return an authoritative verdict."""
+    """Run ``swift test`` via ``swift-code-query build --test`` and return structured JSON."""
     target = _resolve_target(target)
     pkg = _package_path(target)
     if not pkg.exists():
         return {"ok": False, "test_succeeded": False, "error": f"no Package.swift at {pkg}"}
     pkg_dir = pkg.parent
 
-    args = ["swift", "test"]
+    cmd = [_SWIFT_CODE_QUERY, "build", str(pkg_dir), "--test", "--timeout", "1200",
+           "--output-format", "json"]
     if filter:
-        args += ["--filter", filter]
-    args += ["--build-path", str(pkg_dir / ".build-audit")]
+        cmd += ["--filter", filter]
 
     try:
-        proc = _run_swift(args, str(pkg_dir), timeout=1200)
-    except FileNotFoundError:
+        result = _run_swift_code_query(cmd)
+    except Exception as exc:
         return {"ok": False, "test_succeeded": False,
-                "error": "swift executable not found on PATH",
+                "error": f"swift-code-query build --test failed: {exc}",
                 "stdout": "", "stderr": "", "exit_code": None}
-    except subprocess.TimeoutExpired:
-        return {"ok": True, "test_succeeded": False,
-                "error": "test run timed out after 1200s",
-                "stdout": "", "stderr": "", "exit_code": "timeout"}
 
-    out = proc.stdout
-    err = proc.stderr
-    combined = out + "\n" + err
+    if not result.get("ok", True) or "error" in result:
+        return {"ok": False, "test_succeeded": False,
+                "error": result.get("error", "unknown error"),
+                "stdout": "", "stderr": "", "exit_code": None}
 
-    tests_total = 0
-    tests_failed = 0
-    for m in re.finditer(r"(?:Test run with|Executed)\s+(\d+)\s+tests?,?", combined):
-        n = int(m.group(1))
-        if n > tests_total:
-            tests_total = n
-    if tests_failed == 0:
-        m = re.search(r"with (\d+) fail", combined)
-        if m:
-            tests_failed = int(m.group(1))
+    try:
+        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
+        if isinstance(raw, list) and len(raw) == 1:
+            raw = raw[0]
+    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        return {"ok": False, "test_succeeded": False,
+                "error": f"failed to parse test result: {exc}",
+                "stdout": str(result.get("stdout", "")),
+                "stderr": str(result.get("stderr", "")), "exit_code": None}
 
-    has_test_target = bool(re.search(
-        r"testTarget|\.tests?\b",
-        pkg.read_text(encoding="utf-8", errors="replace"), re.IGNORECASE))
-
+    diag = raw.get("diagnostics", {})
     return {
         "ok": True,
-        "test_succeeded": proc.returncode == 0,
-        "exit_code": proc.returncode,
+        "test_succeeded": raw.get("succeeded", False),
+        "exit_code": raw.get("exitCode"),
         "target": target,
         "package_path": str(pkg_dir),
-        "tests_total": tests_total,
-        "tests_failed": tests_failed,
-        "has_test_target": has_test_target,
-        "no_tests": tests_total == 0,
-        "build_errored": proc.returncode != 0 and "error:" in combined and tests_total == 0,
-        "stdout": out[-12000:],
-        "stderr": err[-12000:],
+        "duration": raw.get("duration", 0),
+        "phases": raw.get("phases", []),
+        "diagnostics": {
+            "warning_count": diag.get("warningCount", 0),
+            "error_count": diag.get("errorCount", 0),
+            "note_count": diag.get("noteCount", 0),
+            "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
+            "errors": [e.get("message", "") for e in diag.get("errors", [])],
+            "notes": [n.get("message", "") for n in diag.get("notes", [])],
+            "has_warnings": diag.get("warningCount", 0) > 0,
+            "has_errors": diag.get("errorCount", 0) > 0,
+        },
+        "summary": raw.get("summary", ""),
+        "raw_log": raw.get("rawLog", ""),
     }
 
 

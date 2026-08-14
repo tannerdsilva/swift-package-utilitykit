@@ -10,19 +10,22 @@ struct SwiftCodeQueryIntegrationTests {
 
     let binaryPath: String
     let testSourcesDir: String
+    let packageDir: String
 
     init() throws {
         // resolve the binary path relative to the package directory
-        let packageDir = URL(fileURLWithPath: #filePath)
+        let pkgDir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()  // Tests/NormalizerCoreTests/
             .deletingLastPathComponent()  // Tests/
             .deletingLastPathComponent()  // swift-package-utilitykit/
 
-        binaryPath = packageDir
+        binaryPath = pkgDir
             .appendingPathComponent(".build/debug/swift-code-query").path
 
-        testSourcesDir = packageDir
+        testSourcesDir = pkgDir
             .appendingPathComponent("Sources/NormalizerCore").path
+
+        packageDir = pkgDir.path
     }
 
     @Test("find command returns results for known symbol")
@@ -132,7 +135,8 @@ struct SwiftCodeQueryIntegrationTests {
     func membersNonexistentType() throws {
         let output = try runCommand(["members", "\(testSourcesDir)/Normalizer.swift", "--type", "NonExistentType"])
         // should error, not crash
-        #expect(output.contains("not found") || output.contains("error"))
+        let lower = output.lowercased()
+        #expect(lower.contains("not found") || lower.contains("error"))
     }
 
     @Test("all commands support --schema")
@@ -219,6 +223,15 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(content.contains("/// doc"))
         #expect(content.contains("// line"))
         #expect(content.contains("/* block */"))
+    }
+
+    // MARK: - build command
+
+    @Test("build --schema returns valid JSON Schema")
+    func buildSchema() throws {
+        let output = try runCommand(["build", "--schema"])
+        #expect(output.contains("\"$schema\""))
+        #expect(output.contains("BuildResult"))
     }
 
     // MARK: - helpers
