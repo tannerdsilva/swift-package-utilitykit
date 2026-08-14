@@ -16,7 +16,7 @@ struct DependenciesCommand: ParsableCommand {
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")
@@ -25,13 +25,13 @@ struct DependenciesCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
-    @Flag(name: .long, help: "Group imports by file.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Group imports by file.")
     var grouped = false
 
-    @Option(name: .long, help: "Write output to file instead of stdout.")
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
-    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
 
     mutating func run() throws {
@@ -74,10 +74,10 @@ struct DependenciesCommand: ParsableCommand {
                 },
                 format: fmt
             )
-            print(outputStr)
+            try writeOutput(outputStr, to: outputPath)
         } else {
             let outputStr = try formatOutput(allImports, format: fmt)
-            print(outputStr)
+            try writeOutput(outputStr, to: outputPath)
         }
     }
 }

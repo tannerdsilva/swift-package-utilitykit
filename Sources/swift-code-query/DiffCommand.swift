@@ -22,7 +22,7 @@ struct DiffCommand: ParsableCommand {
     @Flag(name: .long, help: "Pretty-print JSON output.")
     var prettyPrint = false
 
-    @Option(name: .long, help: "Write output to file instead of stdout.")
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
     @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")

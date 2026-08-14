@@ -22,16 +22,16 @@ struct InspectCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
-    @Flag(name: .long, help: "Output as human-readable text.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Output as human-readable text.")
     var text = false
 
     @Option(name: .long, help: "Output format: json, compact, short, jsonl.")
     var outputFormat: OutputFormat?
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
-    @Option(name: .long, help: "Write output to file instead of stdout.")
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
     mutating func run() throws {

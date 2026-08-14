@@ -14,10 +14,10 @@ struct SearchCommand: ParsableCommand {
     @Argument(help: "Files or directories to search.")
     var paths: [String]
 
-    @Flag(name: .long, help: "Interpret pattern as regex.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Interpret pattern as regex.")
     var regex = false
 
-    @Flag(name: .long, help: "Case-insensitive search.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Case-insensitive search.")
     var ignoreCase = false
 
     @Option(name: .long, help: "Number of context lines around each match.")
@@ -26,7 +26,7 @@ struct SearchCommand: ParsableCommand {
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Only search files with these extensions (comma-separated, e.g. 'swift,h').")
@@ -38,7 +38,9 @@ struct SearchCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum number of matches to return.")
     var limit: Int?
 
-    
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
+    var outputPath: String = ""
+
     mutating func run() throws {
         let files = collectSwiftFiles(
             from: paths.isEmpty ? ["."] : paths,
@@ -73,6 +75,6 @@ struct SearchCommand: ParsableCommand {
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(allMatches, format: fmt)
-        print(outputStr)
+        try writeOutput(outputStr, to: outputPath)
     }
 }

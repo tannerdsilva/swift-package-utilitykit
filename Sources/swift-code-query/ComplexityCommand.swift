@@ -19,7 +19,7 @@ struct ComplexityCommand: ParsableCommand {
     @Flag(name: .long, help: "Pretty-print JSON output.")
     var prettyPrint = false
 
-    @Option(name: .long, help: "Write output to file instead of stdout.")
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")

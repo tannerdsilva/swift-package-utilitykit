@@ -19,7 +19,7 @@ struct ReferencesCommand: ParsableCommand {
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Only search files with these extensions (comma-separated).")
@@ -28,7 +28,9 @@ struct ReferencesCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
-    
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
+    var outputPath: String = ""
+
     mutating func run() throws {
         let files = collectSwiftFiles(
             from: paths.isEmpty ? ["."] : paths,
@@ -55,6 +57,6 @@ struct ReferencesCommand: ParsableCommand {
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(allRefs, format: fmt)
-        print(outputStr)
+        try writeOutput(outputStr, to: outputPath)
     }
 }

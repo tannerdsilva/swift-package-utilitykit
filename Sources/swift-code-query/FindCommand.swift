@@ -21,16 +21,16 @@ struct FindCommand: ParsableCommand {
     @Argument(help: "Files or directories to search.")
     var paths: [String] = ["."]
 
-    @Flag(name: .long, help: "Require exact name match (case-insensitive).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Require exact name match (case-insensitive).")
     var exact = false
 
-    @Flag(name: .long, help: "Case-sensitive search.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Case-sensitive search.")
     var caseSensitive = false
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")
@@ -42,8 +42,11 @@ struct FindCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum number of results.")
     var limit: Int?
 
-    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
+
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
+    var outputPath: String = ""
 
     mutating func run() throws {
         if schema {
@@ -128,7 +131,7 @@ struct FindCommand: ParsableCommand {
 
         // format and print
         let outputStr = try formatOutput(results, format: fmt)
-        print(outputStr)
+        try writeOutput(outputStr, to: outputPath)
     }
 }
 

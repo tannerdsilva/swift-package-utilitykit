@@ -13,49 +13,49 @@ struct QueryCommand: ParsableCommand {
     @Argument(help: "Files or directories to query.")
     var paths: [String]
 
-    @Flag(name: .long, help: "Include functions.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include functions.")
     var functions = false
 
-    @Flag(name: .long, help: "Include structs.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include structs.")
     var structs = false
 
-    @Flag(name: .long, help: "Include classes.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include classes.")
     var classes = false
 
-    @Flag(name: .long, help: "Include enums.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include enums.")
     var enums = false
 
-    @Flag(name: .long, help: "Include protocols.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include protocols.")
     var protocols = false
 
-    @Flag(name: .long, help: "Include typealiases.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include typealiases.")
     var typealiases = false
 
-    @Flag(name: .long, help: "Include variables.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include variables.")
     var variables = false
 
-    @Flag(name: .long, help: "Include extensions.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include extensions.")
     var extensions = false
 
-    @Flag(name: .long, help: "Include all declaration kinds.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include all declaration kinds.")
     var all = false
 
-    @Flag(name: .long, help: "Output as JSON (default).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Output as JSON (default).")
     var json = false
 
-    @Flag(name: .long, help: "Output as human-readable text.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Output as human-readable text.")
     var text = false
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat?
 
-    @Flag(name: .long, help: "Pretty-print JSON output (overrides --output-format).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output (overrides --output-format).")
     var prettyPrint = false
 
     @Option(name: .long, help: "Only include declarations matching this name (substring).")
     var name: String?
 
-    @Flag(name: .long, help: "Only print the count of matching declarations.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Only print the count of matching declarations.")
     var count = false
 
     @Option(name: .long, help: "Sort results by: name, kind, file, line.")
@@ -70,8 +70,11 @@ struct QueryCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
         var exclude: String?
 
-    @Flag(name: .long, help: "Print JSON Schema for the output type and exit.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
+
+    @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
+    var outputPath: String = ""
 
     mutating func run() throws {
         if schema {
@@ -188,7 +191,7 @@ struct QueryCommand: ParsableCommand {
             }
         } else {
             let outputStr = try formatOutput(allDecls, format: fmt)
-            print(outputStr)
+            try writeOutput(outputStr, to: outputPath)
         }
     }
 }
