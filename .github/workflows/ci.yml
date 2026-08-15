@@ -7,14 +7,26 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    runs-on: macos-15
+  swift:
+    name: Swift ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+      fail-fast: false
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Swift toolchain
+      - name: Install Swift (Linux)
+        if: runner.os == 'Linux'
         run: |
-          swift --version | head -1
+          wget -q https://download.swift.org/swift-6.0.3-release/ubuntu2404/swift-6.0.3-RELEASE/swift-6.0.3-RELEASE-ubuntu24.04.tar.gz
+          tar xzf swift-6.0.3-RELEASE-ubuntu24.04.tar.gz
+          echo "$PWD/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin" >> $GITHUB_PATH
+
+      - name: Swift version
+        run: swift --version
 
       - name: Build
         run: swift build
@@ -22,20 +34,53 @@ jobs:
       - name: Test
         run: swift test
 
-      - name: Check Python syntax
-        run: |
-          python3 -m py_compile hermes-plugin/swift_package_inspector.py
-          python3 -m py_compile hermes-plugin/__init__.py
-          python3 -m py_compile hermes-plugin/test_tools.py
+      - name: Build release
+        run: swift build -c release
 
-      - name: Check install script syntax
-        run: bash -n scripts/install.sh
+  python:
+    name: Python plugin
+    runs-on: ubuntu-24.04
 
-  lint:
-    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check for tab indentation in Swift files
-        run: |
-          ! grep -rnP "\t" Sources/ --include="*.swift" | grep -v "Tests/" | grep -v "Plugins/" | head -20
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Check plugin syntax
+        run: python3 -m py_compile hermes-plugin/__init__.py hermes-plugin/swift_package_inspector.py
+
+      - name: Run plugin unit tests
+        run: python3 hermes-plugin/test_tools.py
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: Check install.sh syntax
+        run: bash -n scripts/install.sh
+
+      - name: Shellcheck install.sh
+        run: shellcheck scripts/install.sh
+
+      - name: Check Makefile syntax
+        run: make -n install INSTALL_INTERACTIVE=0 PLUGIN_MODE=symlink PREFIX=/tmp/test-install 2>&1
+
+      - name: Check Makefile remove
+        run: make -n remove INSTALL_INTERACTIVE=0 PREFIX=/tmp/test-install 2>&1
