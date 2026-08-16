@@ -620,6 +620,167 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("removedCount"))
     }
 
+    // MARK: - query
+
+    @Test("query returns declarations")
+    func queryReturnsDeclarations() throws {
+        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all"])
+        #expect(output.contains("CommentMode"))
+        #expect(output.contains("NormalizationOptions"))
+    }
+
+    @Test("query filters by kind")
+    func queryFiltersByKind() throws {
+        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--enums"])
+        #expect(output.contains("CommentMode"))
+        // all results should have kind "enum"
+        #expect(output.contains("\"kind\":\"enum\""))
+        #expect(!output.contains("\"kind\":\"struct\""))
+    }
+
+    @Test("query supports --count")
+    func queryCount() throws {
+        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--count"])
+        // --count returns just the number
+        let count = Int(output.trimmingCharacters(in: .whitespacesAndNewlines))
+        #expect(count != nil)
+        #expect(count! > 0)
+    }
+
+    @Test("query supports --pretty-print")
+    func queryPrettyPrint() throws {
+        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--pretty-print"])
+        #expect(output.contains("CommentMode"))
+        #expect(output.contains("kind"))
+    }
+
+    // MARK: - search
+
+    @Test("search returns matches")
+    func searchReturnsMatches() throws {
+        let output = try runCommand(["search", "Normalizer", "Sources/NormalizerCore"])
+        #expect(output.contains("Normalizer"))
+    }
+
+    @Test("search supports --context")
+    func searchContext() throws {
+        let output = try runCommand(["search", "struct", "Sources/NormalizerCore/NormalizationOptions.swift", "--context", "1"])
+        #expect(output.contains("contextBefore"))
+        #expect(output.contains("contextAfter"))
+    }
+
+    @Test("search supports --regex")
+    func searchRegex() throws {
+        let output = try runCommand(["search", "struct|enum", "Sources/NormalizerCore/NormalizationOptions.swift", "--regex"])
+        #expect(output.contains("struct") || output.contains("enum"))
+    }
+
+    // MARK: - references
+
+    @Test("references returns results for known symbol")
+    func referencesReturnsResults() throws {
+        let output = try runCommand(["references", "Normalizer", "Sources/NormalizerCore"])
+        #expect(output.contains("Normalizer"))
+    }
+
+    @Test("references returns empty for nonexistent symbol")
+    func referencesNonexistent() throws {
+        let output = try runCommand(["references", "SymbolThatDoesNotExistXYZ", "Sources/NormalizerCore"])
+        #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "[]")
+    }
+
+    // MARK: - dependencies
+
+    @Test("dependencies lists imports")
+    func dependenciesListsImports() throws {
+        let output = try runCommand(["dependencies", "Sources/NormalizerCore"])
+        #expect(output.contains("Foundation"))
+    }
+
+    @Test("dependencies supports --grouped")
+    func dependenciesGrouped() throws {
+        let output = try runCommand(["dependencies", "Sources/NormalizerCore", "--grouped"])
+        #expect(output.contains("Foundation"))
+    }
+
+    // MARK: - index
+
+    @Test("index builds project index")
+    func indexBuildsIndex() throws {
+        let output = try runCommand(["index", "Sources/NormalizerCore"])
+        #expect(output.contains("fileCount"))
+        #expect(output.contains("totalDeclarations"))
+    }
+
+    @Test("index --output writes to file")
+    func indexOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("index_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["index", "Sources/NormalizerCore", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("fileCount"))
+    }
+
+    // MARK: - api
+
+    @Test("api extracts public API surface")
+    func apiExtractsPublic() throws {
+        let output = try runCommand(["api", "Sources/NormalizerCore"])
+        #expect(output.contains("Normalizer"))
+        #expect(output.contains("NormalizationOptions"))
+    }
+
+    @Test("api supports --include-internal")
+    func apiIncludeInternal() throws {
+        let output = try runCommand(["api", "Sources/NormalizerCore", "--include-internal"])
+        #expect(output.contains("lineEnding"))
+    }
+
+    // MARK: - conformances
+
+    @Test("conformances lists protocol conformances")
+    func conformancesListsConformances() throws {
+        let output = try runCommand(["conformances", "Sources/NormalizerCore"])
+        #expect(output.contains("Sendable"))
+        #expect(output.contains("Equatable"))
+    }
+
+    @Test("conformances supports --pretty-print")
+    func conformancesPrettyPrint() throws {
+        let output = try runCommand(["conformances", "Sources/NormalizerCore", "--pretty-print"])
+        #expect(output.contains("Sendable"))
+    }
+
+    // MARK: - callgraph
+
+    @Test("callgraph builds call graph")
+    func callgraphBuilds() throws {
+        let output = try runCommand(["callgraph", "Sources/NormalizerCore"])
+        #expect(output.contains("caller"))
+        #expect(output.contains("callee"))
+    }
+
+    @Test("callgraph supports --include-unknown")
+    func callgraphIncludeUnknown() throws {
+        let output = try runCommand(["callgraph", "Sources/NormalizerCore", "--include-unknown"])
+        #expect(output.contains("caller"))
+    }
+
+    // MARK: - force-unwraps
+
+    @Test("force-unwraps scans for force unwraps")
+    func forceUnwrapsScans() throws {
+        let output = try runCommand(["force-unwraps", "Sources/swift-code-query"])
+        #expect(output.contains("force_unwrap") || output.contains("ForceUnwrapItem"))
+    }
+
+    @Test("force-unwraps supports --pretty-print")
+    func forceUnwrapsPrettyPrint() throws {
+        let output = try runCommand(["force-unwraps", "Sources/swift-code-query", "--pretty-print"])
+        #expect(output.contains("kind"))
+    }
+
     // MARK: - helpers
 
     private func runCommand(_ args: [String]) throws -> String {
