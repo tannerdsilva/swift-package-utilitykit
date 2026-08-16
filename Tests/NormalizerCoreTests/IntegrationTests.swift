@@ -726,6 +726,125 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("no Package.swift found"))
     }
 
+    // MARK: - editing commands
+
+    @Test("replace --old/--new works")
+    func replaceText() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("replace_\(UUID().uuidString).swift")
+        try "let x = \"hello\"\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["replace", tmp.path, "--old", "hello", "--new", "world", "--dry-run"])
+        #expect(output.contains("world"))
+        #expect(output.contains("modified"))
+    }
+
+    @Test("insert --after works")
+    func insertAfter() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("insert_\(UUID().uuidString).swift")
+        try "func foo() {}\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["insert", tmp.path, "--content", "func bar() {}", "--after", "foo", "--dry-run"])
+        #expect(output.contains("bar"))
+    }
+
+    @Test("delete --lines works")
+    func deleteLines() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("delete_\(UUID().uuidString).swift")
+        try "line1\nline2\nline3\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["delete", tmp.path, "--lines", "2-2", "--dry-run"])
+        #expect(output.contains("\"modified\" : true"))
+    }
+
+    @Test("prepend works")
+    func prependContent() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prepend_\(UUID().uuidString).swift")
+        try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["prepend", tmp.path, "--content", "newfirst", "--dry-run"])
+        #expect(output.contains("newfirst"))
+        #expect(output.contains("existing"))
+    }
+
+    @Test("append works")
+    func appendContent() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("append_\(UUID().uuidString).swift")
+        try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["append", tmp.path, "--content", "newlast", "--dry-run"])
+        #expect(output.contains("newlast"))
+    }
+
+    @Test("add-import works")
+    func addImport() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("addimport_\(UUID().uuidString).swift")
+        try "import Foundation\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["add-import", tmp.path, "--module", "SwiftUI", "--dry-run"])
+        #expect(output.contains("SwiftUI"))
+    }
+
+    @Test("add-conformance works")
+    func addConformance() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("addconf_\(UUID().uuidString).swift")
+        try "struct Foo: Codable {}\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["add-conformance", tmp.path, "--type", "Foo", "--protocol", "Hashable", "--dry-run"])
+        #expect(output.contains("Hashable"))
+    }
+
+    @Test("add-member --property works")
+    func addMemberProperty() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("addmember_\(UUID().uuidString).swift")
+        try "struct Foo {}\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["add-member", tmp.path, "--type", "Foo", "--property", "var x: Int", "--dry-run"])
+        #expect(output.contains("x: Int"))
+    }
+
+    @Test("wrap --lines works")
+    func wrapLines() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wrap_\(UUID().uuidString).swift")
+        try "func test() {\n    let x = 1\n}\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["wrap", tmp.path, "--lines", "2-2", "--in", "do", "--dry-run"])
+        #expect(output.contains("do {"))
+    }
+
+    @Test("sort --by name works")
+    func sortMembers() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sort_\(UUID().uuidString).swift")
+        try """
+        struct Foo {
+            var z: Int
+            var a: String
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["sort", tmp.path, "--type", "Foo", "--by", "name"])
+        #expect(output.contains("\"modified\" : true"))
+    }
+
     // MARK: - complexity nesting fix
 
     @Test("complexity correctly handles nested functions")

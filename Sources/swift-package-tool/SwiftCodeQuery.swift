@@ -30,6 +30,16 @@ struct SwiftCodeQuery: ParsableCommand {
             MacroExpandCommand.self,
             DoccCheckCommand.self,
             CleanCommand.self,
+            ReplaceCommand.self,
+            InsertCommand.self,
+            DeleteCommand.self,
+            PrependCommand.self,
+            AppendCommand.self,
+            AddImportCommand.self,
+            AddConformanceCommand.self,
+            AddMemberCommand.self,
+            WrapCommand.self,
+            SortCommand.self,
         ],
         defaultSubcommand: FindCommand.self
     )
