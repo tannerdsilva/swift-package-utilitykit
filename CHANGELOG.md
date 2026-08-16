@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-08-15)
+
+### Added
+- `clean` subcommand — delete build artifacts without removing dependencies.
+  Runs `swift package clean` under the hood. Supports `--reset` for full
+  cache reset (dependencies re-fetched on next build).
+
 ## 0.4.0 (2026-08-15)
 
 ### Added

@@ -145,6 +145,7 @@ swift-code-query macro-expand [<paths>...] [--output-format <format>]
                                   [--pretty-print]
 swift-code-query docc-check [<paths>...] [--output-format <format>]
                                   [--pretty-print]
+swift-code-query clean [<path>] [--reset] [--pretty-print]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -428,6 +429,21 @@ swift-code-query docc-check Sources/ --pretty-print
 
 Output: `{file, line, column, severity, message, referencedSymbol}`
 
+**clean** — delete build artifacts without removing dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is preserved, so the next build recompiles without re-fetching. Use `--reset` to also remove dependencies (re-fetched on next build).
+
+```bash
+# clean build artifacts
+swift-code-query clean
+
+# full reset — removes dependencies too
+swift-code-query clean --reset
+
+# clean a specific package directory
+swift-code-query clean /path/to/project
+```
+
+Output: `{success, mode (clean|reset), directory, output}`
+
 **force-unwraps** — scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap (`value!`), force-try (`try!`), or force-cast (`as!`). Uses AST-based detection, not regex.
 
 ```bash
@@ -632,8 +648,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-code-query/                        agentic code query/inspect/search/index tool (24 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 20 subcommands)
+  swift-code-query/                        agentic code query/inspect/search/index tool (25 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 21 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -654,6 +670,7 @@ Sources/
     ValidateCommand.swift                  shallow syntax validation
     MacroExpandCommand.swift               macro expansion site finder
     DoccCheckCommand.swift                 docc documentation validation
+    CleanCommand.swift                     clean build artifacts
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)

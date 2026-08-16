@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-code-query` is a Swift source code analysis tool with 20 subcommands.
+`swift-code-query` is a Swift source code analysis tool with 21 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -514,3 +514,24 @@ swift-code-query docc-check [<paths>...] [--output-format <format>]
 | `--exclude` | Skip files with these extensions (comma-separated) |
 
 **Output type:** `DoccWarning` — `{file, line, column, severity, message, referencedSymbol}`
+
+---
+
+### `clean`
+
+Delete build artifacts without removing dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is preserved, so the next build recompiles without re-fetching.
+
+```
+swift-code-query clean [<path>] [--reset] [--pretty-print]
+```
+
+| Argument | Description |
+|---|---|
+| `path` | Package directory to clean (default: current directory) |
+
+| Flag/Option | Description |
+|---|---|
+| `--reset` | Full reset — removes dependencies too (re-fetched on next build) |
+| `--pretty-print` | Pretty-print JSON output |
+
+**Output type:** `CleanResult` — `{success, mode (clean|reset), directory, output}`
