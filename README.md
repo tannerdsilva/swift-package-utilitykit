@@ -145,6 +145,9 @@ swift-package-tool macro-expand [<paths>...] [--output-format <format>]
                                   [--pretty-print]
 swift-package-tool docc-check [<paths>...] [--output-format <format>]
                                   [--pretty-print]
+swift-package-tool sort [<file>] --type <name> [--by name|kind]
+                                  [--dry-run] [--backup] [--verify] [--show-diff]
+
 swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
@@ -429,6 +432,71 @@ swift-package-tool docc-check Sources/ --pretty-print
 
 Output: `{file, line, column, severity, message, referencedSymbol}`
 
+## Editing Commands
+
+All editing commands share a common safety interface:
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Show diff without modifying the file |
+| `--backup` | Save original as `.bak` before editing |
+| `--verify` (default: on) | Re-parse to confirm syntactic validity |
+| `--show-diff` | Show unified diff of changes |
+| `--output <file>` | Write to a different file instead of in-place |
+| `--force` | Write even if verification fails |
+
+**replace** — find and replace text, or rename a symbol.
+
+Two modes:
+- `--old <text> --new <text>` — simple text replacement
+- `--symbol <name> --rename <name>` — AST-aware rename of all occurrences in the file
+
+Output: `EditResult — {file, modified, diff, verified, warning}`
+
+**insert** — insert code at a precise location.
+
+- `--after <pattern>` — insert after the first line containing the pattern
+- `--before <pattern>` — insert before the first line containing the pattern
+- `--at-line <n>` — insert at an absolute line number
+
+Content is auto-indented to match the target line.
+
+**delete** — remove code by line range, symbol, or pattern.
+
+- `--lines <start>-<end>` — remove a range of lines
+- `--symbol <name>` — remove a declaration (AST-aware, removes docc comment too)
+- `--matching <pattern>` — remove every line containing the pattern
+
+**prepend** / **append** — add code at file boundaries.
+
+- `prepend --content <text>` — insert at line 1
+- `prepend --content <text> --after-imports` — insert after the last import statement
+- `append --content <text>` — insert at end of file
+
+**add-import** — add an import statement. Inserts alphabetically among existing imports. Skips if already present.
+
+**add-conformance** — add a protocol conformance to a type. AST-aware — finds the type's inheritance clause and appends the protocol.
+
+**add-member** — add a property, method, or enum case to a type. AST-aware — finds the type's member block and inserts before the closing brace.
+
+- `--property "var x: Int"` — add a stored property
+- `--method "func foo()" [--body "..."]` — add a method
+- `--case "bar" [--associated "Int, String"]` — add an enum case
+- `--access "public"` — access modifier
+- `--default "0"` — default value for a property
+
+**wrap** — wrap selected lines in a syntactic container.
+
+- `--lines <start>-<end> --in do-catch` — wrap in do/catch
+- `--lines <start>-<end> --in if-let --variable <name>` — wrap in if-let
+- `--lines <start>-<end> --in guard-let --variable <name>` — wrap in guard-let
+- `--lines <start>-<end> --in do` — wrap in do block
+
+**sort** — sort members of a type alphabetically or by kind.
+
+- `--type <name> --by name` — sort alphabetically
+- `--type <name> --by kind` — group by declaration kind (properties first, then methods, etc.)
+
 **clean** — delete build artifacts without touching dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is **preserved** — the next build recompiles without re-fetching.
 
 To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-dependencies`). This is a destructive operation: every dependency is deleted from `.build/checkouts/` and must be re-fetched from scratch on the next build. Only use this when you are certain you want to wipe the entire cache.
@@ -650,8 +718,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-package-tool/                        agentic code query/inspect/search/index tool (25 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 21 subcommands)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (35 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 30 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info

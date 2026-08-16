@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-package-tool` is a Swift source code analysis tool with 21 subcommands.
+`swift-package-tool` is a Swift source code analysis and editing tool with 30 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -514,6 +514,213 @@ swift-package-tool docc-check [<paths>...] [--output-format <format>]
 | `--exclude` | Skip files with these extensions (comma-separated) |
 
 **Output type:** `DoccWarning` — `{file, line, column, severity, message, referencedSymbol}`
+
+---
+
+### `replace`
+
+Find and replace text, or rename a symbol in a file.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--old <text>` | Text to find (text mode) |
+| `--new <text>` | Replacement text (text mode) |
+| `--symbol <name>` | Symbol name to rename (AST mode) |
+| `--rename <name>` | New name for the symbol (AST mode) |
+
+**Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
+
+**Output type:** `EditResult` — `{file, modified, diff, verified, warning}`
+
+---
+
+### `insert`
+
+Insert code at a precise location in a file.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--content <text>` | Content to insert (required) |
+| `--after <pattern>` | Insert after the first line containing this text |
+| `--before <pattern>` | Insert before the first line containing this text |
+| `--at-line <n>` | Insert at this absolute line number |
+
+Content is auto-indented to match the target line.
+
+---
+
+### `delete`
+
+Remove code by line range, symbol, or pattern.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--lines <start>-<end>` | Line range to remove (e.g. `10-20`) |
+| `--symbol <name>` | Symbol name to remove (AST-aware) |
+| `--matching <pattern>` | Remove every line containing this text |
+
+---
+
+### `prepend`
+
+Add code at the beginning of a file.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--content <text>` | Content to prepend (required) |
+| `--after-imports` | Insert after the last import statement |
+
+---
+
+### `append`
+
+Add code at the end of a file.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--content <text>` | Content to append (required) |
+
+---
+
+### `add-import`
+
+Add an import statement to a file. Inserts alphabetically among existing imports. Skips if already present.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--module <name>` | Module name to import (required) |
+
+---
+
+### `add-conformance`
+
+Add a protocol conformance to a type. AST-aware — finds the type's inheritance clause and appends the protocol.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--type <name>` | Type name to add conformance to (required) |
+| `--protocol <name>` | Protocol name to conform to (required) |
+
+---
+
+### `add-member`
+
+Add a property, method, or enum case to a type. AST-aware — finds the type's member block and inserts before the closing brace.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--type <name>` | Type name to add the member to (required) |
+| `--property <decl>` | Property declaration (e.g. `var x: Int`) |
+| `--method <signature>` | Method signature (e.g. `func foo()`) |
+| `--body <text>` | Method body (used with `--method`) |
+| `--case <name>` | Enum case name |
+| `--associated <types>` | Associated value types (comma-separated) |
+| `--default <value>` | Default value for a property |
+| `--access <modifier>` | Access modifier (public, private, internal) |
+
+---
+
+### `wrap`
+
+Wrap selected lines in a syntactic container.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--lines <start>-<end>` | Line range to wrap (required) |
+| `--in <container>` | Container type: `do-catch`, `if-let`, `guard-let`, `do` (required) |
+| `--variable <name>` | Variable name for `if-let`/`guard-let` |
+| `--else <body>` | Else body for `guard-let` |
+
+---
+
+### `sort`
+
+Sort members of a type alphabetically or by kind.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--type <name>` | Type name to sort members of (required) |
+| `--by <key>` | Sort key: `name` (default) or `kind` |
 
 ---
 

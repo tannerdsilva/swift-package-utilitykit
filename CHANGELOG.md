@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 (2026-08-16)
+
+### Added
+- Editing suite: 9 new commands for safe, AST-aware code transformation
+  - `replace` — find-and-replace text or rename a symbol (AST-aware)
+  - `insert` — insert code at a precise location (--after, --before, --at-line)
+  - `delete` — remove code by line range, symbol, or pattern
+  - `prepend` / `append` — add code at file boundaries (--after-imports)
+  - `add-import` — add an import statement (alphabetical insertion)
+  - `add-conformance` — add a protocol conformance to a type (AST-aware)
+  - `add-member` — add a property, method, or enum case to a type (AST-aware)
+  - `wrap` — wrap selected lines in do-catch, if-let, guard-let, or do
+  - `sort` — sort members of a type by name or kind (AST-aware)
+- Shared editing infrastructure (FileEditor.swift) with common safety flags:
+  --dry-run, --backup, --verify, --show-diff, --force
+- 9 integration tests (1 per editing command)
+- Total: 30 subcommands, 123 tests
+
 ## 0.5.0 (2026-08-15)
 
 ### Added
