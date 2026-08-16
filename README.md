@@ -137,6 +137,10 @@ swift-code-query callgraph <paths>... [--include-unknown] [--pretty-print]
                                   [--schema]
 swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
                                   [--output <file>]
+swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
+                                  [--pretty-print]
+swift-code-query macro-expand [<paths>...] [--output-format <format>]
+                                  [--pretty-print]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -381,6 +385,33 @@ public struct NormalizationOptions: Sendable, Equatable {
 }
 ```
 
+**validate** — shallow syntax check using SwiftParser's built-in diagnostics. Catches missing braces, invalid tokens, malformed declarations, and other syntax-level errors without running the full compiler. Does not perform type-checking.
+
+```bash
+# check a file for syntax errors
+swift-code-query validate Sources/Foo.swift
+
+# include warnings in addition to errors
+swift-code-query validate Sources/ --warnings
+
+# pretty-printed output
+swift-code-query validate Sources/ --pretty-print
+```
+
+Output is structured JSON with file, line, column, severity, message, and fix-it count per diagnostic.
+
+**macro-expand** — find and report macro expansion sites in Swift source files. Identifies where macros are used (`#externalMacro`, `#Predicate`, `#stringify`, etc.) and reports their locations, names, and arguments. Does NOT expand macros — that requires running the Swift compiler with the macro implementations loaded as plugins.
+
+```bash
+# find all macro usages in a project
+swift-code-query macro-expand Sources/
+
+# pretty-printed output
+swift-code-query macro-expand Sources/ --pretty-print
+```
+
+Output is structured JSON with file, line, column, macro name, kind (declaration or expression), and arguments.
+
 **`--schema` flag** — every new command supports `--schema`, which prints the
 JSON Schema for its output type and exits.  Small models can use this to
 construct correct queries on the first attempt, avoiding token-wasting retry
@@ -558,8 +589,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-code-query/                        agentic code query/inspect/search/index tool (21 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 17 subcommands)
+  swift-code-query/                        agentic code query/inspect/search/index tool (23 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 19 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -575,6 +606,8 @@ Sources/
     ComplexityCommand.swift                cyclomatic complexity per function
     DiffCommand.swift                      semantic declaration diff
     TreeCommand.swift                      hierarchical symbol tree
+    ValidateCommand.swift                  shallow syntax validation
+    MacroExpandCommand.swift               macro expansion site finder
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)

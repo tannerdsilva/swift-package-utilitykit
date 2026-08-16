@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0 (2026-08-15)
+
+### Added
+- `validate` subcommand — shallow syntax check using SwiftParser diagnostics.
+  Catches missing braces, invalid tokens, and malformed declarations without
+  running the full compiler. Supports `--warnings` to include warnings.
+- `macro-expand` subcommand — find and report macro expansion sites
+  (`#externalMacro`, `#Predicate`, `#stringify`, etc.) with locations, names,
+  and arguments. Full expansion requires compiler plugin support.
+
+### Fixed
+- `ComplexityCollector` now uses a stack instead of single `currentName`/
+  `currentScore` variables. Nested function complexity no longer bleeds into
+  the outer function's score.
+- `DiffDeclarationCollector` now handles 7 previously missing declaration
+  types: `InitializerDeclSyntax`, `DeinitializerDeclSyntax`,
+  `SubscriptDeclSyntax`, `ExtensionDeclSyntax`, `MacroDeclSyntax`,
+  `OperatorDeclSyntax`, and `PrecedenceGroupDeclSyntax`.
+
 ## 0.2.0 (2026-08-15)
 
 ### Added

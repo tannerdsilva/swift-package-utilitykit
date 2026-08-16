@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-code-query` is a Swift source code analysis tool with 17 subcommands.
+`swift-code-query` is a Swift source code analysis tool with 19 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -414,3 +414,42 @@ public struct Foo {
   }
 }
 ```
+
+---
+
+### `validate`
+
+Shallow syntax validation using SwiftParser's built-in diagnostics. Catches syntax-level errors (missing braces, invalid tokens, malformed declarations) without running the full compiler. Does not perform type-checking.
+
+```
+swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
+    [--pretty-print] [--output <file>]
+```
+
+| Flag/Option | Description |
+|---|---|
+| `--warnings` | Include warnings in addition to errors |
+| `--output-format` | json, compact, short |
+| `--pretty-print` | Pretty-print JSON output |
+| `--output` | Write output to file instead of stdout |
+
+**Output type:** `ValidateDiagnostic` — `{file, line, column, severity, message, diagnosticID, fixItCount}`
+
+---
+
+### `macro-expand`
+
+Find and report macro expansion sites in Swift source files. Identifies where macros are used (`#externalMacro`, `#Predicate`, `#stringify`, etc.) and reports their locations, names, and arguments. Does NOT expand macros — that requires running the Swift compiler with the macro implementations loaded as compiler plugins.
+
+```
+swift-code-query macro-expand [<paths>...] [--output-format <format>]
+    [--pretty-print] [--output <file>]
+```
+
+| Flag/Option | Description |
+|---|---|
+| `--output-format` | json, compact, short |
+| `--pretty-print` | Pretty-print JSON output |
+| `--output` | Write output to file instead of stdout |
+
+**Output type:** `MacroExpansion` — `{file, line, column, name, kind (declaration|expression), arguments}`
