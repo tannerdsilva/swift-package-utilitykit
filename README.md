@@ -135,6 +135,8 @@ swift-code-query conformances <paths>... [--include-extensions]
                                   [--pretty-print] [--schema]
 swift-code-query callgraph <paths>... [--include-unknown] [--pretty-print]
                                   [--schema]
+swift-code-query build [<target>] [--test] [--schema]
+swift-code-query force-unwraps [<paths>...] [--pretty-print]
 swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
                                   [--output <file>]
 swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
@@ -412,6 +414,33 @@ swift-code-query macro-expand Sources/ --pretty-print
 
 Output is structured JSON with file, line, column, macro name, kind (declaration or expression), and arguments.
 
+**force-unwraps** — scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap (`value!`), force-try (`try!`), or force-cast (`as!`). Uses AST-based detection, not regex.
+
+```bash
+# scan a project for force unwraps
+swift-code-query force-unwraps Sources/
+
+# pretty-printed output
+swift-code-query force-unwraps Sources/ --pretty-print
+```
+
+Output: `{file, line, column, context}` where context shows the surrounding expression.
+
+**build** — run `swift build` (or `swift test` with `--test`) and return structured output for LLM consumption. Parses build logs into a structured result with success/failure, target, duration, and error details.
+
+```bash
+# build the default target
+swift-code-query build
+
+# run tests
+swift-code-query build --test
+
+# see the schema
+swift-code-query build --schema
+```
+
+Output: `BuildResult` — `{success, target, duration, output, errors}`.
+
 **`--schema` flag** — every new command supports `--schema`, which prints the
 JSON Schema for its output type and exits.  Small models can use this to
 construct correct queries on the first attempt, avoiding token-wasting retry
@@ -605,6 +634,8 @@ Sources/
     MembersCommand.swift                   list direct members of a type
     ComplexityCommand.swift                cyclomatic complexity per function
     DiffCommand.swift                      semantic declaration diff
+    BuildCommand.swift                     structured build/test output
+    ForceUnwrapsCommand.swift              force-unwrap scanner
     TreeCommand.swift                      hierarchical symbol tree
     ValidateCommand.swift                  shallow syntax validation
     MacroExpandCommand.swift               macro expansion site finder

@@ -453,3 +453,44 @@ swift-code-query macro-expand [<paths>...] [--output-format <format>]
 | `--output` | Write output to file instead of stdout |
 
 **Output type:** `MacroExpansion` — `{file, line, column, name, kind (declaration|expression), arguments}`
+
+---
+
+### `build`
+
+Run `swift build` (or `swift test` with `--test`) and return structured output for LLM consumption. Parses build logs into a structured result.
+
+```
+swift-code-query build [<target>] [--test] [--schema]
+```
+
+| Argument | Description |
+|---|---|
+| `target` | Target to build (default: the package's main target) |
+
+| Flag/Option | Description |
+|---|---|
+| `--test` | Run `swift test` instead of `swift build` |
+| `--schema` | Print JSON Schema for output type and exit |
+
+**Output type:** `BuildResult` — `{success, target, duration, output, errors}`
+
+---
+
+### `force-unwraps`
+
+Scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap, force-try, or force-cast. Uses AST-based detection.
+
+```
+swift-code-query force-unwraps [<paths>...] [--output-format <format>]
+    [--pretty-print] [--include <exts>] [--exclude <exts>]
+```
+
+| Flag/Option | Description |
+|---|---|
+| `--output-format` | json, compact, short |
+| `--pretty-print` | Pretty-print JSON output |
+| `--include` | Only files with these extensions (comma-separated) |
+| `--exclude` | Skip files with these extensions (comma-separated) |
+
+**Output type:** `ForceUnwrapItem` — `{file, line, column, context}`
