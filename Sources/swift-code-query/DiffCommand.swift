@@ -299,4 +299,100 @@ class DiffDeclarationCollector: SyntaxVisitor {
         ))
         return .visitChildren
     }
+
+    // MARK: - missing declaration types (init, deinit, subscript, extension, macro, operator, precedencegroup)
+
+    override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        let sig = node.signature.parameterClause.description.trimmingCharacters(in: .whitespaces)
+        declarations.append(DiffDeclaration(
+            name: "init",
+            kind: "initializer",
+            file: filePath,
+            signature: sig,
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        declarations.append(DiffDeclaration(
+            name: "deinit",
+            kind: "deinitializer",
+            file: filePath,
+            signature: "",
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        let sig = node.parameterClause.description.trimmingCharacters(in: .whitespaces)
+        declarations.append(DiffDeclaration(
+            name: "subscript",
+            kind: "subscript",
+            file: filePath,
+            signature: sig,
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        let name = "extension \(node.extendedType.description.trimmingCharacters(in: .whitespaces))"
+        declarations.append(DiffDeclaration(
+            name: name,
+            kind: "extension",
+            file: filePath,
+            signature: node.genericWhereClause?.description.trimmingCharacters(in: .whitespaces) ?? "",
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: MacroDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        declarations.append(DiffDeclaration(
+            name: node.name.text,
+            kind: "macro",
+            file: filePath,
+            signature: node.signature.description.trimmingCharacters(in: .whitespaces),
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: OperatorDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        declarations.append(DiffDeclaration(
+            name: node.name.text,
+            kind: "operator",
+            file: filePath,
+            signature: node.fixitySpecifier.text,
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
+
+    override func visit(_ node: PrecedenceGroupDeclSyntax) -> SyntaxVisitorContinueKind {
+        let pos = node.position
+        let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
+        declarations.append(DiffDeclaration(
+            name: node.name.text,
+            kind: "precedencegroup",
+            file: filePath,
+            signature: "",
+            line: line, column: col
+        ))
+        return .visitChildren
+    }
 }

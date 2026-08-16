@@ -26,6 +26,8 @@ struct SwiftCodeQuery: ParsableCommand {
             ForceUnwrapsCommand.self,
             BuildCommand.self,
             TreeCommand.self,
+            ValidateCommand.self,
+            MacroExpandCommand.self,
         ],
         defaultSubcommand: FindCommand.self
     )

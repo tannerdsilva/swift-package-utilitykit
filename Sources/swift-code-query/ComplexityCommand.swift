@@ -110,13 +110,14 @@ struct ComplexityItem: Codable, Sendable {
 }
 
 /// walk a function body counting decision points inline during the single walk.
+/// uses a stack to correctly handle nested functions — inner function complexity
+/// does not bleed into the outer function's score.
 class ComplexityCollector: SyntaxVisitor {
     let filePath: String
     let source: String
     var items: [ComplexityItem] = []
-    var currentName: String = ""
-    var currentScore: Int = 0
-    var inFunction: Bool = false
+    /// stack of (name, score) pairs for tracking nested functions
+    var functionStack: [(name: String, score: Int)] = []
 
     init(filePath: String, source: String) {
         self.filePath = filePath
@@ -124,17 +125,26 @@ class ComplexityCollector: SyntaxVisitor {
         super.init(viewMode: .sourceAccurate)
     }
 
+    /// true when we are inside any function on the stack
+    var inFunction: Bool { !functionStack.isEmpty }
+    /// the current function's score (top of stack)
+    var currentScore: Int {
+        get { functionStack.last?.score ?? 0 }
+        set { if !functionStack.isEmpty { functionStack[functionStack.count - 1].score = newValue } }
+    }
+    /// the current function's name (top of stack)
+    var currentName: String {
+        get { functionStack.last?.name ?? "" }
+        set { if !functionStack.isEmpty { functionStack[functionStack.count - 1].name = newValue } }
+    }
+
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        currentName = node.name.text
-        currentScore = 1  // base complexity
-        inFunction = true
+        functionStack.append((name: node.name.text, score: 1))
         return .visitChildren
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        currentName = "init"
-        currentScore = 1
-        inFunction = true
+        functionStack.append((name: "init", score: 1))
         return .visitChildren
     }
 
@@ -184,7 +194,7 @@ class ComplexityCollector: SyntaxVisitor {
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
-        // called after visiting all children — record the complexity
+        // called after visiting all children — record the complexity and pop
         guard inFunction else { return }
         let rating: String
         if currentScore <= 5 { rating = "simple" }
@@ -198,7 +208,7 @@ class ComplexityCollector: SyntaxVisitor {
             name: currentName, file: filePath, line: line, column: col,
             complexity: currentScore, rating: rating
         ))
-        inFunction = false
+        functionStack.removeLast()
     }
 
     override func visitPost(_ node: InitializerDeclSyntax) {
@@ -215,6 +225,6 @@ class ComplexityCollector: SyntaxVisitor {
             name: currentName, file: filePath, line: line, column: col,
             complexity: currentScore, rating: rating
         ))
-        inFunction = false
+        functionStack.removeLast()
     }
 }
