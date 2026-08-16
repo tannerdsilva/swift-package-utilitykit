@@ -132,12 +132,15 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
 
-        // Find the type declaration
-        let finder = TypeInheritanceFinder(targetName: typeName)
-        finder.walk(tree)
+        // Use SyntaxRewriter to add the conformance
+        let rewriter = AddConformanceRewriter(targetName: typeName, protocolName: protocolName)
+        let modifiedTree = rewriter.rewrite(tree)
 
-        guard let info = finder.foundType else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found")
+        guard rewriter.didModify else {
+            let warning = rewriter.alreadyConforms
+                ? "'\(typeName)' already conforms to '\(protocolName)'"
+                : "no type '\(typeName)' found"
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: warning)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(result)
@@ -145,35 +148,7 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
             return
         }
 
-        // Check if already conforms
-        if info.conformances.contains(where: { $0.name == protocolName }) {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'")
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(result)
-            print(String(data: data, encoding: .utf8)!)
-            return
-        }
-
-        // Find the insertion point — after the last existing conformance or after ':'
-        var modified = source
-        let insertOffset: Int
-
-        if let lastConformance = info.conformances.last {
-            // Find the position of the last conformance name
-            let searchStart = modified.index(modified.startIndex, offsetBy: lastConformance.offset)
-            if let range = modified[searchStart...].range(of: lastConformance.name) {
-                insertOffset = modified.distance(from: modified.startIndex, to: range.upperBound)
-            } else {
-                insertOffset = info.colonOffset + 2
-            }
-        } else {
-            insertOffset = info.colonOffset + 2
-        }
-
-        let insertIdx = modified.index(modified.startIndex, offsetBy: insertOffset)
-        let needsComma = !info.conformances.isEmpty
-        modified.insert(contentsOf: "\(needsComma ? ", " : "")\(protocolName)", at: insertIdx)
+        let modified = modifiedTree.description
 
         let original = source
         var warning: String? = nil
@@ -211,6 +186,246 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(result)
         print(String(data: data, encoding: .utf8)!)
+    }
+}
+
+/// SyntaxRewriter that adds a protocol conformance to a type declaration.
+class AddConformanceRewriter: SyntaxRewriter {
+    let targetName: String
+    let protocolName: String
+    var didModify = false
+    var alreadyConforms = false
+
+    init(targetName: String, protocolName: String) {
+        self.targetName = targetName
+        self.protocolName = protocolName
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: StructDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        return DeclSyntax(addConformance(to: node))
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        return DeclSyntax(addConformance(to: node))
+    }
+
+    override func visit(_ node: EnumDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        return DeclSyntax(addConformance(to: node))
+    }
+
+    override func visit(_ node: ProtocolDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        return DeclSyntax(addConformance(to: node))
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> DeclSyntax {
+        let extName = node.extendedType.description.trimmingCharacters(in: .whitespaces)
+        guard extName == targetName else { return DeclSyntax(node) }
+        return DeclSyntax(addConformance(to: node))
+    }
+
+    private func addConformance(to node: StructDeclSyntax) -> StructDeclSyntax {
+        if let clause = node.inheritanceClause {
+            if clause.inheritedTypes.contains(where: {
+                $0.type.description.trimmingCharacters(in: .whitespaces) == protocolName
+            }) {
+                alreadyConforms = true
+                return node
+            }
+            var inheritedTypes = clause.inheritedTypes
+            // Set trailing comma on the last existing element
+            if let lastIdx = inheritedTypes.indices.last {
+                // Preserve the trailing trivia from the last type for the new element
+                let lastType = inheritedTypes[lastIdx]
+                let preservedTrivia = lastType.type.trailingTrivia
+                let strippedType = lastType.with(\.type, lastType.type.with(\.trailingTrivia, []))
+                inheritedTypes[lastIdx] = strippedType.with(\.trailingComma, .commaToken(trailingTrivia: .space))
+                // Add new type with the preserved trailing trivia
+                let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                    .with(\.trailingTrivia, preservedTrivia)
+                inheritedTypes.append(InheritedTypeSyntax(type: TypeSyntax(newType)))
+            } else {
+                inheritedTypes.append(InheritedTypeSyntax(type: IdentifierTypeSyntax(name: .identifier(protocolName))))
+            }
+            let newClause = clause.with(\.inheritedTypes, inheritedTypes)
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        } else {
+            let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                .with(\.trailingTrivia, .space)
+            let newClause = InheritanceClauseSyntax(
+                colon: .colonToken(trailingTrivia: .space),
+                inheritedTypes: InheritedTypeListSyntax([
+                    InheritedTypeSyntax(type: TypeSyntax(newType))
+                ])
+            )
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        }
+    }
+
+    private func addConformance(to node: ClassDeclSyntax) -> ClassDeclSyntax {
+        if let clause = node.inheritanceClause {
+            if clause.inheritedTypes.contains(where: {
+                $0.type.description.trimmingCharacters(in: .whitespaces) == protocolName
+            }) {
+                alreadyConforms = true
+                return node
+            }
+            var inheritedTypes = clause.inheritedTypes
+            // Set trailing comma on the last existing element
+            if let lastIdx = inheritedTypes.indices.last {
+                // Preserve the trailing trivia from the last type for the new element
+                let lastType = inheritedTypes[lastIdx]
+                let preservedTrivia = lastType.type.trailingTrivia
+                let strippedType = lastType.with(\.type, lastType.type.with(\.trailingTrivia, []))
+                inheritedTypes[lastIdx] = strippedType.with(\.trailingComma, .commaToken(trailingTrivia: .space))
+                // Add new type with the preserved trailing trivia
+                let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                    .with(\.trailingTrivia, preservedTrivia)
+                inheritedTypes.append(InheritedTypeSyntax(type: TypeSyntax(newType)))
+            } else {
+                inheritedTypes.append(InheritedTypeSyntax(type: IdentifierTypeSyntax(name: .identifier(protocolName))))
+            }
+            let newClause = clause.with(\.inheritedTypes, inheritedTypes)
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        } else {
+            let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                .with(\.trailingTrivia, .space)
+            let newClause = InheritanceClauseSyntax(
+                colon: .colonToken(trailingTrivia: .space),
+                inheritedTypes: InheritedTypeListSyntax([
+                    InheritedTypeSyntax(type: TypeSyntax(newType))
+                ])
+            )
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        }
+    }
+
+    private func addConformance(to node: EnumDeclSyntax) -> EnumDeclSyntax {
+        if let clause = node.inheritanceClause {
+            if clause.inheritedTypes.contains(where: {
+                $0.type.description.trimmingCharacters(in: .whitespaces) == protocolName
+            }) {
+                alreadyConforms = true
+                return node
+            }
+            var inheritedTypes = clause.inheritedTypes
+            // Set trailing comma on the last existing element
+            if let lastIdx = inheritedTypes.indices.last {
+                // Preserve the trailing trivia from the last type for the new element
+                let lastType = inheritedTypes[lastIdx]
+                let preservedTrivia = lastType.type.trailingTrivia
+                let strippedType = lastType.with(\.type, lastType.type.with(\.trailingTrivia, []))
+                inheritedTypes[lastIdx] = strippedType.with(\.trailingComma, .commaToken(trailingTrivia: .space))
+                // Add new type with the preserved trailing trivia
+                let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                    .with(\.trailingTrivia, preservedTrivia)
+                inheritedTypes.append(InheritedTypeSyntax(type: TypeSyntax(newType)))
+            } else {
+                inheritedTypes.append(InheritedTypeSyntax(type: IdentifierTypeSyntax(name: .identifier(protocolName))))
+            }
+            let newClause = clause.with(\.inheritedTypes, inheritedTypes)
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        } else {
+            let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                .with(\.trailingTrivia, .space)
+            let newClause = InheritanceClauseSyntax(
+                colon: .colonToken(trailingTrivia: .space),
+                inheritedTypes: InheritedTypeListSyntax([
+                    InheritedTypeSyntax(type: TypeSyntax(newType))
+                ])
+            )
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        }
+    }
+
+    private func addConformance(to node: ProtocolDeclSyntax) -> ProtocolDeclSyntax {
+        if let clause = node.inheritanceClause {
+            if clause.inheritedTypes.contains(where: {
+                $0.type.description.trimmingCharacters(in: .whitespaces) == protocolName
+            }) {
+                alreadyConforms = true
+                return node
+            }
+            var inheritedTypes = clause.inheritedTypes
+            // Set trailing comma on the last existing element
+            if let lastIdx = inheritedTypes.indices.last {
+                // Preserve the trailing trivia from the last type for the new element
+                let lastType = inheritedTypes[lastIdx]
+                let preservedTrivia = lastType.type.trailingTrivia
+                let strippedType = lastType.with(\.type, lastType.type.with(\.trailingTrivia, []))
+                inheritedTypes[lastIdx] = strippedType.with(\.trailingComma, .commaToken(trailingTrivia: .space))
+                // Add new type with the preserved trailing trivia
+                let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                    .with(\.trailingTrivia, preservedTrivia)
+                inheritedTypes.append(InheritedTypeSyntax(type: TypeSyntax(newType)))
+            } else {
+                inheritedTypes.append(InheritedTypeSyntax(type: IdentifierTypeSyntax(name: .identifier(protocolName))))
+            }
+            let newClause = clause.with(\.inheritedTypes, inheritedTypes)
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        } else {
+            let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                .with(\.trailingTrivia, .space)
+            let newClause = InheritanceClauseSyntax(
+                colon: .colonToken(trailingTrivia: .space),
+                inheritedTypes: InheritedTypeListSyntax([
+                    InheritedTypeSyntax(type: TypeSyntax(newType))
+                ])
+            )
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        }
+    }
+
+    private func addConformance(to node: ExtensionDeclSyntax) -> ExtensionDeclSyntax {
+        if let clause = node.inheritanceClause {
+            if clause.inheritedTypes.contains(where: {
+                $0.type.description.trimmingCharacters(in: .whitespaces) == protocolName
+            }) {
+                alreadyConforms = true
+                return node
+            }
+            var inheritedTypes = clause.inheritedTypes
+            // Set trailing comma on the last existing element
+            if let lastIdx = inheritedTypes.indices.last {
+                // Preserve the trailing trivia from the last type for the new element
+                let lastType = inheritedTypes[lastIdx]
+                let preservedTrivia = lastType.type.trailingTrivia
+                let strippedType = lastType.with(\.type, lastType.type.with(\.trailingTrivia, []))
+                inheritedTypes[lastIdx] = strippedType.with(\.trailingComma, .commaToken(trailingTrivia: .space))
+                // Add new type with the preserved trailing trivia
+                let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                    .with(\.trailingTrivia, preservedTrivia)
+                inheritedTypes.append(InheritedTypeSyntax(type: TypeSyntax(newType)))
+            } else {
+                inheritedTypes.append(InheritedTypeSyntax(type: IdentifierTypeSyntax(name: .identifier(protocolName))))
+            }
+            let newClause = clause.with(\.inheritedTypes, inheritedTypes)
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        } else {
+            let newType = IdentifierTypeSyntax(name: .identifier(protocolName))
+                .with(\.trailingTrivia, .space)
+            let newClause = InheritanceClauseSyntax(
+                colon: .colonToken(trailingTrivia: .space),
+                inheritedTypes: InheritedTypeListSyntax([
+                    InheritedTypeSyntax(type: TypeSyntax(newType))
+                ])
+            )
+            didModify = true
+            return node.with(\.inheritanceClause, newClause)
+        }
     }
 }
 

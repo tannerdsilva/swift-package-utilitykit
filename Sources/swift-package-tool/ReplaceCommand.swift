@@ -92,13 +92,11 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
 
-        // Collect all token positions that match the old name
-        var positions: [AbsolutePosition] = []
-        let collector = SymbolReferenceCollector(targetName: oldName)
-        collector.walk(tree)
-        positions = collector.positions.sorted()
+        // Use SyntaxRewriter to rename all matching identifiers
+        let rewriter = SymbolRenameRewriter(oldName: oldName, newName: newName)
+        let modifiedTree = rewriter.rewrite(tree)
 
-        guard !positions.isEmpty else {
+        guard rewriter.renameCount > 0 else {
             let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found")
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -107,20 +105,10 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
             return
         }
 
-        // Replace in reverse order to preserve offsets
-        var modified = source
-        for pos in positions.reversed() {
-            let offset = pos.utf8Offset
-            let idx = modified.index(modified.startIndex, offsetBy: offset)
-            let endIdx = modified.index(idx, offsetBy: oldName.count)
-            guard modified[idx..<endIdx] == oldName else { continue }
-            modified.replaceSubrange(idx..<endIdx, with: newName)
-        }
+        let modified = modifiedTree.description
 
         let original = source
         var warning: String? = nil
-
-        // Verify
         var verified = true
         if verify {
             let verifyTree = Parser.parse(source: modified)
@@ -155,6 +143,27 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(result)
         print(String(data: data, encoding: .utf8)!)
+    }
+}
+
+/// SyntaxRewriter that renames all occurrences of a symbol in a file.
+class SymbolRenameRewriter: SyntaxRewriter {
+    let oldName: String
+    let newName: String
+    var renameCount = 0
+
+    init(oldName: String, newName: String) {
+        self.oldName = oldName
+        self.newName = newName
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: TokenSyntax) -> TokenSyntax {
+        guard case .identifier = node.tokenKind, node.text == oldName else {
+            return node
+        }
+        renameCount += 1
+        return node.with(\.tokenKind, .identifier(newName))
     }
 }
 

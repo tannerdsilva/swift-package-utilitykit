@@ -43,12 +43,15 @@ struct SortCommand: ParsableCommand, EditCommand {
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
 
-        // Find the type's member block
-        let finder = TypeMemberFinder(targetName: typeName)
-        finder.walk(tree)
+        // Use SyntaxRewriter to sort members
+        let rewriter = MemberSortRewriter(targetName: typeName, sortBy: sortBy)
+        let modifiedTree = rewriter.rewrite(tree)
 
-        guard let memberBlock = finder.foundMemberBlock else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found")
+        guard rewriter.didModify else {
+            let warning = rewriter.notFound
+                ? "no type '\(typeName)' found"
+                : "only one member; nothing to sort"
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: warning)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(result)
@@ -56,78 +59,7 @@ struct SortCommand: ParsableCommand, EditCommand {
             return
         }
 
-        // Get the member block's source range
-        let blockStart = memberBlock.position.utf8Offset
-        let blockEnd = memberBlock.endPosition.utf8Offset
-
-        // Extract member declarations
-        let members = memberBlock.members
-        guard members.count > 1 else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "only one member; nothing to sort")
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(result)
-            print(String(data: data, encoding: .utf8)!)
-            return
-        }
-
-        // Collect member info
-        struct MemberInfo {
-            let decl: MemberBlockItemSyntax
-            let name: String
-            let kind: String
-            let source: String
-        }
-
-        var memberInfos: [MemberInfo] = []
-        for member in members {
-            let decl = member.decl
-            let name = extractName(from: decl)
-            let kind = extractKind(from: decl)
-            let memberSource = member.description
-            memberInfos.append(MemberInfo(decl: member, name: name, kind: kind, source: memberSource))
-        }
-
-        // Sort
-        switch sortBy {
-        case "kind":
-            memberInfos.sort { a, b in
-                if a.kind != b.kind { return a.kind < b.kind }
-                return a.name < b.name
-            }
-        default:
-            memberInfos.sort { a, b in
-                if a.kind != b.kind {
-                    let order = ["property", "method", "initializer", "deinitializer", "subscript", "typealias", "associatedtype", "enumcase", "nestedtype"]
-                    let aOrder = order.firstIndex(of: a.kind) ?? 99
-                    let bOrder = order.firstIndex(of: b.kind) ?? 99
-                    if aOrder != bOrder { return aOrder < bOrder }
-                }
-                return a.name < b.name
-            }
-        }
-
-        // Build sorted member block
-        let sortedSource = memberInfos.map { $0.source }.joined()
-
-        // Replace the member block content
-        let startIdx = source.index(source.startIndex, offsetBy: blockStart)
-        let endIdx = source.index(source.startIndex, offsetBy: blockEnd)
-
-        // Find the opening brace position
-        let blockText = String(source[startIdx..<endIdx])
-        let braceIdx = blockText.firstIndex(of: "{")!
-        let afterBrace = blockText[blockText.index(after: braceIdx)...]
-
-        // Find the closing brace (relative to blockText, not afterBrace)
-        let closeBraceInBlock = blockText.lastIndex(of: "}")!
-        let contentStart = blockText.index(after: braceIdx)
-        let contentEnd = closeBraceInBlock
-
-        var modified = source
-        let rangeStart = source.index(startIdx, offsetBy: blockText.distance(from: blockText.startIndex, to: contentStart))
-        let rangeEnd = source.index(startIdx, offsetBy: blockText.distance(from: blockText.startIndex, to: contentEnd))
-        modified.replaceSubrange(rangeStart..<rangeEnd, with: "\n" + sortedSource + "\n")
+        let modified = modifiedTree.description
 
         let original = source
         var warning: String? = nil
@@ -165,6 +97,85 @@ struct SortCommand: ParsableCommand, EditCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(result)
         print(String(data: data, encoding: .utf8)!)
+    }
+}
+
+/// SyntaxRewriter that sorts members of a type declaration.
+class MemberSortRewriter: SyntaxRewriter {
+    let targetName: String
+    let sortBy: String
+    var didModify = false
+    var notFound = true
+
+    init(targetName: String, sortBy: String) {
+        self.targetName = targetName
+        self.sortBy = sortBy
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: StructDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        notFound = false
+        return DeclSyntax(sortMembers(of: node))
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        notFound = false
+        return DeclSyntax(sortMembers(of: node))
+    }
+
+    override func visit(_ node: EnumDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        notFound = false
+        return DeclSyntax(sortMembers(of: node))
+    }
+
+    override func visit(_ node: ProtocolDeclSyntax) -> DeclSyntax {
+        guard node.name.text == targetName else { return DeclSyntax(node) }
+        notFound = false
+        return DeclSyntax(sortMembers(of: node))
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> DeclSyntax {
+        let extName = node.extendedType.description.trimmingCharacters(in: .whitespaces)
+        guard extName == targetName else { return DeclSyntax(node) }
+        notFound = false
+        return DeclSyntax(sortMembers(of: node))
+    }
+
+    private func sortMembers<T: DeclGroupSyntax>(of node: T) -> T {
+        let members = node.memberBlock.members
+        guard members.count > 1 else { return node }
+
+        var infos: [MemberSortInfo] = []
+        for member in members {
+            let name = extractName(from: member.decl)
+            let kind = extractKind(from: member.decl)
+            infos.append(MemberSortInfo(item: member, name: name, kind: kind))
+        }
+
+        switch sortBy {
+        case "kind":
+            infos.sort { a, b in
+                if a.kind != b.kind { return a.kind < b.kind }
+                return a.name < b.name
+            }
+        default:
+            infos.sort { a, b in
+                if a.kind != b.kind {
+                    let order = ["property", "method", "initializer", "deinitializer", "subscript", "typealias", "associatedtype", "enumcase", "nestedtype"]
+                    let aOrder = order.firstIndex(of: a.kind) ?? 99
+                    let bOrder = order.firstIndex(of: b.kind) ?? 99
+                    if aOrder != bOrder { return aOrder < bOrder }
+                }
+                return a.name < b.name
+            }
+        }
+
+        let sortedList = MemberBlockItemListSyntax(infos.map { $0.item })
+        didModify = true
+        return node.with(\.memberBlock.members, sortedList)
     }
 }
 
@@ -206,4 +217,11 @@ private func extractKind(from decl: DeclSyntax) -> String {
     if decl.is(VariableDeclSyntax.self) { return "property" }
     if decl.is(EnumCaseDeclSyntax.self) { return "enumcase" }
     return "other"
+}
+
+/// Information about a member for sorting.
+struct MemberSortInfo {
+    let item: MemberBlockItemSyntax
+    let name: String
+    let kind: String
 }

@@ -95,11 +95,11 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
 
-        // Find the declaration to delete
-        let finder = DeclarationFinder(targetName: name)
-        finder.walk(tree)
+        // Use SyntaxRewriter to remove the declaration
+        let rewriter = DeclarationDeleteRewriter(targetName: name)
+        let modifiedTree = rewriter.rewrite(tree)
 
-        guard let decl = finder.foundDeclaration else {
+        guard rewriter.didDelete else {
             let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no declaration '\(name)' found")
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -108,14 +108,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
             return
         }
 
-        // Calculate the range from leading trivia start to end of node
-        let startOffset = decl.position.utf8Offset
-        let endOffset = decl.endPosition.utf8Offset
-        let startIdx = source.index(source.startIndex, offsetBy: startOffset)
-        let endIdx = source.index(source.startIndex, offsetBy: endOffset)
-
-        var modified = source
-        modified.removeSubrange(startIdx..<endIdx)
+        let modified = modifiedTree.description
 
         let original = source
         var warning: String? = nil
@@ -153,6 +146,47 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(result)
         print(String(data: data, encoding: .utf8)!)
+    }
+}
+
+/// SyntaxRewriter that removes a declaration by name.
+class DeclarationDeleteRewriter: SyntaxRewriter {
+    let targetName: String
+    var didDelete = false
+
+    init(targetName: String) {
+        self.targetName = targetName
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visitAny(_ node: Syntax) -> Syntax? {
+        if let decl = node.as(DeclSyntax.self), matchesTarget(decl) {
+            didDelete = true
+            return nil
+        }
+        return node
+    }
+
+    private func matchesTarget(_ decl: DeclSyntax) -> Bool {
+        if let s = decl.as(StructDeclSyntax.self) { return s.name.text == targetName }
+        if let c = decl.as(ClassDeclSyntax.self) { return c.name.text == targetName }
+        if let e = decl.as(EnumDeclSyntax.self) { return e.name.text == targetName }
+        if let p = decl.as(ProtocolDeclSyntax.self) { return p.name.text == targetName }
+        if let f = decl.as(FunctionDeclSyntax.self) { return f.name.text == targetName }
+        if let v = decl.as(VariableDeclSyntax.self) {
+            for binding in v.bindings {
+                if let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
+                   pattern.identifier.text == targetName {
+                    return true
+                }
+            }
+        }
+        if let t = decl.as(TypeAliasDeclSyntax.self) { return t.name.text == targetName }
+        if let a = decl.as(AssociatedTypeDeclSyntax.self) { return a.name.text == targetName }
+        if let i = decl.as(InitializerDeclSyntax.self) { return targetName == "init" }
+        if let d = decl.as(DeinitializerDeclSyntax.self) { return targetName == "deinit" }
+        if let s = decl.as(SubscriptDeclSyntax.self) { return targetName == "subscript" }
+        return false
     }
 }
 
