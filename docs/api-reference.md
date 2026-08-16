@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-code-query` is a Swift source code analysis tool with 19 subcommands.
+`swift-code-query` is a Swift source code analysis tool with 20 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -494,3 +494,23 @@ swift-code-query force-unwraps [<paths>...] [--output-format <format>]
 | `--exclude` | Skip files with these extensions (comma-separated) |
 
 **Output type:** `ForceUnwrapItem` — `{file, line, column, context}`
+
+---
+
+### `docc-check`
+
+Validate docc documentation comments by checking that symbol references (backtick-enclosed names in `///` comments) point to declarations that actually exist in the project. Catches stale or misspelled symbol paths. Does not resolve qualified names, module references, or external symbols.
+
+```
+swift-code-query docc-check [<paths>...] [--output-format <format>]
+    [--pretty-print] [--include <exts>] [--exclude <exts>]
+```
+
+| Flag/Option | Description |
+|---|---|
+| `--output-format` | json, compact, short |
+| `--pretty-print` | Pretty-print JSON output |
+| `--include` | Only files with these extensions (comma-separated) |
+| `--exclude` | Skip files with these extensions (comma-separated) |
+
+**Output type:** `DoccWarning` — `{file, line, column, severity, message, referencedSymbol}`

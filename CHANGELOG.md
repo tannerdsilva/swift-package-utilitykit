@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 (2026-08-15)
+
+### Added
+- `docc-check` subcommand — validate docc documentation comments by checking
+  that symbol references point to declarations that actually exist in the
+  project. Catches stale or misspelled symbol paths.
+
+### Fixed
+- `Makefile install-plugin` target — inlined `plugin_symlink`/`plugin_copy`
+  commands instead of using multi-line `define` blocks inside a shell
+  `if/then/else/fi` block. The define blocks contained embedded newlines
+  that broke shell syntax when expanded inside a single-line command.
+
 ## 0.3.0 (2026-08-15)
 
 ### Added

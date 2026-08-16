@@ -143,6 +143,8 @@ swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
                                   [--pretty-print]
 swift-code-query macro-expand [<paths>...] [--output-format <format>]
                                   [--pretty-print]
+swift-code-query docc-check [<paths>...] [--output-format <format>]
+                                  [--pretty-print]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -414,6 +416,18 @@ swift-code-query macro-expand Sources/ --pretty-print
 
 Output is structured JSON with file, line, column, macro name, kind (declaration or expression), and arguments.
 
+**docc-check** — validate docc documentation comments by checking that symbol references (backtick-enclosed names in `///` comments) point to declarations that actually exist in the project. Catches stale or misspelled symbol paths in documentation. Does not resolve qualified names, module references, or external symbols.
+
+```bash
+# check all source files for invalid docc references
+swift-code-query docc-check Sources/
+
+# pretty-printed output
+swift-code-query docc-check Sources/ --pretty-print
+```
+
+Output: `{file, line, column, severity, message, referencedSymbol}`
+
 **force-unwraps** — scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap (`value!`), force-try (`try!`), or force-cast (`as!`). Uses AST-based detection, not regex.
 
 ```bash
@@ -618,8 +632,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-code-query/                        agentic code query/inspect/search/index tool (23 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 19 subcommands)
+  swift-code-query/                        agentic code query/inspect/search/index tool (24 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 20 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -639,6 +653,7 @@ Sources/
     TreeCommand.swift                      hierarchical symbol tree
     ValidateCommand.swift                  shallow syntax validation
     MacroExpandCommand.swift               macro expansion site finder
+    DoccCheckCommand.swift                 docc documentation validation
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)
