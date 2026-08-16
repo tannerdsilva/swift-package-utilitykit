@@ -47,6 +47,12 @@ struct BuildCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
 
+    @Flag(name: .customLong("warnings-only"), help: "Suppress phases and raw log — output only diagnostics, summary, and exit status.")
+    var warningsOnly = false
+
+    @Flag(name: .customLong("errors-only"), help: "Suppress phases, raw log, and warnings — output only errors, summary, and exit status.")
+    var errorsOnly = false
+
     mutating func run() throws {
         if schema {
             print(BuildResult.jsonSchema)
@@ -144,16 +150,31 @@ struct BuildCommand: ParsableCommand {
         let parsed = parseBuildOutput(combined)
         let succeeded = process.terminationStatus == 0
 
+        let compactMode = warningsOnly || errorsOnly
+
+        // When errors-only, strip warnings and notes from the diagnostics
+        var diag = parsed.diagnostics
+        if errorsOnly {
+            diag = BuildDiagnostics(
+                errorCount: diag.errorCount,
+                warningCount: 0,
+                noteCount: 0,
+                errors: diag.errors,
+                warnings: [],
+                notes: []
+            )
+        }
+
         let result = BuildResult(
             ok: true,
             succeeded: succeeded,
             exitCode: Int(process.terminationStatus),
             duration: duration,
-            phases: parsed.phases,
-            diagnostics: parsed.diagnostics,
+            phases: compactMode ? [] : parsed.phases,
+            diagnostics: diag,
             summary: makeSummary(succeeded: succeeded, exitCode: Int(process.terminationStatus),
-                                 diagnostics: parsed.diagnostics, duration: duration),
-            rawLog: String(combined.suffix(5000))
+                                 diagnostics: diag, duration: duration),
+            rawLog: compactMode ? "" : String(combined.suffix(5000))
         )
 
         try emit(result)
@@ -188,6 +209,7 @@ struct BuildCommand: ParsableCommand {
         var parsed = ParsedOutput()
         let lines = text.components(separatedBy: "\n")
         var i = 0
+        var seenDiagnostics = Set<String>() // dedup by file:line:message
 
         while i < lines.count {
             let line = lines[i]
@@ -217,33 +239,40 @@ struct BuildCommand: ParsableCommand {
                 }
                 let fullMessage = context.joined(separator: "\n")
 
-                switch diag.level {
-                case "error":
-                    parsed.diagnostics.errorCount += 1
-                    if parsed.diagnostics.errors.count < 20 {
-                        parsed.diagnostics.errors.append(DiagnosticItem(
-                            file: diag.file, line: diag.line, column: diag.column,
-                            message: diag.message, context: fullMessage
-                        ))
+                // deduplicate: same file+line+message may appear in both per-file
+                // compilation and module emission phases
+                let dedupKey = "\(diag.file):\(diag.line):\(diag.message)"
+                if !seenDiagnostics.contains(dedupKey) {
+                    seenDiagnostics.insert(dedupKey)
+
+                    switch diag.level {
+                    case "error":
+                        parsed.diagnostics.errorCount += 1
+                        if parsed.diagnostics.errors.count < 20 {
+                            parsed.diagnostics.errors.append(DiagnosticItem(
+                                file: diag.file, line: diag.line, column: diag.column,
+                                message: diag.message, context: fullMessage
+                            ))
+                        }
+                    case "warning":
+                        parsed.diagnostics.warningCount += 1
+                        if parsed.diagnostics.warnings.count < 20 {
+                            parsed.diagnostics.warnings.append(DiagnosticItem(
+                                file: diag.file, line: diag.line, column: diag.column,
+                                message: diag.message, context: fullMessage
+                            ))
+                        }
+                    case "note":
+                        parsed.diagnostics.noteCount += 1
+                        if parsed.diagnostics.notes.count < 20 {
+                            parsed.diagnostics.notes.append(DiagnosticItem(
+                                file: diag.file, line: diag.line, column: diag.column,
+                                message: diag.message, context: fullMessage
+                            ))
+                        }
+                    default:
+                        break
                     }
-                case "warning":
-                    parsed.diagnostics.warningCount += 1
-                    if parsed.diagnostics.warnings.count < 20 {
-                        parsed.diagnostics.warnings.append(DiagnosticItem(
-                            file: diag.file, line: diag.line, column: diag.column,
-                            message: diag.message, context: fullMessage
-                        ))
-                    }
-                case "note":
-                    parsed.diagnostics.noteCount += 1
-                    if parsed.diagnostics.notes.count < 20 {
-                        parsed.diagnostics.notes.append(DiagnosticItem(
-                            file: diag.file, line: diag.line, column: diag.column,
-                            message: diag.message, context: fullMessage
-                        ))
-                    }
-                default:
-                    break
                 }
                 continue
             }
