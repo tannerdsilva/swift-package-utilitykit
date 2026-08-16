@@ -712,7 +712,7 @@ struct SwiftCodeQueryIntegrationTests {
 
         let output = try runCommand(["clean", tmpDir.path, "--pretty-print"])
         #expect(output.contains("\"success\" : true"))
-        #expect(output.contains("\"mode\" : \"clean\""))
+        #expect(output.contains("dependencies preserved"))
     }
 
     @Test("clean fails on directory without Package.swift")

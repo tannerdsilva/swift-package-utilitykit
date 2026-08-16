@@ -519,10 +519,12 @@ swift-code-query docc-check [<paths>...] [--output-format <format>]
 
 ### `clean`
 
-Delete build artifacts without removing dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is preserved, so the next build recompiles without re-fetching.
+Delete build artifacts without touching dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is **preserved** — the next build recompiles without re-fetching.
+
+To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-dependencies`). This is a destructive operation: every dependency is deleted from `.build/checkouts/` and must be re-fetched from scratch on the next build.
 
 ```
-swift-code-query clean [<path>] [--reset] [--pretty-print]
+swift-code-query clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
 | Argument | Description |
@@ -531,7 +533,7 @@ swift-code-query clean [<path>] [--reset] [--pretty-print]
 
 | Flag/Option | Description |
 |---|---|
-| `--reset` | Full reset — removes dependencies too (re-fetched on next build) |
+| `--purge-all`, `--destroy-dependencies` | ⚠️ **DESTRUCTIVE:** Delete ALL cached dependencies in addition to build artifacts. Every dependency is removed from `.build/checkouts/` and must be re-fetched from scratch on the next build. |
 | `--pretty-print` | Pretty-print JSON output |
 
-**Output type:** `CleanResult` — `{success, mode (clean|reset), directory, output}`
+**Output type:** `CleanResult` — `{success, mode, directory, output}` — mode is `"clean (dependencies preserved)"` or `"purge-all (dependencies DESTROYED)"`.

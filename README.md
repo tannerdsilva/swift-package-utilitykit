@@ -145,7 +145,7 @@ swift-code-query macro-expand [<paths>...] [--output-format <format>]
                                   [--pretty-print]
 swift-code-query docc-check [<paths>...] [--output-format <format>]
                                   [--pretty-print]
-swift-code-query clean [<path>] [--reset] [--pretty-print]
+swift-code-query clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -429,20 +429,22 @@ swift-code-query docc-check Sources/ --pretty-print
 
 Output: `{file, line, column, severity, message, referencedSymbol}`
 
-**clean** — delete build artifacts without removing dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is preserved, so the next build recompiles without re-fetching. Use `--reset` to also remove dependencies (re-fetched on next build).
+**clean** — delete build artifacts without touching dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is **preserved** — the next build recompiles without re-fetching.
+
+To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-dependencies`). This is a destructive operation: every dependency is deleted from `.build/checkouts/` and must be re-fetched from scratch on the next build. Only use this when you are certain you want to wipe the entire cache.
 
 ```bash
-# clean build artifacts
+# clean build artifacts (dependencies preserved)
 swift-code-query clean
 
-# full reset — removes dependencies too
-swift-code-query clean --reset
+# ⚠️  DESTRUCTIVE: delete dependencies too (re-fetched on next build)
+swift-code-query clean --purge-all
 
 # clean a specific package directory
 swift-code-query clean /path/to/project
 ```
 
-Output: `{success, mode (clean|reset), directory, output}`
+Output: `{success, mode, directory, output}` — mode is `"clean (dependencies preserved)"` or `"purge-all (dependencies DESTROYED)"`.
 
 **force-unwraps** — scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap (`value!`), force-try (`try!`), or force-cast (`as!`). Uses AST-based detection, not regex.
 

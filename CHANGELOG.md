@@ -3,9 +3,12 @@
 ## 0.5.0 (2026-08-15)
 
 ### Added
-- `clean` subcommand — delete build artifacts without removing dependencies.
-  Runs `swift package clean` under the hood. Supports `--reset` for full
-  cache reset (dependencies re-fetched on next build).
+- `clean` subcommand — delete build artifacts without touching dependencies.
+  Runs `swift package clean` under the hood. Dependency cache is preserved.
+- `--purge-all` / `--destroy-dependencies` flag — ⚠️ **destructive**: deletes
+  ALL cached dependencies. Every dependency is removed from `.build/checkouts/`
+  and must be re-fetched from scratch on the next build. Named explicitly to
+  prevent accidental use.
 
 ## 0.4.0 (2026-08-15)
 
