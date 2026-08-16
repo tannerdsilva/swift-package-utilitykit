@@ -493,6 +493,133 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("typealias MyConfig = Config"))
     }
 
+    // MARK: - --output flag
+
+    @Test("find --output writes to file")
+    func findOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("find_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["find", "Normalizer", "Sources/NormalizerCore", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("Normalizer"))
+    }
+
+    @Test("inspect --output writes to file")
+    func inspectOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inspect_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["inspect", "--symbol", "Normalizer", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("Normalizer"))
+    }
+
+    @Test("members --output writes to file")
+    func membersOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("members_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["members", "--type", "NormalizationOptions", "Sources/NormalizerCore", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("lineEnding"))
+    }
+
+    @Test("complexity --output writes to file")
+    func complexityOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complexity_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["complexity", "Sources/NormalizerCore", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("\"complexity\""))
+    }
+
+    @Test("diff --output writes to file")
+    func diffOutputFile() throws {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("diff_out_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        _ = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("\"addedCount\""))
+    }
+
+    // MARK: - stdin piping
+
+    @Test("find - reads from stdin")
+    func findStdin() throws {
+        let source = "struct Foo { func bar() {} }"
+        let output = try runCommandWithStdin(["find", "Foo", "-"], stdin: source)
+        #expect(output.contains("Foo"))
+        #expect(output.contains("struct"))
+    }
+
+    @Test("inspect - reads from stdin")
+    func inspectStdin() throws {
+        let source = "struct Foo { func bar() {} }"
+        let output = try runCommandWithStdin(["inspect", "--symbol", "Foo", "-"], stdin: source)
+        #expect(output.contains("Foo"))
+        #expect(output.contains("struct"))
+    }
+
+    @Test("format - reads from stdin")
+    func formatStdin() throws {
+        let source = "let x = 1\nlet y = 2\n"
+        let output = try runCommandWithStdin(["format", "-", "--minify"], stdin: source)
+        // minify strips all whitespace; output should contain the tokens in order
+        #expect(output.contains("let"))
+        #expect(output.contains("x"))
+        #expect(output.contains("1"))
+    }
+
+    // MARK: - members details
+
+    @Test("members includes enum cases")
+    func membersEnumCases() throws {
+        let output = try runCommand(["members", "--type", "CommentMode", "Sources/NormalizerCore/NormalizationOptions.swift"])
+        #expect(output.contains("enum_case"))
+        #expect(output.contains("preserve"))
+        #expect(output.contains("hide"))
+    }
+
+    @Test("members --pretty-print works")
+    func membersPrettyPrint() throws {
+        let output = try runCommand(["members", "--type", "NormalizationOptions", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
+        #expect(output.contains("lineEnding"))
+        #expect(output.contains("stripTrailingWhitespace"))
+    }
+
+    // MARK: - complexity details
+
+    @Test("complexity includes ratings")
+    func complexityRatings() throws {
+        let output = try runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift"])
+        #expect(output.contains("\"rating\""))
+    }
+
+    @Test("complexity --pretty-print works")
+    func complexityPrettyPrint() throws {
+        let output = try runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift", "--pretty-print"])
+        #expect(output.contains("rating"))
+    }
+
+    // MARK: - diff details
+
+    @Test("diff self produces empty changes")
+    func diffSelfEmpty() throws {
+        let output = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift"])
+        #expect(output.contains("\"addedCount\":0"))
+        #expect(output.contains("\"removedCount\":0"))
+    }
+
+    @Test("diff --pretty-print works")
+    func diffPrettyPrint() throws {
+        let output = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
+        #expect(output.contains("addedCount"))
+        #expect(output.contains("removedCount"))
+    }
+
     // MARK: - helpers
 
     private func runCommand(_ args: [String]) throws -> String {
@@ -508,6 +635,27 @@ struct SwiftCodeQueryIntegrationTests {
         process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func runCommandWithStdin(_ args: [String], stdin: String) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.arguments = args
+
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = outPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(stdin.data(using: .utf8)!)
+        try stdinPipe.fileHandleForWriting.close()
+        process.waitUntilExit()
+
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8) ?? ""
     }
 }
