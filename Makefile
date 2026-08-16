@@ -109,19 +109,6 @@ install-release: release
 
 # --- install plugin ----------------------------------------------------------
 
-define plugin_symlink
-	@echo "  Symlinking plugin: $(PLUGIN_DST) -> $(PLUGIN_SRC)"
-	@ln -sf "$(PLUGIN_SRC)" "$(PLUGIN_DST)"
-	@echo "  Plugin symlinked."
-endef
-
-define plugin_copy
-	@echo "  Copying plugin: $(PLUGIN_SRC) -> $(PLUGIN_DST)"
-	@rm -rf "$(PLUGIN_DST)"
-	@cp -R "$(PLUGIN_SRC)" "$(PLUGIN_DST)"
-	@echo "  Plugin copied."
-endef
-
 install-plugin: install-release
 	@echo ""
 	@echo "=== Installing Hermes plugin ==="
@@ -150,9 +137,14 @@ install-plugin: install-release
 		_mode="$(PLUGIN_MODE)"; \
 	fi; \
 	if [ "$$_mode" = "symlink" ]; then \
-		$(plugin_symlink) \
+		echo "  Symlinking plugin: $(PLUGIN_DST) -> $(PLUGIN_SRC)"; \
+		ln -sf "$(PLUGIN_SRC)" "$(PLUGIN_DST)"; \
+		echo "  Plugin symlinked."; \
 	else \
-		$(plugin_copy) \
+		echo "  Copying plugin: $(PLUGIN_SRC) -> $(PLUGIN_DST)"; \
+		rm -rf "$(PLUGIN_DST)"; \
+		cp -R "$(PLUGIN_SRC)" "$(PLUGIN_DST)"; \
+		echo "  Plugin copied."; \
 	fi
 	@echo ""
 	@echo "=== Installation complete ==="

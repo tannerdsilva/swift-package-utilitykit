@@ -631,6 +631,55 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("#externalMacro"))
     }
 
+    // MARK: - docc-check command
+
+    @Test("docc-check finds invalid symbol references")
+    func doccCheckFindsInvalidRefs() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("docc_test_\(UUID().uuidString).swift")
+        try """
+        /// This references `NonExistentType` and `AlsoMissing`
+        struct Foo {
+            var x: Int
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["docc-check", tmp.path])
+        #expect(output.contains("NonExistentType"))
+        #expect(output.contains("AlsoMissing"))
+    }
+
+    @Test("docc-check passes for valid references")
+    func doccCheckValidRefs() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("docc_valid_\(UUID().uuidString).swift")
+        try """
+        /// This references `Foo` which exists below
+        struct Foo {
+            var x: Int
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["docc-check", tmp.path])
+        #expect(output.hasPrefix("[]"))
+    }
+
+    @Test("docc-check --pretty-print works")
+    func doccCheckPrettyPrint() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("docc_pp_\(UUID().uuidString).swift")
+        try """
+        /// References `MissingType`
+        struct Bar {}
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["docc-check", tmp.path, "--pretty-print"])
+        #expect(output.contains("MissingType"))
+    }
+
     // MARK: - complexity nesting fix
 
     @Test("complexity correctly handles nested functions")
