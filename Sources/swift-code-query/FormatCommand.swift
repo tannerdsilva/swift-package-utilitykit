@@ -30,8 +30,19 @@ struct FormatCommand: ParsableCommand {
         let useMinify = minify && !pretty
 
         for filePath in files {
-            let url = URL(fileURLWithPath: filePath)
-            let original = try String(contentsOf: url, encoding: .utf8)
+            let original: String
+            let displayPath: String
+            let url: URL?
+            if isStdinPath(filePath) {
+                original = readSourceFromStdin()
+                displayPath = "<stdin>"
+                url = nil
+            } else {
+                let u = URL(fileURLWithPath: filePath)
+                original = try String(contentsOf: u, encoding: .utf8)
+                displayPath = filePath
+                url = u
+            }
 
             let formatted: String
             if useMinify {
@@ -42,15 +53,18 @@ struct FormatCommand: ParsableCommand {
             }
 
             if formatted == original {
-                if !dryRun { print("\(filePath): unchanged") }
+                if !dryRun { print("\(displayPath): unchanged") }
                 continue
             }
 
             if dryRun {
-                print("\(filePath): would change")
+                print("\(displayPath): would change")
+            } else if isStdinPath(filePath) {
+                // print to stdout for piping
+                print(formatted)
             } else {
-                try formatted.write(to: url, atomically: true, encoding: .utf8)
-                print("\(filePath): formatted")
+                try formatted.write(to: url!, atomically: true, encoding: .utf8)
+                print("\(displayPath): formatted")
             }
         }
     }

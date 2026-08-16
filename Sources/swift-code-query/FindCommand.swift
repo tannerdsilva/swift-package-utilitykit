@@ -56,8 +56,60 @@ struct FindCommand: ParsableCommand {
         guard !symbol.isEmpty else {
             throw ValidationError("symbol is required")
         }
+
+        // check for stdin path
+        let stdinPaths = paths.filter(isStdinPath)
+        let filePaths = paths.filter { !isStdinPath($0) }
+
+        // handle stdin input
+        if !stdinPaths.isEmpty {
+            let source = readSourceFromStdin()
+            let tree = Parser.parse(source: source)
+            let allKinds: Set<String> = [
+                "function", "struct", "class", "enum", "protocol",
+                "typealias", "associatedtype", "variable",
+                "extension", "initializer", "subscript",
+                "operator", "precedencegroup", "macro", "import"
+            ]
+            let collector = DeclarationCollector(filePath: "<stdin>", source: source, kinds: allKinds)
+            collector.walk(tree)
+            var results: [FindResult] = []
+            for decl in collector.declarations {
+                let matches: Bool
+                if exact {
+                    if caseSensitive {
+                        matches = decl.name == symbol
+                    } else {
+                        matches = decl.name.lowercased() == symbol.lowercased()
+                    }
+                } else {
+                    if caseSensitive {
+                        matches = decl.name.contains(symbol)
+                    } else {
+                        matches = decl.name.localizedCaseInsensitiveContains(symbol)
+                    }
+                }
+                if matches {
+                    results.append(FindResult(
+                        name: decl.name, kind: decl.kind, file: decl.file,
+                        line: decl.line, column: decl.column,
+                        signature: decl.signature, docComment: decl.docComment,
+                        modifiers: decl.modifiers
+                    ))
+                }
+            }
+            results.sort { ($0.kind, $0.name) < ($1.kind, $1.name) }
+            if let limit = limit, results.count > limit {
+                results = Array(results.prefix(limit))
+            }
+            let fmt: OutputFormat = prettyPrint ? .json : outputFormat
+            let outputStr = try formatOutput(results, format: fmt)
+            try writeOutput(outputStr, to: outputPath)
+            return
+        }
+
         let files = collectSwiftFiles(
-            from: paths,
+            from: filePaths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
