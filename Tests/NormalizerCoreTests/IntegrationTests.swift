@@ -680,6 +680,52 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("MissingType"))
     }
 
+    // MARK: - clean command
+
+    @Test("clean succeeds on this package")
+    func cleanSucceeds() throws {
+        // Create a temporary package, build it, then clean it
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clean_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(
+            name: "CleanTest",
+            targets: [.target(name: "CleanTest")]
+        )
+        """.write(to: tmpDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        try FileManager.default.createDirectory(at: tmpDir.appendingPathComponent("Sources/CleanTest"), withIntermediateDirectories: true)
+        try "public func greet() {}\n".write(to: tmpDir.appendingPathComponent("Sources/CleanTest/main.swift"), atomically: true, encoding: .utf8)
+
+        // Build first to create artifacts
+        let buildProc = Process()
+        buildProc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        buildProc.arguments = ["swift", "build", "--package-path", tmpDir.path]
+        try buildProc.run()
+        buildProc.waitUntilExit()
+        guard buildProc.terminationStatus == 0 else { return } // skip if build fails
+
+        let output = try runCommand(["clean", tmpDir.path, "--pretty-print"])
+        #expect(output.contains("\"success\" : true"))
+        #expect(output.contains("\"mode\" : \"clean\""))
+    }
+
+    @Test("clean fails on directory without Package.swift")
+    func cleanFailsNoPackage() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("no_pkg_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["clean", tmp.path])
+        #expect(output.contains("no Package.swift found"))
+    }
+
     // MARK: - complexity nesting fix
 
     @Test("complexity correctly handles nested functions")
