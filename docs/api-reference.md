@@ -41,7 +41,7 @@ swift-code-query find <symbol> [<paths>...] [--exact] [--case-sensitive]
 | Argument | Description |
 |---|---|
 | `symbol` | Symbol name to search for (substring match by default) |
-| `paths` | Files or directories to search (default: `.`) |
+| `paths` | Files or directories to search (default: `.`). Use `-` for stdin. |
 
 | Flag/Option | Description |
 |---|---|
@@ -100,7 +100,7 @@ swift-code-query inspect <symbol> [<paths>...] [--output-format <format>]
 | Argument | Description |
 |---|---|
 | `symbol` | Symbol name to inspect |
-| `paths` | Files or directories to search (default: `.`) |
+| `paths` | Files or directories to search (default: `.`). Use `-` for stdin. |
 
 | Flag/Option | Description |
 |---|---|
@@ -125,7 +125,7 @@ swift-code-query format <files>... [--minify] [--preserve-indentation]
 
 | Argument | Description |
 |---|---|
-| `files` | Files to format |
+| `files` | Files to format. Use `-` for stdin (prints result to stdout). |
 
 | Flag/Option | Description |
 |---|---|

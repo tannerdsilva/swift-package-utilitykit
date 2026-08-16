@@ -188,6 +188,9 @@ immediate children:
 
 ```bash
 swift-code-query inspect Sources/Foo.swift --symbol MyStruct
+
+# pipe source through stdin (use `-` as path)
+cat Sources/Foo.swift | swift-code-query inspect --symbol MyStruct -
 ```
 
 **search** — full-text search across source files with regex support:
@@ -448,6 +451,9 @@ swift-code-query find "normalize" Sources/ --pretty-print
 
 # limit results
 swift-code-query find "normalize" Sources/ --limit 5
+
+# pipe source through stdin (use `-` as path)
+cat Sources/Foo.swift | swift-code-query find "MyStruct" -
 ```
 
 Default output format is `compact` — single-line JSON with no whitespace.
@@ -468,6 +474,9 @@ swift-code-query format Sources/ --dry-run
 
 # minify for LLM consumption
 swift-code-query format Sources/ --minify --dry-run
+
+# pipe source through stdin (use `-` as path)
+cat Sources/Foo.swift | swift-code-query format - --minify --dry-run
 ```
 
 ### `normalizer-tool`
