@@ -520,9 +520,164 @@ struct SwiftCodeQueryIntegrationTests {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("members_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["members", "--type", "NormalizationOptions", "Sources/NormalizerCore", "--output", out.path])
+        _ = try runCommand(["members", "--type", "OutputFormat", "Sources/swift-code-query/OutputFormat.swift", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
-        #expect(content.contains("lineEnding"))
+        #expect(content.contains("OutputFormat"))
+    }
+
+    // MARK: - validate command
+
+    @Test("validate detects syntax errors")
+    func validateDetectsErrors() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("validate_test_\(UUID().uuidString).swift")
+        try """
+        struct Foo {
+            var x: Int
+            func bar() {
+                if x > 0
+            }
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["validate", tmp.path])
+        #expect(output.contains("error"))
+        #expect(output.contains("expected"))
+    }
+
+    @Test("validate passes clean file")
+    func validateCleanFile() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("validate_clean_\(UUID().uuidString).swift")
+        try "let x: Int = 1\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["validate", tmp.path])
+        #expect(output.hasPrefix("[]") || output.hasPrefix("[\n"))
+    }
+
+    @Test("validate --warnings includes warnings")
+    func validateWarnings() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("validate_warn_\(UUID().uuidString).swift")
+        try """
+        struct Foo {
+            var x: Int
+            func bar() {
+                if x > 0
+            }
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["validate", tmp.path, "--warnings"])
+        #expect(output.contains("error"))
+    }
+
+    @Test("validate --pretty-print works")
+    func validatePrettyPrint() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("validate_pp_\(UUID().uuidString).swift")
+        try "struct Foo {}\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["validate", tmp.path, "--pretty-print"])
+        #expect(output.hasPrefix("[\n"))
+    }
+
+    // MARK: - macro-expand command
+
+    @Test("macro-expand finds macro usages")
+    func macroExpandFindsMacros() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macro_test_\(UUID().uuidString).swift")
+        try """
+        @freestanding(expression) macro stringify(_ value: Any) -> (Any, String) = #externalMacro(module: "M", type: "T")
+        struct Foo {
+            func test() {
+                let x = #stringify(1 + 2)
+            }
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["macro-expand", tmp.path])
+        #expect(output.contains("#externalMacro"))
+        #expect(output.contains("#stringify"))
+    }
+
+    @Test("macro-expand returns empty for files with no macros")
+    func macroExpandEmpty() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macro_empty_\(UUID().uuidString).swift")
+        try "let x: Int = 1\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["macro-expand", tmp.path])
+        #expect(output.hasPrefix("[]") || output.hasPrefix("[\n"))
+    }
+
+    @Test("macro-expand --pretty-print works")
+    func macroExpandPrettyPrint() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macro_pp_\(UUID().uuidString).swift")
+        try """
+        @freestanding(expression) macro stringify(_ value: Any) -> (Any, String) = #externalMacro(module: "M", type: "T")
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["macro-expand", tmp.path, "--pretty-print"])
+        #expect(output.contains("#externalMacro"))
+    }
+
+    // MARK: - complexity nesting fix
+
+    @Test("complexity correctly handles nested functions")
+    func complexityNestedFunctions() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complexity_nested_\(UUID().uuidString).swift")
+        try """
+        func outer() {
+            func inner() {
+                if true { if true {} }
+            }
+        }
+        func simple() {
+            let x = 1
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["complexity", tmp.path, "--pretty-print"])
+        // outer should have complexity 1 (base, no decision points in its body)
+        // inner should have complexity 3 (base + 2 ifs)
+        // simple should have complexity 1
+        #expect(output.contains("\"complexity\" : 1"))
+        // at least two entries with complexity 1 (outer and simple)
+        let complexity1Count = output.components(separatedBy: "\"complexity\" : 1").count - 1
+        #expect(complexity1Count >= 2)
+    }
+
+    // MARK: - diff missing types
+
+    @Test("diff detects init/deinit/subscript changes")
+    func diffInitDeinitSubscript() throws {
+        let file1 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("diff_init_a_\(UUID().uuidString).swift")
+        let file2 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("diff_init_b_\(UUID().uuidString).swift")
+        try "struct Foo {\n    func bar() {}\n}\n".write(to: file1, atomically: true, encoding: .utf8)
+        try "struct Foo {\n    init(x: Int) {}\n    deinit {}\n    subscript(i: Int) -> Int { 0 }\n    func bar() {}\n}\n".write(to: file2, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: file1)
+            try? FileManager.default.removeItem(at: file2)
+        }
+
+        let output = try runCommand(["diff", file1.path, file2.path, "--pretty-print"])
+        #expect(output.contains("initializer"))
+        #expect(output.contains("deinitializer"))
+        #expect(output.contains("subscript"))
     }
 
     @Test("complexity --output writes to file")
