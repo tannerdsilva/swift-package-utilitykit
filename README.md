@@ -135,6 +135,8 @@ swift-code-query conformances <paths>... [--include-extensions]
                                   [--pretty-print] [--schema]
 swift-code-query callgraph <paths>... [--include-unknown] [--pretty-print]
                                   [--schema]
+swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
+                                  [--output <file>]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -333,6 +335,49 @@ swift-code-query callgraph --schema
 Output: `{caller, callee, file, line, column, resolved}`.  The `resolved`
 field is `true` when the callee is a known function in the project.
 
+**tree** — show a hierarchical symbol tree for Swift source files, formatted as indented Swift-like declarations. Container types (struct, class, enum, protocol, extension) get `{ }` braces around their members. Imports and local variables inside function bodies are omitted. Designed for token-efficient agent consumption.
+
+```bash
+# show symbol tree for a directory
+swift-code-query tree Sources/
+
+# show tree for a single file
+swift-code-query tree Sources/NormalizerCore/Normalizer.swift
+
+# write to file
+swift-code-query tree Sources/ --output symbol-tree.txt
+```
+
+Output is indented text with Swift-like syntax:
+
+```
+// Sources/NormalizerCore/NormalizationOptions.swift
+public enum CommentMode: Sendable, Equatable {
+  case preserve
+  case hide
+}
+public struct NormalizationOptions: Sendable, Equatable {
+  public var lineEnding: LineEnding
+  public var stripTrailingWhitespace: Bool
+  public var ensureFinalNewline: Bool
+  public var indentation: IndentationPolicy
+  public var minify: Bool
+  public var commentMode: CommentMode
+  public enum LineEnding: Sendable, Equatable {
+    case lf
+    case crlf
+    public var stringValue: String
+  }
+  public enum IndentationPolicy: Sendable, Equatable {
+    case preserve
+    case tabsToSpaces(Int)
+    case spacesToTabs(Int)
+  }
+  public static let standard
+  public static let minified
+}
+```
+
 **`--schema` flag** — every new command supports `--schema`, which prints the
 JSON Schema for its output type and exits.  Small models can use this to
 construct correct queries on the first attempt, avoiding token-wasting retry
@@ -504,8 +549,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-code-query/                        agentic code query/inspect/format tool (20 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 14 subcommands)
+  swift-code-query/                        agentic code query/inspect/search/index tool (21 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 17 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -520,6 +565,7 @@ Sources/
     MembersCommand.swift                   list direct members of a type
     ComplexityCommand.swift                cyclomatic complexity per function
     DiffCommand.swift                      semantic declaration diff
+    TreeCommand.swift                      hierarchical symbol tree
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)

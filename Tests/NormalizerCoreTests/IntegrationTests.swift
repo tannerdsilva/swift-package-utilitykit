@@ -234,6 +234,265 @@ struct SwiftCodeQueryIntegrationTests {
         #expect(output.contains("BuildResult"))
     }
 
+    // MARK: - tree command
+
+    @Test("tree shows struct with braces and members")
+    func treeStructWithBraces() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_struct_\(UUID().uuidString).swift")
+        try """
+        public struct MyStruct {
+            var x: Int
+            func foo() {}
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("public struct MyStruct {"))
+        #expect(output.contains("  var x: Int"))
+        #expect(output.contains("  func foo()"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree shows enum with cases")
+    func treeEnumCases() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_enum_\(UUID().uuidString).swift")
+        try """
+        enum Direction {
+            case north
+            case south
+            case east, west
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("enum Direction {"))
+        #expect(output.contains("  case north"))
+        #expect(output.contains("  case south"))
+        #expect(output.contains("  case east"))
+        #expect(output.contains("  case west"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree skips import declarations")
+    func treeSkipsImports() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_skipimports_\(UUID().uuidString).swift")
+        try """
+        import Foundation
+        import SwiftSyntax
+
+        struct Foo {}
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        // "import" as a line prefix should not appear (only the file header and struct)
+        let lines = output.split(separator: "\n").map(String.init)
+        for line in lines {
+            #expect(!line.hasPrefix("import"), "line should not start with 'import': \(line)")
+        }
+        #expect(output.contains("struct Foo"))
+    }
+
+    @Test("tree skips local variables inside function bodies")
+    func treeSkipsLocals() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_locals_\(UUID().uuidString).swift")
+        try """
+        struct Container {
+            func compute() {
+                let localVar = 42
+                var mutable = "hello"
+            }
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("struct Container {"))
+        #expect(output.contains("  func compute()"))
+        #expect(!output.contains("localVar"))
+        #expect(!output.contains("mutable"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree shows nested types with proper nesting")
+    func treeNestedTypes() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_nested_\(UUID().uuidString).swift")
+        try """
+        struct Outer {
+            struct Inner {
+                var value: Int
+            }
+            enum InnerEnum {
+                case a
+            }
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("struct Outer {"))
+        #expect(output.contains("  struct Inner {"))
+        #expect(output.contains("    var value: Int"))
+        #expect(output.contains("  }"))
+        #expect(output.contains("  enum InnerEnum {"))
+        #expect(output.contains("    case a"))
+        #expect(output.contains("  }"))
+        // closing brace of Outer
+        let outerCloseCount = output.components(separatedBy: "}\n").count - 1
+        #expect(outerCloseCount >= 1)
+    }
+
+    @Test("tree shows access modifiers")
+    func treeAccessModifiers() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_mods_\(UUID().uuidString).swift")
+        try """
+        public struct Foo {
+            private var secret: Int
+            public internal(set) var readable: String
+            public static func factory() -> Foo
+            private mutating func mutate() {}
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("public struct Foo {"))
+        #expect(output.contains("  private var secret: Int"))
+        #expect(output.contains("  public internal var readable: String"))
+        #expect(output.contains("  public static func factory()"))
+        #expect(output.contains("  private mutating func mutate()"))
+    }
+
+    @Test("tree shows extension with members")
+    func treeExtension() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_ext_\(UUID().uuidString).swift")
+        try """
+        extension String {
+            var reversed: String { String(self.reversed()) }
+            func foo() {}
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("extension String {"))
+        #expect(output.contains("  var reversed: String"))
+        #expect(output.contains("  func foo()"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree on file with no declarations returns empty")
+    func treeEmptyFile() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_empty_\(UUID().uuidString).swift")
+        try "// just a comment\n".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        // should have the file header but no symbols
+        #expect(output.contains(tmp.lastPathComponent))
+        // no declarations means nothing after the header line
+        let lines = output.split(separator: "\n").filter { !$0.isEmpty }
+        #expect(lines.count == 1) // just the // file header
+    }
+
+    @Test("tree --output writes to file")
+    func treeOutputFile() throws {
+        let src = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_src_\(UUID().uuidString).swift")
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_out_\(UUID().uuidString).txt")
+        try "struct Foo {}".write(to: src, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: out)
+        }
+
+        _ = try runCommand(["tree", src.path, "--output", out.path])
+        let content = try String(contentsOf: out, encoding: .utf8)
+        #expect(content.contains("struct Foo"))
+    }
+
+    @Test("tree on directory produces per-file output")
+    func treeDirectory() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_dir_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try "struct A {}".write(to: dir.appendingPathComponent("A.swift"), atomically: true, encoding: .utf8)
+        try "struct B {}".write(to: dir.appendingPathComponent("B.swift"), atomically: true, encoding: .utf8)
+
+        let output = try runCommand(["tree", dir.path])
+        #expect(output.contains("struct A"))
+        #expect(output.contains("struct B"))
+    }
+
+    @Test("tree shows protocol with members")
+    func treeProtocol() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_proto_\(UUID().uuidString).swift")
+        try """
+        public protocol Drawable {
+            var area: Double { get }
+            func draw()
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("public protocol Drawable {"))
+        #expect(output.contains("  var area: Double"))
+        #expect(output.contains("  func draw()"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree shows class with inheritance")
+    func treeClass() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_class_\(UUID().uuidString).swift")
+        try """
+        open class ViewController: UIViewController {
+            var title: String?
+            func viewDidLoad() {}
+        }
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("open class ViewController: UIViewController {"))
+        #expect(output.contains("  var title: String?"))
+        #expect(output.contains("  func viewDidLoad()"))
+        #expect(output.contains("}"))
+    }
+
+    @Test("tree shows typealias and associatedtype")
+    func treeTypeAlias() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree_test_typealias_\(UUID().uuidString).swift")
+        try """
+        protocol Config {
+            associatedtype Value
+        }
+        typealias MyConfig = Config
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let output = try runCommand(["tree", tmp.path])
+        #expect(output.contains("protocol Config {"))
+        #expect(output.contains("  associatedtype Value"))
+        #expect(output.contains("typealias MyConfig = Config"))
+    }
+
     // MARK: - helpers
 
     private func runCommand(_ args: [String]) throws -> String {

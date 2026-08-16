@@ -100,17 +100,38 @@ public func declarationName(from node: some DeclSyntaxProtocol) -> String? {
     }
 }
 
-/// extract modifier names from a declaration.
+/// extract modifier names from a declaration via direct property access.
+/// Mirror-based reflection does not work with swift-syntax's generated node
+/// types, so we must cast to each concrete type explicitly.
 public func modifierNames(from node: some DeclSyntaxProtocol) -> [String] {
-    // most decls have `modifiers` but the property is on `DeclSyntax`, not the protocol
-    // use Mirror-based approach or cast
-    let mirror = Mirror(reflecting: node)
-    for child in mirror.children {
-        if child.label == "modifiers", let modList = child.value as? DeclModifierListSyntax {
-            return modList.map { $0.name.text }
+    let modList: DeclModifierListSyntax?
+    switch node {
+    case let n as FunctionDeclSyntax:       modList = n.modifiers
+    case let n as StructDeclSyntax:         modList = n.modifiers
+    case let n as ClassDeclSyntax:          modList = n.modifiers
+    case let n as EnumDeclSyntax:           modList = n.modifiers
+    case let n as ProtocolDeclSyntax:       modList = n.modifiers
+    case let n as ExtensionDeclSyntax:      modList = n.modifiers
+    case let n as VariableDeclSyntax:       modList = n.modifiers
+    case let n as InitializerDeclSyntax:    modList = n.modifiers
+    case let n as DeinitializerDeclSyntax:  modList = n.modifiers
+    case let n as SubscriptDeclSyntax:      modList = n.modifiers
+    case let n as TypeAliasDeclSyntax:      modList = n.modifiers
+    case let n as AssociatedTypeDeclSyntax: modList = n.modifiers
+    case let n as OperatorDeclSyntax:      modList = nil
+    case let n as PrecedenceGroupDeclSyntax:modList = nil
+    case let n as MacroDeclSyntax:         modList = nil
+    default:
+        // fallback: try Mirror for unknown types
+        let mirror = Mirror(reflecting: node)
+        for child in mirror.children {
+            if child.label == "modifiers", let list = child.value as? DeclModifierListSyntax {
+                return list.map { $0.name.text }
+            }
         }
+        return []
     }
-    return []
+    return modList?.map { $0.name.text } ?? []
 }
 
 /// build a one-line signature string for a declaration.

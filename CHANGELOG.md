@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (2026-08-15)
+
+### Added
+- `tree` subcommand — hierarchical symbol tree formatted as indented Swift-like
+  declarations with `{ }` braces around container types. Omits imports and local
+  variables inside function bodies. Token-efficient for agent consumption.
+
+### Fixed
+- `modifierNames()` now uses direct property access instead of `Mirror` API,
+  which was silently returning empty arrays for all declarations. This fixes
+  access-modifier display in `find`, `query`, `inspect`, `members`, `tree`,
+  and all other commands that report modifiers.
+
 ## 0.1.0 (2026-08-13)
 
 ### Added

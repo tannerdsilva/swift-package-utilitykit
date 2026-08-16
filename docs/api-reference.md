@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-code-query` is a Swift source code analysis tool with 14 subcommands.
+`swift-code-query` is a Swift source code analysis tool with 17 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -379,3 +379,38 @@ swift-code-query diff <file1> <file2> [--output-format <format>]
 | `--schema` | Print JSON Schema for output type and exit |
 
 **Output type:** `DiffResult` — `{file1, file2, addedCount, removedCount, changedCount, added: [DiffDeclaration], removed: [DiffDeclaration], changed: [DiffChange]}`
+
+---
+
+### `tree`
+
+Show a hierarchical symbol tree for Swift source files, formatted as indented Swift-like declarations. Designed for token-efficient agent consumption — no JSON keys, no brackets, just indented text.
+
+```
+swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
+    [--output <file>]
+```
+
+| Argument | Description |
+|---|---|
+| `paths` | Files or directories to scan (default: `.`) |
+
+| Flag/Option | Description |
+|---|---|
+| `--include` | Only files with these extensions (comma-separated) |
+| `--exclude` | Skip files with these extensions (comma-separated) |
+| `--output` | Write output to file instead of stdout |
+
+**Output format:** Indented text with Swift-like syntax. Container types (struct, class, enum, protocol, extension) get `{ }` braces around their members. Imports and local variables inside function bodies are omitted.
+
+```
+// Sources/Example.swift
+public struct Foo {
+  private var x: Int
+  public static func bar()
+  enum Inner {
+    case a
+    case b
+  }
+}
+```

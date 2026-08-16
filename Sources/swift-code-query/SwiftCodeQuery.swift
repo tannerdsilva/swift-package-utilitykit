@@ -25,6 +25,7 @@ struct SwiftCodeQuery: ParsableCommand {
             DiffCommand.self,
             ForceUnwrapsCommand.self,
             BuildCommand.self,
+            TreeCommand.self,
         ],
         defaultSubcommand: FindCommand.self
     )
