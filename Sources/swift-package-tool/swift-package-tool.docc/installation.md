@@ -11,7 +11,7 @@
 git clone https://github.com/your-org/swift-package-utilitykit.git
 cd swift-package-utilitykit
 swift build -c release
-cp .build/release/swift-code-query /usr/local/bin/
+cp .build/release/swift-package-tool /usr/local/bin/
 ```
 
 ## Via Makefile

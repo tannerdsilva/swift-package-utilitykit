@@ -12,7 +12,7 @@ Two delivery mechanisms serve different use cases:
 
 | mechanism | what | who uses it |
 |---|---|---|
-| **Standalone binaries** | `swift-code-query`, `normalizer-tool` installed in `$PREFIX/bin` | Agentic harness (Hermes, Claude Code, etc.) calling tools directly |
+| **Standalone binaries** | `swift-package-tool`, `normalizer-tool` installed in `$PREFIX/bin` | Agentic harness (Hermes, Claude Code, etc.) calling tools directly |
 | **SPM command plugin** | `swift package normalize-syntax` | Interactive development, CI pipelines that already use SPM |
 
 Both share the same `NormalizerCore` library and produce identical results.
@@ -92,60 +92,60 @@ hermes plugin reload                  # reload Hermes plugins
 ### Manual removal
 
 ```bash
-sudo rm -f /usr/local/bin/swift-code-query /usr/local/bin/normalizer-tool
+sudo rm -f /usr/local/bin/swift-package-tool /usr/local/bin/normalizer-tool
 rm -rf ~/.hermes/plugins/swift-package-utilitykit
 ```
 
 ### Verify
 
 ```bash
-swift-code-query --version
+swift-package-tool --version
 hermes tool list | grep pkg_
 ```
 
 ## binaries
 
-### `swift-code-query`
+### `swift-package-tool`
 
 Query, inspect, search, and index Swift source code.  Designed for agent
 consumption — all subcommands produce JSON by default, with multiple output
 formats optimized for different model sizes.
 
 ```
-swift-code-query find <symbol> [<paths>...] [--exact] [--pretty-print]
+swift-package-tool find <symbol> [<paths>...] [--exact] [--pretty-print]
                                   [--limit <n>]
-swift-code-query query <paths>... [--functions] [--structs] [--classes]
+swift-package-tool query <paths>... [--functions] [--structs] [--classes]
                                   [--enums] [--protocols] [--all]
                                   [--output-format json|compact|csv|short]
                                   [--pretty-print]
                                   [--count] [--sort name|kind|file|line]
                                   [--name <pattern>] [--limit <n>]
                                   [--include <exts>] [--exclude <exts>]
-swift-code-query inspect <file> --symbol <name> [--pretty-print]
-swift-code-query format <file>... [--minify] [--dry-run]
-swift-code-query search <pattern> <paths>... [--regex] [--ignore-case]
+swift-package-tool inspect <file> --symbol <name> [--pretty-print]
+swift-package-tool format <file>... [--minify] [--dry-run]
+swift-package-tool search <pattern> <paths>... [--regex] [--ignore-case]
                                   [--context <n>] [--pretty-print]
                                   [--limit <n>]
-swift-code-query references <symbol> <paths>... [--pretty-print]
-swift-code-query dependencies <paths>... [--grouped] [--pretty-print]
-swift-code-query index <paths>... [--output <file>] [--pretty-print]
-swift-code-query api <paths>... [--include-internal] [--pretty-print]
+swift-package-tool references <symbol> <paths>... [--pretty-print]
+swift-package-tool dependencies <paths>... [--grouped] [--pretty-print]
+swift-package-tool index <paths>... [--output <file>] [--pretty-print]
+swift-package-tool api <paths>... [--include-internal] [--pretty-print]
                                   [--schema]
-swift-code-query conformances <paths>... [--include-extensions]
+swift-package-tool conformances <paths>... [--include-extensions]
                                   [--pretty-print] [--schema]
-swift-code-query callgraph <paths>... [--include-unknown] [--pretty-print]
+swift-package-tool callgraph <paths>... [--include-unknown] [--pretty-print]
                                   [--schema]
-swift-code-query build [<target>] [--test] [--schema]
-swift-code-query force-unwraps [<paths>...] [--pretty-print]
-swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
+swift-package-tool build [<target>] [--test] [--schema]
+swift-package-tool force-unwraps [<paths>...] [--pretty-print]
+swift-package-tool tree [<paths>...] [--include <exts>] [--exclude <exts>]
                                   [--output <file>]
-swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
+swift-package-tool validate [<paths>...] [--warnings] [--output-format <format>]
                                   [--pretty-print]
-swift-code-query macro-expand [<paths>...] [--output-format <format>]
+swift-package-tool macro-expand [<paths>...] [--output-format <format>]
                                   [--pretty-print]
-swift-code-query docc-check [<paths>...] [--output-format <format>]
+swift-package-tool docc-check [<paths>...] [--output-format <format>]
                                   [--pretty-print]
-swift-code-query clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
+swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
 **output formats** — every subcommand supports these, selectable with
@@ -164,16 +164,16 @@ for token efficiency.  Use `--pretty-print` for human-readable JSON.
 
 ```bash
 # list all functions in compact JSON (default for agent use)
-swift-code-query query Sources/ --functions
+swift-package-tool query Sources/ --functions
 
 # pretty-printed JSON for human review
-swift-code-query query Sources/ --functions --pretty-print
+swift-package-tool query Sources/ --functions --pretty-print
 
 # all declaration kinds, sorted by file, limited to 20
-swift-code-query query Sources/ --all --sort file --limit 20
+swift-package-tool query Sources/ --all --sort file --limit 20
 
 # just the count
-swift-code-query query Sources/ --all --count
+swift-package-tool query Sources/ --all --count
 ```
 
 Output is a JSON array of `DeclarationInfo` objects:
@@ -196,29 +196,29 @@ Output is a JSON array of `DeclarationInfo` objects:
 immediate children:
 
 ```bash
-swift-code-query inspect Sources/Foo.swift --symbol MyStruct
+swift-package-tool inspect Sources/Foo.swift --symbol MyStruct
 
 # pipe source through stdin (use `-` as path)
-cat Sources/Foo.swift | swift-code-query inspect --symbol MyStruct -
+cat Sources/Foo.swift | swift-package-tool inspect --symbol MyStruct -
 ```
 
 **search** — full-text search across source files with regex support:
 
 ```bash
 # plain text search
-swift-code-query search "DispatchQueue" Sources/
+swift-package-tool search "DispatchQueue" Sources/
 
 # regex with context lines
-swift-code-query search "func (foo|bar)" Sources/ --regex --context 2
+swift-package-tool search "func (foo|bar)" Sources/ --regex --context 2
 
 # case-insensitive, compact output for small models
-swift-code-query search "normalize" Sources/ --ignore-case --output-format compact
+swift-package-tool search "normalize" Sources/ --ignore-case --output-format compact
 ```
 
 **references** — find every usage of a symbol (declarations + calls + accesses):
 
 ```bash
-swift-code-query references "normalize" Sources/NormalizerCore/
+swift-package-tool references "normalize" Sources/NormalizerCore/
 ```
 
 Output includes the role (`declaration`, `call`, `access`) and surrounding
@@ -228,13 +228,13 @@ source context for each reference.
 
 ```bash
 # flat list
-swift-code-query dependencies Sources/
+swift-package-tool dependencies Sources/
 
 # grouped by file
-swift-code-query dependencies Sources/ --grouped
+swift-package-tool dependencies Sources/ --grouped
 
 # CSV for spreadsheet analysis
-swift-code-query dependencies Sources/ --output-format csv
+swift-package-tool dependencies Sources/ --output-format csv
 ```
 
 **index** — build a comprehensive project index combining all declarations,
@@ -242,13 +242,13 @@ imports, and file-level metadata in a single JSON document:
 
 ```bash
 # print to stdout
-swift-code-query index Sources/
+swift-package-tool index Sources/
 
 # write to a file for caching
-swift-code-query index Sources/ --output project-index.json
+swift-package-tool index Sources/ --output project-index.json
 
 # compact for model context
-swift-code-query index Sources/ --output-format compact
+swift-package-tool index Sources/ --output-format compact
 ```
 
 The index includes file count, total declarations, total imports, and per-file
@@ -263,25 +263,25 @@ provides 8 package-inspection tools (``pkg_build``, ``pkg_scan``,
 ``pkg_docc_check``, ``pkg_inspector``).
 
 **Architecture:** The plugin is a thin orchestration layer.  Code-analysis logic
-has been moved into the ``swift-code-query`` binary:
+has been moved into the ``swift-package-tool`` binary:
 
 | Tool | Engine | What changed |
 |---|---|---|
 | ``pkg_build`` | ``swift build`` | Unchanged (build system operation) |
-| ``pkg_scan`` | ``swift-code-query search`` + Python post-processing | Regex matching delegated to the Swift binary |
+| ``pkg_scan`` | ``swift-package-tool search`` + Python post-processing | Regex matching delegated to the Swift binary |
 | ``pkg_list_dependencies`` | ``swift package show-dependencies --format json`` | Replaced regex-based Package.swift parser |
 | ``pkg_list_targets`` | ``swift package describe --type json`` | Replaced regex-based Package.swift parser |
 | ``pkg_test`` | ``swift test`` | Unchanged |
 | ``pkg_clean`` | ``swift package clean`` | Unchanged |
-| ``pkg_docc_check`` | ``swift-code-query api`` + heuristic fallback | Doc coverage uses AST-guaranteed API output |
-| ``pkg_inspector`` | Composes all above | Uses swift-code-query for analysis sub-tools |
+| ``pkg_docc_check`` | ``swift-package-tool api`` + heuristic fallback | Doc coverage uses AST-guaranteed API output |
+| ``pkg_inspector`` | Composes all above | Uses swift-package-tool for analysis sub-tools |
 
 The Python layer retains the scope-clustering, severity-ranking, and
 reachability-classification logic that is specific to security-audit workflows
 and would be overkill to implement in the Swift binary.  Everything else
 delegates to the Swift toolchain for AST-guaranteed accuracy.
 
-**Prerequisites:** ``swift-code-query`` must be installed in PATH (or set
+**Prerequisites:** ``swift-package-tool`` must be installed in PATH (or set
 ``SWIFT_CODE_QUERY_PATH`` env var).  Swift 6.0+ toolchain required.
 
 **api** — extract the public API surface of a project.  Walks all declarations,
@@ -291,16 +291,16 @@ implementation — an entire codebase in ~500 tokens vs. 50K+ for raw source.
 
 ```bash
 # public API surface (default: public declarations only)
-swift-code-query api Sources/
+swift-package-tool api Sources/
 
 # include internal declarations too
-swift-code-query api Sources/ --include-internal
+swift-package-tool api Sources/ --include-internal
 
 # pretty-print for human review
-swift-code-query api Sources/ --pretty-print
+swift-package-tool api Sources/ --pretty-print
 
 # see the JSON Schema for the output type
-swift-code-query api --schema
+swift-package-tool api --schema
 ```
 
 Output includes `access` (public/internal/package), `conformsTo` (protocol
@@ -312,16 +312,16 @@ a protocol requirement affects all conformances.
 
 ```bash
 # list all conformances
-swift-code-query conformances Sources/
+swift-package-tool conformances Sources/
 
 # include extensions that add conformances
-swift-code-query conformances Sources/ --include-extensions
+swift-package-tool conformances Sources/ --include-extensions
 
 # JSONL for streaming
-swift-code-query conformances Sources/ --output-format jsonl
+swift-package-tool conformances Sources/ --output-format jsonl
 
 # see the schema
-swift-code-query conformances --schema
+swift-package-tool conformances --schema
 ```
 
 Output: `{name, kind, file, line, inherits: [...], source: "declaration"|"extension"}`.
@@ -332,16 +332,16 @@ without running the code.
 
 ```bash
 # build call graph (resolved calls only by default)
-swift-code-query callgraph Sources/
+swift-package-tool callgraph Sources/
 
 # include calls to unknown/undeclared functions
-swift-code-query callgraph Sources/ --include-unknown
+swift-package-tool callgraph Sources/ --include-unknown
 
 # pretty-print for review
-swift-code-query callgraph Sources/ --pretty-print
+swift-package-tool callgraph Sources/ --pretty-print
 
 # see the schema
-swift-code-query callgraph --schema
+swift-package-tool callgraph --schema
 ```
 
 Output: `{caller, callee, file, line, column, resolved}`.  The `resolved`
@@ -351,13 +351,13 @@ field is `true` when the callee is a known function in the project.
 
 ```bash
 # show symbol tree for a directory
-swift-code-query tree Sources/
+swift-package-tool tree Sources/
 
 # show tree for a single file
-swift-code-query tree Sources/NormalizerCore/Normalizer.swift
+swift-package-tool tree Sources/NormalizerCore/Normalizer.swift
 
 # write to file
-swift-code-query tree Sources/ --output symbol-tree.txt
+swift-package-tool tree Sources/ --output symbol-tree.txt
 ```
 
 Output is indented text with Swift-like syntax:
@@ -394,13 +394,13 @@ public struct NormalizationOptions: Sendable, Equatable {
 
 ```bash
 # check a file for syntax errors
-swift-code-query validate Sources/Foo.swift
+swift-package-tool validate Sources/Foo.swift
 
 # include warnings in addition to errors
-swift-code-query validate Sources/ --warnings
+swift-package-tool validate Sources/ --warnings
 
 # pretty-printed output
-swift-code-query validate Sources/ --pretty-print
+swift-package-tool validate Sources/ --pretty-print
 ```
 
 Output is structured JSON with file, line, column, severity, message, and fix-it count per diagnostic.
@@ -409,10 +409,10 @@ Output is structured JSON with file, line, column, severity, message, and fix-it
 
 ```bash
 # find all macro usages in a project
-swift-code-query macro-expand Sources/
+swift-package-tool macro-expand Sources/
 
 # pretty-printed output
-swift-code-query macro-expand Sources/ --pretty-print
+swift-package-tool macro-expand Sources/ --pretty-print
 ```
 
 Output is structured JSON with file, line, column, macro name, kind (declaration or expression), and arguments.
@@ -421,10 +421,10 @@ Output is structured JSON with file, line, column, macro name, kind (declaration
 
 ```bash
 # check all source files for invalid docc references
-swift-code-query docc-check Sources/
+swift-package-tool docc-check Sources/
 
 # pretty-printed output
-swift-code-query docc-check Sources/ --pretty-print
+swift-package-tool docc-check Sources/ --pretty-print
 ```
 
 Output: `{file, line, column, severity, message, referencedSymbol}`
@@ -435,13 +435,13 @@ To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-depen
 
 ```bash
 # clean build artifacts (dependencies preserved)
-swift-code-query clean
+swift-package-tool clean
 
 # ⚠️  DESTRUCTIVE: delete dependencies too (re-fetched on next build)
-swift-code-query clean --purge-all
+swift-package-tool clean --purge-all
 
 # clean a specific package directory
-swift-code-query clean /path/to/project
+swift-package-tool clean /path/to/project
 ```
 
 Output: `{success, mode, directory, output}` — mode is `"clean (dependencies preserved)"` or `"purge-all (dependencies DESTROYED)"`.
@@ -450,10 +450,10 @@ Output: `{success, mode, directory, output}` — mode is `"clean (dependencies p
 
 ```bash
 # scan a project for force unwraps
-swift-code-query force-unwraps Sources/
+swift-package-tool force-unwraps Sources/
 
 # pretty-printed output
-swift-code-query force-unwraps Sources/ --pretty-print
+swift-package-tool force-unwraps Sources/ --pretty-print
 ```
 
 Output: `{file, line, column, context}` where context shows the surrounding expression.
@@ -462,13 +462,13 @@ Output: `{file, line, column, context}` where context shows the surrounding expr
 
 ```bash
 # build the default target
-swift-code-query build
+swift-package-tool build
 
 # run tests
-swift-code-query build --test
+swift-package-tool build --test
 
 # see the schema
-swift-code-query build --schema
+swift-package-tool build --schema
 ```
 
 Output: `BuildResult` — `{success, target, duration, output, errors}`.
@@ -483,13 +483,13 @@ cases, subscripts, initializers).  The "what's inside this type" command.
 
 ```bash
 # list members of a specific type in a file
-swift-code-query members Sources/NormalizerCore/Normalizer.swift --type Normalizer
+swift-package-tool members Sources/NormalizerCore/Normalizer.swift --type Normalizer
 
 # pretty-printed
-swift-code-query members Sources/NormalizerCore/Normalizer.swift --type Normalizer --pretty-print
+swift-package-tool members Sources/NormalizerCore/Normalizer.swift --type Normalizer --pretty-print
 
 # see the schema
-swift-code-query members --schema
+swift-package-tool members --schema
 ```
 
 Output: `{name, kind, file, line, column, signature, modifiers}`.
@@ -500,13 +500,13 @@ as simple (1-5), moderate (6-10), complex (11-20), or very_complex (21+).
 
 ```bash
 # all functions
-swift-code-query complexity Sources/
+swift-package-tool complexity Sources/
 
 # only complex or worse
-swift-code-query complexity Sources/ --min-complexity 11
+swift-package-tool complexity Sources/ --min-complexity 11
 
 # top 5 most complex
-swift-code-query complexity Sources/ --limit 5
+swift-package-tool complexity Sources/ --limit 5
 ```
 
 Output: `{name, file, line, column, complexity, rating}`.
@@ -518,10 +518,10 @@ changed signatures.
 
 ```bash
 # compare two files
-swift-code-query diff Sources/old.swift Sources/new.swift
+swift-package-tool diff Sources/old.swift Sources/new.swift
 
 # compare a file against stdin (pipe)
-cat Sources/new.swift | swift-code-query diff Sources/old.swift -
+cat Sources/new.swift | swift-package-tool diff Sources/old.swift -
 ```
 
 Output: `{file1, file2, addedCount, removedCount, changedCount, added: [...], removed: [...], changed: [...]}`.
@@ -533,19 +533,19 @@ consumption; use `--pretty-print` for human-readable output.
 
 ```bash
 # substring match (default) — compact JSON output
-swift-code-query find "normalize" Sources/
+swift-package-tool find "normalize" Sources/
 
 # exact match
-swift-code-query find "Normalizer" Sources/ --exact
+swift-package-tool find "Normalizer" Sources/ --exact
 
 # pretty-printed JSON for human review
-swift-code-query find "normalize" Sources/ --pretty-print
+swift-package-tool find "normalize" Sources/ --pretty-print
 
 # limit results
-swift-code-query find "normalize" Sources/ --limit 5
+swift-package-tool find "normalize" Sources/ --limit 5
 
 # pipe source through stdin (use `-` as path)
-cat Sources/Foo.swift | swift-code-query find "MyStruct" -
+cat Sources/Foo.swift | swift-package-tool find "MyStruct" -
 ```
 
 Default output format is `compact` — single-line JSON with no whitespace.
@@ -562,13 +562,13 @@ LLMs maintain accuracy on unformatted code while saving ~24.5% input tokens).
 
 ```bash
 # pretty-print with canonical formatting (tabs for indent)
-swift-code-query format Sources/ --dry-run
+swift-package-tool format Sources/ --dry-run
 
 # minify for LLM consumption
-swift-code-query format Sources/ --minify --dry-run
+swift-package-tool format Sources/ --minify --dry-run
 
 # pipe source through stdin (use `-` as path)
-cat Sources/Foo.swift | swift-code-query format - --minify --dry-run
+cat Sources/Foo.swift | swift-package-tool format - --minify --dry-run
 ```
 
 ### `normalizer-tool`
@@ -650,7 +650,7 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-code-query/                        agentic code query/inspect/search/index tool (25 files)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (25 files)
     SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 21 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
@@ -683,7 +683,7 @@ Sources/
     Messy.swift
   hermes-plugin/                           Hermes Agent plugin (Python)
     __init__.py                            tool schemas + handlers (8 tools)
-    swift_package_inspector.py             orchestration layer calling swift-code-query
+    swift_package_inspector.py             orchestration layer calling swift-package-tool
     test_tools.py                          assertion tests
     AGENTS.md                              agent orientation
     plugin.yaml                            Hermes plugin manifest
@@ -753,7 +753,7 @@ See also:
 
 ## troubleshooting
 
-### "swift-code-query: command not found"
+### "swift-package-tool: command not found"
 
 The binary must be installed in PATH:
 
@@ -762,7 +762,7 @@ The binary must be installed in PATH:
 make install-plugin
 
 # verify
-swift-code-query --version
+swift-package-tool --version
 ```
 
 If you used a custom `PREFIX`, add it to your PATH:
@@ -774,7 +774,7 @@ export PATH="/opt/tools/bin:$PATH"
 Or set `SWIFT_CODE_QUERY_PATH` for the Python plugin:
 
 ```bash
-export SWIFT_CODE_QUERY_PATH=/opt/tools/bin/swift-code-query
+export SWIFT_CODE_QUERY_PATH=/opt/tools/bin/swift-package-tool
 ```
 
 ### "Swift 6.0+ toolchain required"
@@ -845,7 +845,7 @@ swift --version | head -1
 
 ### Integration tests fail
 
-The integration tests run the `swift-code-query` binary as a subprocess.
+The integration tests run the `swift-package-tool` binary as a subprocess.
 Ensure the binary is built first:
 
 ```bash
@@ -856,13 +856,13 @@ swift test
 If tests fail with "binary not found", build the debug binary explicitly:
 
 ```bash
-swift build --product swift-code-query
+swift build --product swift-package-tool
 swift test
 ```
 
 ### Performance: no caching
 
-Every `swift-code-query` command parses every source file independently.
+Every `swift-package-tool` command parses every source file independently.
 Running `find`, `query`, and `api` on the same 100-file project parses
 300 ASTs.  This is by design — the tool prioritizes correctness and
 simplicity over caching.  For repeated queries on the same codebase,

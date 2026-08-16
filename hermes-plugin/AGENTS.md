@@ -17,8 +17,8 @@ Your agent
   ├── pkg_clean              → swift package clean (isolated .build-audit/)
   ├── pkg_list_dependencies  → swift package show-dependencies --format json
   ├── pkg_list_targets       → swift package describe --type json
-  ├── pkg_docc_check         → swift-code-query api + heuristic fallback
-  ├── pkg_scan               → swift-code-query search + Python post-processing
+  ├── pkg_docc_check         → swift-package-tool api + heuristic fallback
+  ├── pkg_scan               → swift-package-tool search + Python post-processing
   └── pkg_inspector          → composes all above
 ```
 
@@ -67,7 +67,7 @@ docs = await call_tool("pkg_docc_check", {"target": "/path/to/project", "uncover
 
 ## Prerequisites
 
-- `swift-code-query` binary in PATH (or set `SWIFT_CODE_QUERY_PATH` env var)
+- `swift-package-tool` binary in PATH (or set `SWIFT_CODE_QUERY_PATH` env var)
 - Swift 6.0+ toolchain
 - Hermes Agent with the plugin enabled
 

@@ -1,11 +1,11 @@
-# ``swift-code-query``
+# ``swift-package-tool``
 
 A Swift source code analysis tool with 14 subcommands for code intelligence,
 security auditing, and LLM-optimized formatting.
 
 ## Overview
 
-``swift-code-query`` is the analysis engine of ``swift-package-utilitykit``.
+``swift-package-tool`` is the analysis engine of ``swift-package-utilitykit``.
 It uses `swift-syntax` for AST-guaranteed parsing and produces compact JSON
 output by default for token-efficient consumption by LLM agents.
 

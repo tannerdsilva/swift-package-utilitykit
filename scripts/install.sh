@@ -18,7 +18,7 @@
 # Options (via env vars):
 #   PREFIX=/opt/homebrew    Parent directory for binaries (default: ~/.local)
 #   BIN_DIR=/opt/bin        Exact binary install path (overrides PREFIX/bin)
-#   SWIFT_CODE_QUERY_PATH   Custom path for swift-code-query binary
+#   SWIFT_CODE_QUERY_PATH   Custom path for swift-package-tool binary
 #   HERMES_PLUGINS_DIR      Custom Hermes plugins directory
 
 set -euo pipefail
@@ -28,7 +28,7 @@ set -euo pipefail
 PREFIX="${PREFIX:-$HOME/.local}"
 HERMES_PLUGINS_DIR="${HERMES_PLUGINS_DIR:-$HOME/.hermes/plugins}"
 PLUGIN_NAME="swift-package-utilitykit"
-BINARIES="swift-code-query normalizer-tool"
+BINARIES="swift-package-tool normalizer-tool"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd 2>/dev/null || echo "/tmp/swift-package-utilitykit")"
 PLUGIN_SRC="$REPO_DIR/hermes-plugin"
 PLUGIN_DST="$HERMES_PLUGINS_DIR/$PLUGIN_NAME"
@@ -242,11 +242,11 @@ do_install() {
 
     info "Verifying installation..."
 
-    if command -v swift-code-query &>/dev/null; then
-        VER=$(swift-code-query --version 2>&1)
-        ok "  swift-code-query $VER"
+    if command -v swift-package-tool &>/dev/null; then
+        VER=$(swift-package-tool --version 2>&1)
+        ok "  swift-package-tool $VER"
     else
-        warn "  swift-code-query not found in PATH. Add $INSTALL_DIR to your PATH."
+        warn "  swift-package-tool not found in PATH. Add $INSTALL_DIR to your PATH."
     fi
 
     if command -v hermes &>/dev/null; then
@@ -262,13 +262,13 @@ do_install() {
     echo ""
     printf "\033[32m✓ Installation complete!\033[0m\n"
     echo ""
-    echo "  Binaries:  $INSTALL_DIR/{swift-code-query,normalizer-tool}"
+    echo "  Binaries:  $INSTALL_DIR/{swift-package-tool,normalizer-tool}"
     echo "  Plugin:    $PLUGIN_DST ($mode)"
     echo ""
     echo "  Next steps:"
     echo "    1. Ensure $INSTALL_DIR is in your PATH"
     echo "    2. Restart Hermes or run:  hermes plugin reload"
-    echo "    3. Verify tools:           swift-code-query --version"
+    echo "    3. Verify tools:           swift-package-tool --version"
     echo "    4. Test plugin:            hermes tool list | grep pkg_"
     echo ""
 }

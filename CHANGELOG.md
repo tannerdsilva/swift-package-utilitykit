@@ -59,7 +59,7 @@
 
 ### Added
 - Initial release of `swift-package-utilitykit`
-- `swift-code-query` binary with 14 subcommands:
+- `swift-package-tool` binary with 14 subcommands:
   - `find` — find symbol by name across all declaration kinds (default subcommand)
   - `query` — list declarations with kind/signature filters
   - `inspect` — detailed symbol information

@@ -1,8 +1,8 @@
-# swift-code-query API Reference
+# swift-package-tool API Reference
 
 ## Overview
 
-`swift-code-query` is a Swift source code analysis tool with 21 subcommands.
+`swift-package-tool` is a Swift source code analysis tool with 21 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -33,7 +33,7 @@ Every subcommand supports `--output-format <format>`:
 Find a symbol by name across all declaration kinds.
 
 ```
-swift-code-query find <symbol> [<paths>...] [--exact] [--case-sensitive]
+swift-package-tool find <symbol> [<paths>...] [--exact] [--case-sensitive]
     [--output-format <format>] [--pretty-print] [--include <exts>]
     [--exclude <exts>] [--limit <n>] [--schema]
 ```
@@ -63,7 +63,7 @@ swift-code-query find <symbol> [<paths>...] [--exact] [--case-sensitive]
 List declarations with kind/signature filters.
 
 ```
-swift-code-query query [<paths>...] [--kind <kinds>] [--name <pattern>]
+swift-package-tool query [<paths>...] [--kind <kinds>] [--name <pattern>]
     [--all] [--count] [--sort <field>] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--limit <n>] [--schema]
@@ -92,7 +92,7 @@ swift-code-query query [<paths>...] [--kind <kinds>] [--name <pattern>]
 Detailed information about a specific symbol.
 
 ```
-swift-code-query inspect <symbol> [<paths>...] [--output-format <format>]
+swift-package-tool inspect <symbol> [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--output-path <file>]
 ```
@@ -119,7 +119,7 @@ swift-code-query inspect <symbol> [<paths>...] [--output-format <format>]
 Format or minify Swift source files.
 
 ```
-swift-code-query format <files>... [--minify] [--preserve-indentation]
+swift-package-tool format <files>... [--minify] [--preserve-indentation]
     [--in-place]
 ```
 
@@ -140,7 +140,7 @@ swift-code-query format <files>... [--minify] [--preserve-indentation]
 Full-text search with regex support.
 
 ```
-swift-code-query search <pattern> [<paths>...] [--regex] [--ignore-case]
+swift-package-tool search <pattern> [<paths>...] [--regex] [--ignore-case]
     [--context <n>] [--output-format <format>] [--pretty-print]
     [--include <exts>] [--exclude <exts>] [--limit <n>]
 ```
@@ -170,7 +170,7 @@ swift-code-query search <pattern> [<paths>...] [--regex] [--ignore-case]
 Find every usage of a symbol (declarations + calls + accesses).
 
 ```
-swift-code-query references <symbol> [<paths>...] [--output-format <format>]
+swift-package-tool references <symbol> [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
 ```
 
@@ -195,7 +195,7 @@ swift-code-query references <symbol> [<paths>...] [--output-format <format>]
 List all import statements across source files.
 
 ```
-swift-code-query dependencies [<paths>...] [--output-format <format>]
+swift-package-tool dependencies [<paths>...] [--output-format <format>]
     [--pretty-print] [--grouped] [--include <exts>] [--exclude <exts>]
     [--schema]
 ```
@@ -218,7 +218,7 @@ swift-code-query dependencies [<paths>...] [--output-format <format>]
 Build a comprehensive project index.
 
 ```
-swift-code-query index [<paths>...] [--output-format <format>]
+swift-package-tool index [<paths>...] [--output-format <format>]
     [--pretty-print] [--output <file>] [--include <exts>]
     [--exclude <exts>] [--schema]
 ```
@@ -241,7 +241,7 @@ swift-code-query index [<paths>...] [--output-format <format>]
 Extract the public API surface of a project.
 
 ```
-swift-code-query api [<paths>...] [--include-internal] [--output-format <format>]
+swift-package-tool api [<paths>...] [--include-internal] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--output-path <file>] [--schema]
 ```
@@ -265,7 +265,7 @@ swift-code-query api [<paths>...] [--include-internal] [--output-format <format>
 List every type and its protocol conformances/superclasses.
 
 ```
-swift-code-query conformances [<paths>...] [--output-format <format>]
+swift-package-tool conformances [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--output-path <file>] [--schema]
 ```
@@ -288,7 +288,7 @@ swift-code-query conformances [<paths>...] [--output-format <format>]
 Build a call graph between functions.
 
 ```
-swift-code-query callgraph [<paths>...] [--output-format <format>]
+swift-package-tool callgraph [<paths>...] [--output-format <format>]
     [--pretty-print] [--include-unknown] [--include <exts>]
     [--exclude <exts>] [--limit <n>] [--output-path <file>] [--schema]
 ```
@@ -313,7 +313,7 @@ swift-code-query callgraph [<paths>...] [--output-format <format>]
 List direct members of a type.
 
 ```
-swift-code-query members [<paths>...] --type <name> [--output-format <format>]
+swift-package-tool members [<paths>...] --type <name> [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--output-path <file>] [--schema]
 ```
@@ -337,7 +337,7 @@ swift-code-query members [<paths>...] --type <name> [--output-format <format>]
 Measure cyclomatic complexity per function.
 
 ```
-swift-code-query complexity [<paths>...] [--min-complexity <n>]
+swift-package-tool complexity [<paths>...] [--min-complexity <n>]
     [--output-format <format>] [--pretty-print] [--include <exts>]
     [--exclude <exts>] [--limit <n>] [--output-path <file>] [--schema]
 ```
@@ -362,7 +362,7 @@ swift-code-query complexity [<paths>...] [--min-complexity <n>]
 Semantic declaration diff between two source files.
 
 ```
-swift-code-query diff <file1> <file2> [--output-format <format>]
+swift-package-tool diff <file1> <file2> [--output-format <format>]
     [--pretty-print] [--output-path <file>] [--schema]
 ```
 
@@ -387,7 +387,7 @@ swift-code-query diff <file1> <file2> [--output-format <format>]
 Show a hierarchical symbol tree for Swift source files, formatted as indented Swift-like declarations. Designed for token-efficient agent consumption — no JSON keys, no brackets, just indented text.
 
 ```
-swift-code-query tree [<paths>...] [--include <exts>] [--exclude <exts>]
+swift-package-tool tree [<paths>...] [--include <exts>] [--exclude <exts>]
     [--output <file>]
 ```
 
@@ -422,7 +422,7 @@ public struct Foo {
 Shallow syntax validation using SwiftParser's built-in diagnostics. Catches syntax-level errors (missing braces, invalid tokens, malformed declarations) without running the full compiler. Does not perform type-checking.
 
 ```
-swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
+swift-package-tool validate [<paths>...] [--warnings] [--output-format <format>]
     [--pretty-print] [--output <file>]
 ```
 
@@ -442,7 +442,7 @@ swift-code-query validate [<paths>...] [--warnings] [--output-format <format>]
 Find and report macro expansion sites in Swift source files. Identifies where macros are used (`#externalMacro`, `#Predicate`, `#stringify`, etc.) and reports their locations, names, and arguments. Does NOT expand macros — that requires running the Swift compiler with the macro implementations loaded as compiler plugins.
 
 ```
-swift-code-query macro-expand [<paths>...] [--output-format <format>]
+swift-package-tool macro-expand [<paths>...] [--output-format <format>]
     [--pretty-print] [--output <file>]
 ```
 
@@ -461,7 +461,7 @@ swift-code-query macro-expand [<paths>...] [--output-format <format>]
 Run `swift build` (or `swift test` with `--test`) and return structured output for LLM consumption. Parses build logs into a structured result.
 
 ```
-swift-code-query build [<target>] [--test] [--schema]
+swift-package-tool build [<target>] [--test] [--schema]
 ```
 
 | Argument | Description |
@@ -482,7 +482,7 @@ swift-code-query build [<target>] [--test] [--schema]
 Scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap, force-try, or force-cast. Uses AST-based detection.
 
 ```
-swift-code-query force-unwraps [<paths>...] [--output-format <format>]
+swift-package-tool force-unwraps [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
 ```
 
@@ -502,7 +502,7 @@ swift-code-query force-unwraps [<paths>...] [--output-format <format>]
 Validate docc documentation comments by checking that symbol references (backtick-enclosed names in `///` comments) point to declarations that actually exist in the project. Catches stale or misspelled symbol paths. Does not resolve qualified names, module references, or external symbols.
 
 ```
-swift-code-query docc-check [<paths>...] [--output-format <format>]
+swift-package-tool docc-check [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
 ```
 
@@ -524,7 +524,7 @@ Delete build artifacts without touching dependencies. Runs `swift package clean`
 To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-dependencies`). This is a destructive operation: every dependency is deleted from `.build/checkouts/` and must be re-fetched from scratch on the next build.
 
 ```
-swift-code-query clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
+swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
 | Argument | Description |

@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .plugin(name: "NormalizeSyntax", targets: ["NormalizeSyntaxPlugin"]),
-        .executable(name: "swift-code-query", targets: ["swift-code-query"]),
+        .executable(name: "swift-package-tool", targets: ["swift-package-tool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -35,7 +35,7 @@ let package = Package(
             dependencies: ["normalizer-tool"]
         ),
         .executableTarget(
-            name: "swift-code-query",
+            name: "swift-package-tool",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

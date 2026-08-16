@@ -41,7 +41,7 @@ VERSION             ?= 0.1.0
 HERMES_PLUGINS      ?= $(HOME)/.hermes/plugins
 INSTALL_INTERACTIVE ?= 1
 
-BINARIES    = swift-code-query normalizer-tool
+BINARIES    = swift-package-tool normalizer-tool
 PLUGIN_NAME = swift-package-utilitykit
 PLUGIN_SRC  = $(CURDIR)/hermes-plugin
 PLUGIN_DST  = $(HERMES_PLUGINS)/$(PLUGIN_NAME)

@@ -3,7 +3,7 @@
 ## Basic usage
 
 ```bash
-swift-code-query <subcommand> [options] [paths]
+swift-package-tool <subcommand> [options] [paths]
 ```
 
 All subcommands accept one or more file paths or directories. When no
@@ -34,20 +34,20 @@ All commands support ``--output-format`` with these values:
 
 ```bash
 # Find a symbol
-swift-code-query find "decode" Sources/
+swift-package-tool find "decode" Sources/
 
 # List all public API
-swift-code-query api Sources/ --include-internal
+swift-package-tool api Sources/ --include-internal
 
 # Build a project index
-swift-code-query index Sources/ --output index.json
+swift-package-tool index Sources/ --output index.json
 
 # Scan for force-unwraps
-swift-code-query force-unwraps Sources/ --pretty-print
+swift-package-tool force-unwraps Sources/ --pretty-print
 
 # Diff two files
-swift-code-query diff file1.swift file2.swift
+swift-package-tool diff file1.swift file2.swift
 
 # Get complexity metrics
-swift-code-query complexity Sources/ --limit 10
+swift-package-tool complexity Sources/ --limit 10
 ```

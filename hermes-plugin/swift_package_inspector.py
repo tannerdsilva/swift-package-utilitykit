@@ -3,9 +3,9 @@ and security-audit primitives.
 
 ARCHITECTURE (refactored 2026-08-13):
   Code-analysis logic (scanning, querying, indexing) has been moved into the
-  ``swift-code-query`` binary (swift-package-utilitykit).  This Python module
+  ``swift-package-tool`` binary (swift-package-utilitykit).  This Python module
   is now a thin orchestration layer that:
-    - Calls ``swift-code-query`` for code analysis (scans, API surface, index)
+    - Calls ``swift-package-tool`` for code analysis (scans, API surface, index)
     - Calls ``swift package show-dependencies --format json`` for dependencies
     - Calls ``swift package describe --type json`` for target metadata
     - Calls ``swift build`` / ``swift test`` / ``swift package clean`` for
@@ -37,16 +37,16 @@ from typing import Dict, List, Optional
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# Path to the swift-code-query binary.  Resolved once at import time.
+# Path to the swift-package-tool binary.  Resolved once at import time.
 # Falls back to PATH lookup; can be overridden via env var.
 _SWIFT_CODE_QUERY = os.environ.get(
     "SWIFT_CODE_QUERY_PATH",
-    shutil.which("swift-code-query") or "/usr/local/bin/swift-code-query",
+    shutil.which("swift-package-tool") or "/usr/local/bin/swift-package-tool",
 )
 
 
 def _run_swift_code_query(args: list[str], timeout: int = 120) -> dict:
-    """Run swift-code-query with the given args and return parsed JSON.
+    """Run swift-package-tool with the given args and return parsed JSON.
 
     Returns a dict with at least an ``ok`` field.  On failure the dict
     carries an ``error`` message so the model can recover.
@@ -57,9 +57,9 @@ def _run_swift_code_query(args: list[str], timeout: int = 120) -> dict:
             capture_output=True, text=True, timeout=timeout,
         )
     except FileNotFoundError:
-        return {"ok": False, "error": f"swift-code-query not found at {_SWIFT_CODE_QUERY}"}
+        return {"ok": False, "error": f"swift-package-tool not found at {_SWIFT_CODE_QUERY}"}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"swift-code-query timed out after {timeout}s"}
+        return {"ok": False, "error": f"swift-package-tool timed out after {timeout}s"}
 
     if proc.returncode != 0:
         return {"ok": False, "error": proc.stderr.strip() or proc.stdout.strip()}
@@ -67,7 +67,7 @@ def _run_swift_code_query(args: list[str], timeout: int = 120) -> dict:
     try:
         return json.loads(proc.stdout)
     except (json.JSONDecodeError, ValueError) as exc:
-        return {"ok": False, "error": f"failed to parse swift-code-query output: {exc}"}
+        return {"ok": False, "error": f"failed to parse swift-package-tool output: {exc}"}
 
 
 def _run_swift(args: list[str], cwd: str, timeout: int = 600) -> subprocess.CompletedProcess:
@@ -144,7 +144,7 @@ def _parse_build_diagnostics(stdout: str, stderr: str) -> dict:
 
 def build(target: str, build_args: Optional[List[str]] = None,
           build_target: Optional[str] = None) -> dict:
-    """Run ``swift build`` via ``swift-code-query build`` and return structured JSON.
+    """Run ``swift build`` via ``swift-package-tool build`` and return structured JSON.
 
     Delegates to the Swift binary which parses the raw build output into
     structured phases, diagnostics, and a summary — much more LLM-friendly
@@ -166,7 +166,7 @@ def build(target: str, build_args: Optional[List[str]] = None,
         result = _run_swift_code_query(cmd)
     except Exception as exc:
         return {"ok": False, "build_succeeded": False,
-                "error": f"swift-code-query build failed: {exc}",
+                "error": f"swift-package-tool build failed: {exc}",
                 "stdout": "", "stderr": "", "exit_code": None,
                 "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
                                "has_warnings": False, "has_errors": False}}
@@ -219,7 +219,7 @@ def build(target: str, build_args: Optional[List[str]] = None,
 # ---------------------------------------------------------------------------
 
 def test(target: str, filter: Optional[str] = None) -> dict:
-    """Run ``swift test`` via ``swift-code-query build --test`` and return structured JSON."""
+    """Run ``swift test`` via ``swift-package-tool build --test`` and return structured JSON."""
     target = _resolve_target(target)
     pkg = _package_path(target)
     if not pkg.exists():
@@ -235,7 +235,7 @@ def test(target: str, filter: Optional[str] = None) -> dict:
         result = _run_swift_code_query(cmd)
     except Exception as exc:
         return {"ok": False, "test_succeeded": False,
-                "error": f"swift-code-query build --test failed: {exc}",
+                "error": f"swift-package-tool build --test failed: {exc}",
                 "stdout": "", "stderr": "", "exit_code": None}
 
     if not result.get("ok", True) or "error" in result:
@@ -323,11 +323,11 @@ def clean(target: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool 2-5: Scanning (delegated to swift-code-query search)
+# Tool 2-5: Scanning (delegated to swift-package-tool search)
 # ---------------------------------------------------------------------------
 
 # Regex patterns for each scan category.  These are passed to
-# ``swift-code-query search`` as the search pattern.  The Python layer
+# ``swift-package-tool search`` as the search pattern.  The Python layer
 # post-processes the results for scope clustering and severity ranking.
 _UNSAFE_PTR_PATTERNS: list[tuple] = [
     ("UnsafePointer", r"\bUnsafePointer\b"),
@@ -377,7 +377,7 @@ _LABEL_PRIORITY = [
 
 def _search_with_swift_code_query(pattern: str, target: str,
                                    is_regex: bool = True) -> list[dict]:
-    """Run ``swift-code-query search`` and return the parsed matches.
+    """Run ``swift-package-tool search`` and return the parsed matches.
 
     Returns a list of dicts with at least ``file``, ``line``, ``column``,
     ``line_content`` fields.  Raises ``RuntimeError`` on failure so callers
@@ -389,9 +389,9 @@ def _search_with_swift_code_query(pattern: str, target: str,
     result = _run_swift_code_query(args)
     if not result.get("ok", True) or "error" in result:
         raise RuntimeError(
-            f"swift-code-query search failed: {result.get('error', 'unknown error')}"
+            f"swift-package-tool search failed: {result.get('error', 'unknown error')}"
         )
-    # swift-code-query search returns a JSON array of SearchMatch objects.
+    # swift-package-tool search returns a JSON array of SearchMatch objects.
     if isinstance(result, list):
         return result
     return []
@@ -401,7 +401,7 @@ def _scan_with_swift_code_query(
     patterns: list[tuple[str, str]],
     target: str,
 ) -> list[dict]:
-    """Run ``swift-code-query search`` with a combined regex from *patterns*.
+    """Run ``swift-package-tool search`` with a combined regex from *patterns*.
 
     Each pattern is a ``(display_name, regex)`` pair.  The helper builds a
     combined regex (``pat1|pat2|...``), runs the search, and attaches the
@@ -530,7 +530,7 @@ def _severity_for(api: str) -> str:
 def scan_unsafe_ptrs(target: str) -> dict:
     """Scan Swift sources for unsafe pointer / memory API usage.
 
-    Delegates regex matching to ``swift-code-query search`` for consistency
+    Delegates regex matching to ``swift-package-tool search`` for consistency
     with the AST-level tool, then post-processes for scope clustering and
     severity ranking (same logic as the original Python-only version).
     """
@@ -589,7 +589,7 @@ def scan_unsafe_ptrs(target: str) -> dict:
 def scan_force_unwraps(target: str) -> dict:
     """Scan Swift sources for force-unwrap ``!`` usage, classified by subkind.
 
-    Delegates to ``swift-code-query force-unwraps`` for AST-guaranteed
+    Delegates to ``swift-package-tool force-unwraps`` for AST-guaranteed
     detection, then post-processes for scope clustering and severity ranking.
     """
     target = _resolve_target(target)
@@ -642,7 +642,7 @@ def scan_force_unwraps(target: str) -> dict:
 
 
 def _scan_force_unwraps_fallback(target: str) -> dict:
-    """Fallback regex-based force-unwrap scan when swift-code-query is unavailable."""
+    """Fallback regex-based force-unwrap scan when swift-package-tool is unavailable."""
     target = _resolve_target(target)
     files = _iter_swift_files(target)
     findings: list[dict] = []
@@ -697,7 +697,7 @@ def _scan_force_unwraps_fallback(target: str) -> dict:
 def scan_secrets(target: str) -> dict:
     """Scan Swift sources for hardcoded secrets.
 
-    Uses ``swift-code-query search`` for regex matching, then deduplicates
+    Uses ``swift-package-tool search`` for regex matching, then deduplicates
     and ranks findings (same logic as the original Python-only version).
     """
     target = _resolve_target(target)
@@ -733,7 +733,7 @@ def scan_secrets(target: str) -> dict:
 def scan_process_safety(target: str) -> dict:
     """Scan Swift sources for process/subprocess safety issues.
 
-    Delegates to ``swift-code-query search`` for regex matching, then
+    Delegates to ``swift-package-tool search`` for regex matching, then
     post-processes for scope clustering and severity ranking.
     """
     target = _resolve_target(target)
@@ -957,7 +957,7 @@ def list_targets(target: str, compact: bool = False) -> dict:
         }
 
         if sources:
-            # Count lines per file using swift-code-query index or simple wc
+            # Count lines per file using swift-package-tool index or simple wc
             file_stats = []
             total_lines = 0
             for src in sources:
@@ -1106,7 +1106,7 @@ def _doc_coverage(files: list[Path], uncovered_limit: Optional[int] = None) -> d
 def docc_check(target: str, uncovered_limit: Optional[int] = None) -> dict:
     """Analyze the package's DocC documentation status and doc-comment coverage.
 
-    Uses ``swift-code-query api --include-internal`` for doc comment coverage
+    Uses ``swift-package-tool api --include-internal`` for doc comment coverage
     when available, falling back to the original heuristic parser.
     """
     target = _resolve_target(target)
@@ -1126,7 +1126,7 @@ def docc_check(target: str, uncovered_limit: Optional[int] = None) -> dict:
     for block in doc_targets:
         doc_target_names += re.findall(r'"([^"]+)"', block)
 
-    # Try swift-code-query api for doc comment coverage
+    # Try swift-package-tool api for doc comment coverage
     coverage = None
     source_roots = [d for d in (pkg_dir / "Sources").iterdir() if d.is_dir()] \
         if (pkg_dir / "Sources").is_dir() else []
@@ -1301,8 +1301,8 @@ def inspector(target: str, compact: bool = False) -> dict:
     """One-call orientation payload: what the project is, its shape, and its health.
 
     Composes the other tools (targets, dependencies, audit triage, build, test,
-    docc) into a single compact JSON object.  Uses ``swift-code-query index``
-    for the project index and ``swift-code-query api`` for the API surface.
+    docc) into a single compact JSON object.  Uses ``swift-package-tool index``
+    for the project index and ``swift-package-tool api`` for the API surface.
     """
     def _first_para(pkg_dir: Path) -> str:
         for name in ("README.md", "README.markdown"):

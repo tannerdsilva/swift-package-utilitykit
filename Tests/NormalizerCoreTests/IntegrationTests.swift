@@ -1,11 +1,11 @@
 import Testing
 import Foundation
 
-/// integration tests for swift-code-query commands.
+/// integration tests for swift-package-tool commands.
 ///
 /// these tests run the built binary as a subprocess and verify its output.
 /// they serve as smoke tests for the CLI interface and output formats.
-@Suite("swift-code-query integration tests")
+@Suite("swift-package-tool integration tests")
 struct SwiftCodeQueryIntegrationTests {
 
     let binaryPath: String
@@ -20,7 +20,7 @@ struct SwiftCodeQueryIntegrationTests {
             .deletingLastPathComponent()  // swift-package-utilitykit/
 
         binaryPath = pkgDir
-            .appendingPathComponent(".build/debug/swift-code-query").path
+            .appendingPathComponent(".build/debug/swift-package-tool").path
 
         testSourcesDir = pkgDir
             .appendingPathComponent("Sources/NormalizerCore").path
@@ -520,7 +520,7 @@ struct SwiftCodeQueryIntegrationTests {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("members_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["members", "--type", "OutputFormat", "Sources/swift-code-query/OutputFormat.swift", "--output", out.path])
+        _ = try runCommand(["members", "--type", "OutputFormat", "Sources/swift-package-tool/OutputFormat.swift", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("OutputFormat"))
     }
@@ -1021,13 +1021,13 @@ struct SwiftCodeQueryIntegrationTests {
 
     @Test("force-unwraps scans for force unwraps")
     func forceUnwrapsScans() throws {
-        let output = try runCommand(["force-unwraps", "Sources/swift-code-query"])
+        let output = try runCommand(["force-unwraps", "Sources/swift-package-tool"])
         #expect(output.contains("force_unwrap") || output.contains("ForceUnwrapItem"))
     }
 
     @Test("force-unwraps supports --pretty-print")
     func forceUnwrapsPrettyPrint() throws {
-        let output = try runCommand(["force-unwraps", "Sources/swift-code-query", "--pretty-print"])
+        let output = try runCommand(["force-unwraps", "Sources/swift-package-tool", "--pretty-print"])
         #expect(output.contains("kind"))
     }
 

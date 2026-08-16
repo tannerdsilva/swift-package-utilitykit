@@ -5,7 +5,7 @@ import ArgumentParser
 @main
 struct SwiftCodeQuery: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "swift-code-query",
+        commandName: "swift-package-tool",
         abstract: "Query, inspect, search, and index Swift source code.",
         version: "0.1.0",
         subcommands: [

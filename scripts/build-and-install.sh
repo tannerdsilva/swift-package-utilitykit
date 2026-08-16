@@ -7,7 +7,7 @@
 #   PREFIX=/opt/tools ./scripts/build-and-install.sh
 #
 # The two binaries produced are:
-#   swift-code-query   — query, inspect, and format Swift source code (agentic)
+#   swift-package-tool   — query, inspect, and format Swift source code (agentic)
 #   normalizer-tool    — normalize/minify file syntax (also used by the SPM plugin)
 
 set -euo pipefail
@@ -45,7 +45,7 @@ fi
 
 echo "==> install to $PREFIX/bin"
 install -d "$PREFIX/bin"
-for bin in swift-code-query normalizer-tool; do
+for bin in swift-package-tool normalizer-tool; do
     install "$BUILD_DIR/$bin" "$PREFIX/bin/$bin"
     echo "    $PREFIX/bin/$bin"
 done
