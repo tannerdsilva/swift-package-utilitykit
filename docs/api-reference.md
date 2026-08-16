@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-package-tool` is a Swift source code analysis and editing tool with 30 subcommands.
+`swift-package-tool` is a Swift source code analysis and editing tool with 31 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.

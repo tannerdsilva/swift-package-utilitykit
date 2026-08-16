@@ -147,6 +147,38 @@ swift-package-tool docc-check [<paths>...] [--output-format <format>]
                                   [--pretty-print]
 swift-package-tool sort [<file>] --type <name> [--by name|kind]
                                   [--dry-run] [--backup] [--verify] [--show-diff]
+swift-package-tool replace <file> --old <text> --new <text>
+                                  [--dry-run] [--backup] [--verify] [--show-diff]
+swift-package-tool replace <file> --symbol <name> --rename <name>
+                                  [--dry-run] [--backup] [--verify] [--show-diff]
+swift-package-tool insert <file> --content <text> --after <pattern>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool insert <file> --content <text> --before <pattern>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool insert <file> --content <text> --at-line <n>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool delete <file> --lines <start>-<end>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool delete <file> --symbol <name>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool delete <file> --matching <pattern>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool prepend <file> --content <text>
+                                  [--after-imports] [--dry-run] [--backup]
+swift-package-tool append <file> --content <text>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool add-import <file> --module <name>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool add-conformance <file> --type <name> --protocol <name>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool add-member <file> --type <name> --property <decl>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool add-member <file> --type <name> --method <sig> [--body <code>]
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool add-member <file> --type <name> --case <name>
+                                  [--dry-run] [--backup] [--verify]
+swift-package-tool wrap <file> --lines <start>-<end> --in <container>
+                                  [--variable <name>] [--dry-run] [--backup]
 
 swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
@@ -718,8 +750,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-package-tool/                        agentic code query/inspect/search/index tool (35 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 30 subcommands)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (44 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 31 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -741,6 +773,15 @@ Sources/
     MacroExpandCommand.swift               macro expansion site finder
     DoccCheckCommand.swift                 docc documentation validation
     CleanCommand.swift                     clean build artifacts
+    FileEditor.swift                       shared editing infrastructure (dry-run, backup, verify, diff)
+    ReplaceCommand.swift                   find-and-replace text or rename a symbol
+    InsertCommand.swift                    insert code at a precise location
+    DeleteCommand.swift                    remove code by line range, symbol, or pattern
+    PrependAppendCommand.swift             add code at file boundaries
+    AddImportConformanceCommand.swift      add import or protocol conformance
+    AddMemberCommand.swift                 add property/method/enum case to a type
+    WrapCommand.swift                      wrap lines in do-catch/if-let/guard-let/do
+    SortCommand.swift                      sort members of a type
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)

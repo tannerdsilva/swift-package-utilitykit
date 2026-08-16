@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 (2026-08-16)
+
+### Changed
+- Refactored 4 editing commands to use `SyntaxRewriter` instead of string-offset manipulation:
+  - `add-conformance`: `AddConformanceRewriter` modifies inheritance clause via AST
+  - `replace --symbol`: `SymbolRenameRewriter` renames identifiers via token visit
+  - `delete --symbol`: `DeclarationDeleteRewriter` removes declarations via `visitAny`
+  - `sort`: `MemberSortRewriter` reorders members via member block manipulation
+- All string-offset manipulation replaced with AST-level transformations.
+  Trivia preservation handled automatically by `SyntaxRewriter`.
+
 ## 0.6.0 (2026-08-16)
 
 ### Added
