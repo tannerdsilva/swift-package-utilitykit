@@ -183,6 +183,69 @@ public func signatureString(for node: some DeclSyntaxProtocol) -> String {
         } ?? v.description.trimmingCharacters(in: CharacterSet.whitespaces)
         return binding
 
+    case let initDecl as InitializerDeclSyntax:
+        let sig = initDecl.signature
+        let params = sig.parameterClause.parameters.map { param -> String in
+            let label = param.firstName.text
+            let name = param.secondName?.text ?? ""
+            let type = param.type.description.trimmingCharacters(in: CharacterSet.whitespaces)
+            if label == name || name.isEmpty {
+                return "\(label): \(type)"
+            }
+            return "\(label) \(name): \(type)"
+        }.joined(separator: ", ")
+        let optMark = initDecl.optionalMark?.text ?? ""
+        return "init\(optMark)(\(params))"
+
+    case let deinitDecl as DeinitializerDeclSyntax:
+        return "deinit"
+
+    case let sub as SubscriptDeclSyntax:
+        let params = sub.parameterClause.parameters.map { param -> String in
+            let label = param.firstName.text
+            let name = param.secondName?.text ?? ""
+            let type = param.type.description.trimmingCharacters(in: CharacterSet.whitespaces)
+            if label == name || name.isEmpty {
+                return "\(label): \(type)"
+            }
+            return "\(label) \(name): \(type)"
+        }.joined(separator: ", ")
+        let returnClause = sub.returnClause.type.description.trimmingCharacters(in: CharacterSet.whitespaces)
+        return "subscript(\(params)) -> \(returnClause)"
+
+    case let ext as ExtensionDeclSyntax:
+        var label = "extension \(ext.extendedType.description.trimmingCharacters(in: CharacterSet.whitespaces))"
+        if let whereClause = ext.genericWhereClause {
+            label += " \(whereClause.description.trimmingCharacters(in: CharacterSet.whitespaces))"
+        }
+        return label
+
+    case let op as OperatorDeclSyntax:
+        let fixity = op.fixitySpecifier.text
+        let name = op.name.text
+        let prec = op.operatorPrecedenceAndTypes.map { " : \($0.precedenceGroup.text)" } ?? ""
+        return "\(fixity) operator \(name)\(prec)"
+
+    case let pg as PrecedenceGroupDeclSyntax:
+        return "precedencegroup \(pg.name.text)"
+
+    case let macro as MacroDeclSyntax:
+        let sig = macro.signature
+        let params = sig.parameterClause.parameters.map { param -> String in
+            let label = param.firstName.text
+            let name = param.secondName?.text ?? ""
+            let type = param.type.description.trimmingCharacters(in: CharacterSet.whitespaces)
+            if label == name || name.isEmpty {
+                return "\(label): \(type)"
+            }
+            return "\(label) \(name): \(type)"
+        }.joined(separator: ", ")
+        let returnClause = sig.returnClause.map { " -> \($0.type.description.trimmingCharacters(in: CharacterSet.whitespaces))" } ?? ""
+        return "macro \(macro.name.text)(\(params))\(returnClause)"
+
+    case let macroExp as MacroExpansionDeclSyntax:
+        return "#\(macroExp.macroName.text)"
+
     default:
         return node.description.trimmingCharacters(in: CharacterSet.whitespaces).components(separatedBy: "\n").first ?? ""
     }
