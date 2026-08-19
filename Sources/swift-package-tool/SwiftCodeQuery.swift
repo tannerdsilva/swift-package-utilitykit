@@ -40,6 +40,7 @@ struct SwiftCodeQuery: ParsableCommand {
             AddMemberCommand.self,
             WrapCommand.self,
             SortCommand.self,
+            BatchCommand.self,
         ],
         defaultSubcommand: FindCommand.self
     )

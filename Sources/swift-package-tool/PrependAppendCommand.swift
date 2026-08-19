@@ -12,7 +12,7 @@ struct PrependCommand: ParsableCommand, EditCommand {
     @Argument(help: "File to edit.")
     var file: String
 
-    @Option(name: .long, help: "Content to prepend.")
+    @Option(name: .long, help: "Content to prepend. Use \\n for newlines.")
     var content: String
 
     @Flag(name: .customLong("after-imports"), help: "Insert after the last import statement instead of at line 1.")
@@ -37,6 +37,7 @@ struct PrependCommand: ParsableCommand, EditCommand {
     var force = false
 
     mutating func run() throws {
+        let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
         ) { source in
@@ -45,12 +46,12 @@ struct PrependCommand: ParsableCommand, EditCommand {
                 if let lastImport = lines.lastIndex(where: { $0.hasPrefix("import ") }) {
                     var newLines = lines
                     newLines.insert("", at: lastImport + 1)
-                    newLines.insert(contentsOf: content.components(separatedBy: "\n"), at: lastImport + 2)
+                    newLines.insert(contentsOf: processedContent.components(separatedBy: "\n"), at: lastImport + 2)
                     source = newLines.joined(separator: "\n")
                     return ""
                 }
             }
-            source = content + "\n" + source
+            source = processedContent + "\n" + source
             return ""
         }
 
@@ -71,7 +72,7 @@ struct AppendCommand: ParsableCommand, EditCommand {
     @Argument(help: "File to edit.")
     var file: String
 
-    @Option(name: .long, help: "Content to append.")
+    @Option(name: .long, help: "Content to append. Use \\n for newlines.")
     var content: String
 
     @Flag(name: .long, help: "Show diff without modifying.")
@@ -93,11 +94,12 @@ struct AppendCommand: ParsableCommand, EditCommand {
     var force = false
 
     mutating func run() throws {
+        let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
         ) { source in
             let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
-            source = trimmed + "\n" + content + "\n"
+            source = trimmed + "\n" + processedContent + "\n"
             return ""
         }
 

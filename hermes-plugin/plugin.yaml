@@ -1,5 +1,5 @@
 name: swift-package-utilitykit
 version: 0.1.0
-description: "Swift package inspection and security-audit tools. 8 tools (pkg_build, pkg_scan, pkg_list_dependencies, pkg_list_targets, pkg_test, pkg_clean, pkg_docc_check, pkg_inspector) that delegate to the swift-code-query binary for AST-guaranteed code analysis. Designed for small-model workers (LFM2.5 2.6B)."
+description: "Swift package inspection and security-audit tools. 8 tools (pkg_build, pkg_scan, pkg_list_dependencies, pkg_list_targets, pkg_test, pkg_clean, pkg_docc_check, pkg_inspector) that delegate to the swift-package-tool binary for AST-guaranteed code analysis. Designed for small-model workers (LFM2.5 2.6B)."
 author: "Escalante"
 hooks: []

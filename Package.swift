@@ -49,5 +49,9 @@ let package = Package(
             name: "NormalizerCoreTests",
             dependencies: ["NormalizerCore"]
         ),
+        .testTarget(
+            name: "SwiftPackageToolTests",
+            dependencies: []
+        ),
     ]
 )

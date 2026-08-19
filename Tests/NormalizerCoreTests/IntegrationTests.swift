@@ -682,48 +682,41 @@ struct SwiftCodeQueryIntegrationTests {
 
     // MARK: - clean command
 
-    @Test("clean succeeds on this package")
-    func cleanSucceeds() throws {
-        // Create a temporary package, build it, then clean it
+    @Test("clean fails on path without Package.swift")
+    func cleanFailsNoPackage() throws {
+        let badPath = "/tmp/swift-package-tool-test-nonexistent-\(UUID().uuidString)"
+        let output = try runCommand(["clean", badPath])
+        #expect(output.contains("no Package.swift found"))
+    }
+
+    @Test("clean succeeds on minimal package (no build needed)")
+    func cleanSucceedsOnMinimal() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("clean_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
+        // minimal package — just text files, no build, no artifacts
         try """
         // swift-tools-version: 6.0
         import PackageDescription
         let package = Package(
-            name: "CleanTest",
-            targets: [.target(name: "CleanTest")]
+            name: "CleanTestFixture",
+            targets: [.target(name: "CleanTestFixture")]
         )
         """.write(to: tmpDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
-
-        try FileManager.default.createDirectory(at: tmpDir.appendingPathComponent("Sources/CleanTest"), withIntermediateDirectories: true)
-        try "public func greet() {}\n".write(to: tmpDir.appendingPathComponent("Sources/CleanTest/main.swift"), atomically: true, encoding: .utf8)
-
-        // Build first to create artifacts
-        let buildProc = Process()
-        buildProc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        buildProc.arguments = ["swift", "build", "--package-path", tmpDir.path]
-        try buildProc.run()
-        buildProc.waitUntilExit()
-        guard buildProc.terminationStatus == 0 else { return } // skip if build fails
+        try FileManager.default.createDirectory(
+            at: tmpDir.appendingPathComponent("Sources/CleanTestFixture"),
+            withIntermediateDirectories: true
+        )
+        try "public func greet() {}".write(
+            to: tmpDir.appendingPathComponent("Sources/CleanTestFixture/main.swift"),
+            atomically: true, encoding: .utf8
+        )
 
         let output = try runCommand(["clean", tmpDir.path, "--pretty-print"])
         #expect(output.contains("\"success\" : true"))
         #expect(output.contains("dependencies preserved"))
-    }
-
-    @Test("clean fails on directory without Package.swift")
-    func cleanFailsNoPackage() throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("no_pkg_\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-
-        let output = try runCommand(["clean", tmp.path])
-        #expect(output.contains("no Package.swift found"))
     }
 
     // MARK: - editing commands

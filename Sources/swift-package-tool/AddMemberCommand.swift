@@ -72,7 +72,7 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
             memberDecl = "\(accessMod)\(prop)\(defaultVal)"
         } else if let meth = method {
             let accessMod = access.map { "\($0) " } ?? ""
-            let bodyContent = body ?? ""
+            let bodyContent = FileEditor.processMultilineContent(body ?? "")
             if bodyContent.isEmpty {
                 memberDecl = "\(accessMod)\(meth)"
             } else {

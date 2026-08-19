@@ -74,10 +74,11 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
     }
 
     private func runTextReplace(old: String, new: String) throws {
+        let processedNew = FileEditor.processMultilineContent(new)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
         ) { source in
-            source = source.replacingOccurrences(of: old, with: new)
+            source = source.replacingOccurrences(of: old, with: processedNew)
             return ""
         }
 

@@ -16,7 +16,7 @@ struct InsertCommand: ParsableCommand, EditCommand {
     @Argument(help: "File to edit.")
     var file: String
 
-    @Option(name: .long, help: "Content to insert.")
+    @Option(name: .long, help: "Content to insert. Use \\n for newlines.")
     var content: String
 
     @Option(name: .long, help: "Insert after the first line containing this text.")
@@ -52,6 +52,9 @@ struct InsertCommand: ParsableCommand, EditCommand {
             throw ValidationError("specify exactly one of --after, --before, or --at-line")
         }
 
+        // Process multi-line content: convert literal \n to actual newlines
+        let processedContent = FileEditor.processMultilineContent(content)
+
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
         ) { source in
@@ -61,19 +64,19 @@ struct InsertCommand: ParsableCommand, EditCommand {
             if let pattern = after {
                 if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
                     let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = content.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
                     newLines.insert(contentsOf: [indented], at: idx + 1)
                 }
             } else if let pattern = before {
                 if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
                     let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = content.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
                     newLines.insert(contentsOf: [indented], at: idx)
                 }
             } else if let line = atLine {
                 let idx = max(0, min(line - 1, lines.count))
                 let indent = idx > 0 ? FileEditor.detectIndent(lines[idx - 1]) : ""
-                let indented = content.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
                 newLines.insert(contentsOf: [indented], at: idx)
             }
 

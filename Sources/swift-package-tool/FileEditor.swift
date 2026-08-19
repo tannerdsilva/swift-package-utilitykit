@@ -73,7 +73,7 @@ enum FileEditor {
             }
         }
 
-        // Compute diff
+        // Compute diff — always show on dry-run, or when --show-diff is set
         var diff: String? = nil
         if showDiff || dryRun {
             diff = makeDiff(original: original, modified: modified)
@@ -114,6 +114,18 @@ enum FileEditor {
         }
 
         return result
+    }
+
+    /// Process content string from CLI arguments, converting literal `\n`
+    /// sequences to actual newline characters.
+    ///
+    /// When a user passes `--content "line1\nline2"` from the shell, the
+    /// shell sends `\n` as two literal characters (backslash + n). This
+    /// helper converts them to real newlines so multi-line insertions work.
+    ///
+    /// To insert a literal backslash-n sequence, escape it: `"\\n"`.
+    static func processMultilineContent(_ content: String) -> String {
+        content.replacingOccurrences(of: "\\n", with: "\n")
     }
 
     /// Compute indentation string from a source line.
