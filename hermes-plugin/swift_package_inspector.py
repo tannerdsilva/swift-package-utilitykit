@@ -38,10 +38,14 @@ from typing import Dict, List, Optional
 # ---------------------------------------------------------------------------
 
 # Path to the swift-package-tool binary.  Resolved once at import time.
-# Falls back to PATH lookup; can be overridden via env var.
+# Preference order: SWIFT_CODE_QUERY_PATH env override > PATH lookup.
+# Last-resort fallback matches the Makefile/install.sh default install
+# location (~/.local/bin, user-local, no sudo) so the resolver and the
+# installer agree on where the binary lives.
+_DEFAULT_SWIFT_CODE_QUERY = os.path.expanduser("~/.local/bin/swift-package-tool")
 _SWIFT_CODE_QUERY = os.environ.get(
     "SWIFT_CODE_QUERY_PATH",
-    shutil.which("swift-package-tool") or "/usr/local/bin/swift-package-tool",
+    shutil.which("swift-package-tool") or _DEFAULT_SWIFT_CODE_QUERY,
 )
 
 

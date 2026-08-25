@@ -11,7 +11,7 @@
 git clone https://github.com/your-org/swift-package-utilitykit.git
 cd swift-package-utilitykit
 swift build -c release
-cp .build/release/swift-package-tool /usr/local/bin/
+cp .build/release/swift-package-tool ~/.local/bin/
 ```
 
 ## Via Makefile
@@ -20,8 +20,10 @@ cp .build/release/swift-package-tool /usr/local/bin/
 make install-plugin
 ```
 
-This builds the release binary, installs it to ``/usr/local/bin``, and
-symlinks the Hermes plugin.
+This builds the release binary, installs it to ``~/.local/bin``, and
+symlinks the Hermes plugin.  (``~/.local/bin`` is the canonical install
+location — the Hermes plugin resolver falls back to it, so the installer
+and the plugin agree.  Override with ``PREFIX=``/``BIN_DIR=``.)
 
 ## Via install script
 

@@ -29,8 +29,8 @@ cd swift-package-utilitykit
 make install-plugin
 ```
 
-This builds release binaries, installs them to `/usr/local/bin` (uses `sudo`
-automatically when needed), and installs the Hermes plugin into
+This builds release binaries, installs them to `~/.local/bin` (user-local,
+no `sudo` needed by default), and installs the Hermes plugin into
 `~/.hermes/plugins/`.  In interactive mode (default), you'll be prompted
 whether to **symlink** or **copy** the plugin.  Symlinks are lighter and
 auto-update with `git pull`; copies are self-contained and survive the
@@ -78,7 +78,8 @@ PREFIX=/opt/homebrew ./scripts/install.sh
 
 ```bash
 make release                          # build release binaries
-sudo make install-release             # install to /usr/local/bin
+make install-release                  # install to ~/.local/bin (default)
+sudo make install-release PREFIX=/usr/local   # system-wide override
 
 # plugin: symlink (auto-updates with git pull)
 ln -sf "$PWD/hermes-plugin" ~/.hermes/plugins/swift-package-utilitykit
@@ -92,7 +93,7 @@ hermes plugin reload                  # reload Hermes plugins
 ### Manual removal
 
 ```bash
-sudo rm -f /usr/local/bin/swift-package-tool /usr/local/bin/normalizer-tool
+rm -f ~/.local/bin/swift-package-tool ~/.local/bin/normalizer-tool
 rm -rf ~/.hermes/plugins/swift-package-utilitykit
 ```
 
@@ -814,7 +815,7 @@ make
 # release build
 make release
 
-# install to /usr/local/bin
+# install to ~/.local/bin (default)
 make install
 
 # release build + install
@@ -833,8 +834,8 @@ make clean
 Or use the build script:
 
 ```bash
-./scripts/build-and-install.sh              # debug → /usr/local
-./scripts/build-and-install.sh --release    # release → /usr/local
+./scripts/build-and-install.sh              # debug → ~/.local/bin
+./scripts/build-and-install.sh --release    # release → ~/.local/bin
 PREFIX=/opt/tools ./scripts/build-and-install.sh --release
 ```
 
@@ -867,7 +868,7 @@ See also:
 The binary must be installed in PATH:
 
 ```bash
-# install to /usr/local/bin (default)
+# install to ~/.local/bin (default)
 make install-plugin
 
 # verify
@@ -899,12 +900,13 @@ swift --version
 
 ### "Permission denied" when installing
 
-The default install prefix `/usr/local/bin` requires `sudo` on macOS.
-The Makefile auto-detects this, but you can also use a custom prefix:
+The default install prefix is `~/.local/bin` (user-local, no `sudo`).  To
+install system-wide or elsewhere, override `PREFIX`; a non-writable target
+is auto-detected and escalated with `sudo`:
 
 ```bash
-make install PREFIX=~/.local
-make install-plugin PREFIX=~/.local
+make install PREFIX=/usr/local    # system-wide (auto-uses sudo)
+make install-plugin PREFIX=/usr/local
 ```
 
 ### "Plugin not found" after install

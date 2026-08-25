@@ -2,8 +2,8 @@
 # build-and-install.sh — Build swift-package-utilitykit binaries and install them.
 #
 # Usage:
-#   ./scripts/build-and-install.sh              debug build, install to /usr/local
-#   ./scripts/build-and-install.sh --release     release build, install to /usr/local
+#   ./scripts/build-and-install.sh              debug build, install to ~/.local/bin
+#   ./scripts/build-and-install.sh --release     release build, install to ~/.local/bin
 #   PREFIX=/opt/tools ./scripts/build-and-install.sh
 #
 # The two binaries produced are:
@@ -14,7 +14,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PREFIX="${PREFIX:-/usr/local}"
+PREFIX="${PREFIX:-$HOME/.local}"
 RELEASE=false
 VERBOSE=false
 
