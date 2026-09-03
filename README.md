@@ -60,10 +60,15 @@ make remove INSTALL_INTERACTIVE=0 FORCE=1  # skip all prompts
 
 ### Install script (from a local clone)
 
+`scripts/install.sh` is the single source of truth for install/remove; every
+`make` maintenance target is a thin delegate of it (`make install`,
+`install-release`, `install-plugin`, and `remove` map straight onto its flags).
+
 ```bash
 ./scripts/install.sh                     # interactive install
 ./scripts/install.sh --symlink           # noninteractive, symlink plugin
 ./scripts/install.sh --copy              # noninteractive, copy plugin
+./scripts/install.sh --debug --no-plugin # debug binaries only, no plugin
 ./scripts/install.sh --remove            # interactive removal
 ./scripts/install.sh --remove --force    # noninteractive removal
 ```
@@ -830,6 +835,10 @@ make test
 # clean
 make clean
 ```
+
+Make targets are thin delegates of `scripts/install.sh` (the single source of
+truth for install/remove logic), so `make install`, `install-release`,
+`install-plugin`, and `remove` accept the same knobs as the script.
 
 Or use the build script:
 
