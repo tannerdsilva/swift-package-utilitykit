@@ -18,6 +18,11 @@
   `hermes plugins list` can never hang the installer.
 
 ### Added
+- Regression test suite (`Tests/NormalizerCoreTests/RegressionTests.swift`) covering
+  the bugs found while testing against a large real-world package: `delete --symbol`,
+  `--force` verification gating, minify token separation, LCS diff minimality,
+  `short`-format reflection dumps, bare-invocation path defaults, and the
+  install/uninstall lifecycle.
 - `swift-package-tool install` flags: `--debug`, `--no-build`, `--no-plugin`,
   `--symlink`/`--copy`, `--force`, `--no-path-update`, `--no-interactive`,
   `--prefix`, `--bin-dir`, `--hermes-plugins`.

@@ -812,8 +812,9 @@ Plugins/
     Plugin.swift                           CommandPlugin entry point
     ArgumentParser.swift                   flag parsing (mirrors normalizer-tool flags)
 Tests/
-  NormalizerCoreTests/                     17 tests (Swift Testing)
+  NormalizerCoreTests/                     28 tests (Swift Testing)
     NormalizerTests.swift
+    IntegrationTests.swift                 subprocess CLI + regression tests
 ```
 
 ## building from source
