@@ -3,26 +3,33 @@
 ## Unreleased
 
 ### Changed
-- Install/remove are now single-sourced in `scripts/install.sh`. The
-  Makefile's `install`, `install-release`, `install-plugin`, and `remove`
-  targets are thin flag-mapped delegates (no duplicated install logic).
+- Install/remove/path-wiring are now native `swift-package-tool` subcommands
+  (`install`, `uninstall`, `path-wire`) — the former shell scripts in
+  `scripts/` are gone. The Makefile's `install`, `install-release`,
+  `install-plugin`, `remove`, and `path-wire` targets are thin flag-mapped
+  delegates that build the binary and invoke it with `--no-build` (single
+  source of install logic: Swift).
 - Install dir is wired into the harness PATH automatically and idempotently
-  via `scripts/path-wire.sh` (`PATH_UPDATE=1`, opt out with `PATH_UPDATE=0` or
-  `--no-path-update`). Writes a marker-guarded export into `~/.profile` and
-  any existing `~/.bash_profile` / `~/.bashrc` / `~/.zshrc`.
+  (`PATH_UPDATE=1`, opt out with `PATH_UPDATE=0` or `--no-path-update`).
+  `swift-package-tool path-wire` writes a marker-guarded export into
+  `~/.profile` and any existing `~/.bash_profile` / `~/.bashrc` / `~/.zshrc`,
+  and is backward-compatible with blocks written by the old `path-wire.sh`.
+- Hermes verification during `install` is bounded by a 15s timeout so a slow
+  `hermes plugins list` can never hang the installer.
 
 ### Added
-- `scripts/install.sh` variants: `--debug`, `--no-plugin`, `--no-interactive`.
-- `PLUGIN_MODE` env var honored (validated to `symlink` or `copy`;
-  invalid values fail with a diagnostic instead of silently copying).
+- `swift-package-tool install` flags: `--debug`, `--no-build`, `--no-plugin`,
+  `--symlink`/`--copy`, `--force`, `--no-path-update`, `--no-interactive`,
+  `--prefix`, `--bin-dir`, `--hermes-plugins`.
+- `swift-package-tool uninstall` and `swift-package-tool path-wire` subcommands.
+- `PLUGIN_MODE` env var honored (validated to `symlink` or `copy`; unset in
+  noninteractive mode defaults to `copy`).
 - `HERMES_PLUGINS` accepted as an alias for `HERMES_PLUGINS_DIR`.
-- `make test-scripts` target runs the sandboxed shell-script suite.
-- `Tests/path-wire-tests.sh` — 19 sandboxed assertions for `path-wire.sh`.
 
 ### Fixed
-- `scripts/install.sh` no longer spuriously requires `sudo` when the install
-  dir is missing but creatable (e.g. a fresh machine without `~/.local`).
-- Remove deduplicates overlapping install dirs (default
+- `install` no longer spuriously requires `sudo` when the install dir is
+  missing but creatable (e.g. a fresh machine without `~/.local`).
+- `uninstall` deduplicates overlapping install dirs (default
   `INSTALL_DIR == $HOME/.local/bin`), so each binary is reported once.
 
 ## 0.7.0 (2026-08-16)

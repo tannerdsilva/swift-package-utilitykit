@@ -41,6 +41,9 @@ struct SwiftCodeQuery: ParsableCommand {
             WrapCommand.self,
             SortCommand.self,
             BatchCommand.self,
+            InstallCommand.self,
+            UninstallCommand.self,
+            PathWireCommand.self,
         ],
         defaultSubcommand: FindCommand.self
     )

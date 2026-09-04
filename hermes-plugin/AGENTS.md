@@ -88,7 +88,8 @@ docs = await call_tool("pkg_docc_check", {"target": "/path/to/project", "uncover
 
 ```bash
 make install-plugin                    # from repo root
-# or
-./scripts/install.sh                   # interactive
-./scripts/install.sh --symlink         # noninteractive, symlink plugin
+# or, directly against the built binary:
+swift build -c release
+.build/release/swift-package-tool install --copy    # copy plugin
+.build/release/swift-package-tool install --symlink # symlink plugin
 ```

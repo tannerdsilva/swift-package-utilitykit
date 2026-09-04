@@ -36,19 +36,16 @@ whether to **symlink** or **copy** the plugin.  Symlinks are lighter and
 auto-update with `git pull`; copies are self-contained and survive the
 source being moved.
 
-For noninteractive installs (CI, containers), `PLUGIN_MODE` is **required**:
+For noninteractive installs (CI, containers), choose the plugin mode
+explicitly (defaults to **copy** when unset):
 
 ```bash
 make install-plugin INSTALL_INTERACTIVE=0 PLUGIN_MODE=symlink   # symlink
 make install-plugin INSTALL_INTERACTIVE=0 PLUGIN_MODE=copy      # copy
 ```
 
-Without `PLUGIN_MODE`, noninteractive mode errors immediately:
-
-```
-ERROR: PLUGIN_MODE is required in noninteractive mode.
-Set PLUGIN_MODE=symlink or PLUGIN_MODE=copy.
-```
+Either way, `swift-package-tool install` validates `PLUGIN_MODE` to
+`symlink`/`copy` and fails with a diagnostic on anything else.
 
 ### Removal
 
@@ -58,25 +55,32 @@ make remove INSTALL_INTERACTIVE=0        # noninteractive (skips prompt)
 make remove INSTALL_INTERACTIVE=0 FORCE=1  # skip all prompts
 ```
 
-### Install script (from a local clone)
+### Install via swift-package-tool
 
-`scripts/install.sh` is the single source of truth for install/remove; every
+Install/remove logic lives natively in the `swift-package-tool` binary
+(`install`, `uninstall`, `path-wire` subcommands) — no shell scripts. Every
 `make` maintenance target is a thin delegate of it (`make install`,
-`install-release`, `install-plugin`, and `remove` map straight onto its flags).
+`install-release`, `install-plugin`, `remove`, `path-wire`).
 
 ```bash
-./scripts/install.sh                     # interactive install
-./scripts/install.sh --symlink           # noninteractive, symlink plugin
-./scripts/install.sh --copy              # noninteractive, copy plugin
-./scripts/install.sh --debug --no-plugin # debug binaries only, no plugin
-./scripts/install.sh --remove            # interactive removal
-./scripts/install.sh --remove --force    # noninteractive removal
+# interactive install (prompts for symlink vs copy)
+swift-package-tool install
+
+# noninteractive variants
+swift-package-tool install --copy              # copy plugin (self-contained)
+swift-package-tool install --symlink           # symlink plugin
+swift-package-tool install --debug --no-plugin # debug binaries only, no plugin
+
+# removal
+swift-package-tool uninstall                   # interactive removal
+swift-package-tool uninstall --force           # noninteractive removal
 ```
 
 Or with custom paths:
 
 ```bash
-PREFIX=/opt/homebrew ./scripts/install.sh
+swift-package-tool install --prefix /opt/homebrew
+swift-package-tool path-wire /opt/homebrew/bin # wire a dir into the harness PATH
 ```
 
 ### Manual install
@@ -748,16 +752,14 @@ in place.
 Makefile                                  build & install targets
 Package.swift                              SPM manifest (plugin + executables)
 README.md
-scripts/
-  build-and-install.sh                     CI/automation build script
 Sources/
   NormalizerCore/                          shared normalization logic (unit-tested)
     Normalizer.swift                       normalize(), splitLines(), collapseBlankLines()
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-package-tool/                        agentic code query/inspect/search/index tool (44 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 31 subcommands)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (48 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 34 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -788,6 +790,9 @@ Sources/
     AddMemberCommand.swift                 add property/method/enum case to a type
     WrapCommand.swift                      wrap lines in do-catch/if-let/guard-let/do
     SortCommand.swift                      sort members of a type
+    InstallCommand.swift                   install binaries + Hermes plugin (host)
+    UninstallCommand.swift                 remove binaries, plugin, and PATH wiring
+    PathWireCommand.swift                  marker-guarded harness PATH wiring
     OutputFormat.swift                     OutputFormat enum, formatOutput, writeOutput
     Declarations.swift                     DeclarationInfo, SymbolDetail, SymbolFinder
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)
@@ -836,17 +841,12 @@ make test
 make clean
 ```
 
-Make targets are thin delegates of `scripts/install.sh` (the single source of
-truth for install/remove logic), so `make install`, `install-release`,
-`install-plugin`, and `remove` accept the same knobs as the script.
+Make targets are thin delegates of the `swift-package-tool` binary (the single
+source of truth for install/remove logic), so `make install`, `install-release`,
+`install-plugin`, and `remove` accept the same knobs as the subcommands.
 
-Or use the build script:
-
-```bash
-./scripts/build-and-install.sh              # debug → ~/.local/bin
-./scripts/build-and-install.sh --release    # release → ~/.local/bin
-PREFIX=/opt/tools ./scripts/build-and-install.sh --release
-```
+For CI or bare-bones installs, invoke the subcommands directly (see
+"Install via swift-package-tool" above).
 
 ## dependencies
 
