@@ -52,8 +52,18 @@ _SWIFT_CODE_QUERY = os.environ.get(
 def _run_swift_code_query(args: list[str], timeout: int = 120) -> dict:
     """Run swift-package-tool with the given args and return parsed JSON.
 
-    Returns a dict with at least an ``ok`` field.  On failure the dict
-    carries an ``error`` message so the model can recover.
+    The return value is a single, unambiguous contract:
+
+      success: {"ok": True, "data": <parsed JSON (dict or list)>,
+                "stdout": <raw text>, "stderr": <raw text>, "exit_code": <int>}
+      failure: {"ok": False, "error": "<message>", "stdout": ..., "stderr": ...,
+                "exit_code": <int or None>}
+
+    ``data`` carries the verbatim JSON payload — for array-emitting
+    subcommands (`search`, `api`, `force-unwraps`, `build`, `test`) that is a
+    *list*, for object-emitting ones (`index`, `dependencies --grouped`) a
+    *dict*.  Callers check ``ok`` first and then read ``data``; they must not
+    assume ``data`` is a dict.
     """
     try:
         proc = subprocess.run(
@@ -61,17 +71,24 @@ def _run_swift_code_query(args: list[str], timeout: int = 120) -> dict:
             capture_output=True, text=True, timeout=timeout,
         )
     except FileNotFoundError:
-        return {"ok": False, "error": f"swift-package-tool not found at {_SWIFT_CODE_QUERY}"}
+        return {"ok": False, "error": f"swift-package-tool not found at {_SWIFT_CODE_QUERY}",
+                "stdout": "", "stderr": "", "exit_code": None}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"swift-package-tool timed out after {timeout}s"}
+        return {"ok": False, "error": f"swift-package-tool timed out after {timeout}s",
+                "stdout": "", "stderr": "", "exit_code": None}
 
     if proc.returncode != 0:
-        return {"ok": False, "error": proc.stderr.strip() or proc.stdout.strip()}
+        return {"ok": False, "error": proc.stderr.strip() or proc.stdout.strip(),
+                "stdout": proc.stdout, "stderr": proc.stderr, "exit_code": proc.returncode}
 
     try:
-        return json.loads(proc.stdout)
+        data = json.loads(proc.stdout)
     except (json.JSONDecodeError, ValueError) as exc:
-        return {"ok": False, "error": f"failed to parse swift-package-tool output: {exc}"}
+        return {"ok": False, "error": f"failed to parse swift-package-tool output: {exc}",
+                "stdout": proc.stdout, "stderr": proc.stderr, "exit_code": proc.returncode}
+
+    return {"ok": True, "data": data,
+            "stdout": proc.stdout, "stderr": proc.stderr, "exit_code": proc.returncode}
 
 
 def _run_swift(args: list[str], cwd: str, timeout: int = 600) -> subprocess.CompletedProcess:
@@ -158,12 +175,16 @@ def build(target: str, build_args: Optional[List[str]] = None,
     pkg = _package_path(target)
     pkg_dir = pkg.parent
 
-    cmd = [_SWIFT_CODE_QUERY, "build", str(pkg_dir), "--timeout", "600"]
+    # note: the binary path is not repeated here — _run_swift_code_query
+    # prepends it. doubling it breaks argument parsing (the binary ends up
+    # consumed as find's <symbol> and --timeout is rejected).
+    cmd = ["build", str(pkg_dir), "--timeout", "600"]
     if build_target:
         cmd += ["--target", build_target]
     if build_args:
-        # pass extra args as a single quoted string
-        cmd += ["--extra-args", " ".join(build_args)]
+        # pass extra args as a single string; = form avoids the
+        # dash-prefixed-value rejection
+        cmd += [f"--extra-args={' '.join(build_args)}"]
     cmd += ["--output-format", "json"]
 
     try:
@@ -183,10 +204,12 @@ def build(target: str, build_args: Optional[List[str]] = None,
                                "has_warnings": False, "has_errors": False}}
 
     try:
-        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
+        raw = result.get("data")
+        if raw is None:
+            raise KeyError("missing data")
         if isinstance(raw, list) and len(raw) == 1:
             raw = raw[0]
-    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+    except (KeyError, IndexError) as exc:
         return {"ok": False, "build_succeeded": False,
                 "error": f"failed to parse build result: {exc}",
                 "stdout": str(result.get("stdout", "")),
@@ -223,17 +246,25 @@ def build(target: str, build_args: Optional[List[str]] = None,
 # ---------------------------------------------------------------------------
 
 def test(target: str, filter: Optional[str] = None) -> dict:
-    """Run ``swift test`` via ``swift-package-tool build --test`` and return structured JSON."""
+    """Run ``swift test`` via ``swift-package-tool build --test`` and return structured JSON.
+
+    The test build runs in an isolated ``.build-audit`` scratch path so the
+    consumer package's real ``.build`` is never touched (see ``clean()``).
+    """
     target = _resolve_target(target)
     pkg = _package_path(target)
     if not pkg.exists():
         return {"ok": False, "test_succeeded": False, "error": f"no Package.swift at {pkg}"}
     pkg_dir = pkg.parent
 
-    cmd = [_SWIFT_CODE_QUERY, "build", str(pkg_dir), "--test", "--timeout", "1200",
+    # note: same as build() — no binary path here, _run_swift_code_query adds it
+    cmd = ["build", str(pkg_dir), "--test", "--timeout", "1200",
            "--output-format", "json"]
     if filter:
         cmd += ["--filter", filter]
+    # isolate the test build in .build-audit (the plugin's documented contract).
+    # use the = form: argument-parser rejects a dash-prefixed option value.
+    cmd += [f"--extra-args=--scratch-path {pkg_dir}/.build-audit"]
 
     try:
         result = _run_swift_code_query(cmd)
@@ -248,14 +279,34 @@ def test(target: str, filter: Optional[str] = None) -> dict:
                 "stdout": "", "stderr": "", "exit_code": None}
 
     try:
-        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
+        raw = result.get("data")
+        if raw is None:
+            raise KeyError("missing data")
         if isinstance(raw, list) and len(raw) == 1:
             raw = raw[0]
-    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+    except (KeyError, IndexError) as exc:
         return {"ok": False, "test_succeeded": False,
                 "error": f"failed to parse test result: {exc}",
                 "stdout": str(result.get("stdout", "")),
                 "stderr": str(result.get("stderr", "")), "exit_code": None}
+
+    # parse executed/failed test counts from the run log. XCTest emits
+    # "Executed N tests, with M failures" and Swift Testing emits
+    # "Test run with N tests in M suites".
+    raw_log = raw.get("rawLog", "") or ""
+    tests_total: Optional[int] = None
+    tests_failed: Optional[int] = None
+    m = re.search(r"Executed (\d+) tests?, with (\d+) failure", raw_log)
+    if m:
+        tests_total = int(m.group(1))
+        tests_failed = int(m.group(2))
+    else:
+        m = re.search(r"Test run with (\d+) tests? in", raw_log)
+        if m:
+            tests_total = int(m.group(1))
+            tests_failed = 0
+    no_tests = (tests_total == 0) if tests_total is not None else \
+        ("no tests found" in raw_log.lower() or "no test" in raw_log.lower())
 
     diag = raw.get("diagnostics", {})
     return {
@@ -265,6 +316,9 @@ def test(target: str, filter: Optional[str] = None) -> dict:
         "target": target,
         "package_path": str(pkg_dir),
         "duration": raw.get("duration", 0),
+        "tests_total": tests_total,
+        "tests_failed": tests_failed,
+        "no_tests": no_tests,
         "phases": raw.get("phases", []),
         "diagnostics": {
             "warning_count": diag.get("warningCount", 0),
@@ -277,7 +331,7 @@ def test(target: str, filter: Optional[str] = None) -> dict:
             "has_errors": diag.get("errorCount", 0) > 0,
         },
         "summary": raw.get("summary", ""),
-        "raw_log": raw.get("rawLog", ""),
+        "raw_log": raw_log,
     }
 
 
@@ -396,8 +450,9 @@ def _search_with_swift_code_query(pattern: str, target: str,
             f"swift-package-tool search failed: {result.get('error', 'unknown error')}"
         )
     # swift-package-tool search returns a JSON array of SearchMatch objects.
-    if isinstance(result, list):
-        return result
+    data = result.get("data")
+    if isinstance(data, list):
+        return data
     return []
 
 
@@ -425,16 +480,18 @@ def _scan_with_swift_code_query(
     except RuntimeError:
         return []
 
-    # re-test each match's line content to determine which pattern fired
+    # re-test each match's line content to determine which pattern fired.
+    # the tool emits the field as `lineContent` (camelCase).
     results: list[dict] = []
     for m in matches:
-        line = m.get("line_content", "")
+        line = m.get("lineContent", m.get("line_content", ""))
         for display, pat in patterns:
             if re.search(pat, line):
                 results.append({
                     "file": m.get("file", ""),
                     "line": m.get("line", 0),
                     "column": m.get("column", 0),
+                    "lineContent": line,
                     "line_content": line,
                     "api": display,
                 })
@@ -597,7 +654,7 @@ def scan_force_unwraps(target: str) -> dict:
     detection, then post-processes for scope clustering and severity ranking.
     """
     target = _resolve_target(target)
-    cmd = [_SWIFT_CODE_QUERY, "force-unwraps", target,
+    cmd = ["force-unwraps", target,
            "--output-format", "json"]
     result = _run_swift_code_query(cmd)
     if not result.get("ok", True) or "error" in result:
@@ -605,8 +662,10 @@ def scan_force_unwraps(target: str) -> dict:
         return _scan_force_unwraps_fallback(target)
 
     try:
-        raw = json.loads(result["stdout"]) if isinstance(result["stdout"], str) else result["stdout"]
-    except (json.JSONDecodeError, KeyError):
+        raw = result.get("data")
+        if not isinstance(raw, list):
+            return _scan_force_unwraps_fallback(target)
+    except (KeyError, TypeError):
         return _scan_force_unwraps_fallback(target)
 
     if not raw:
@@ -642,6 +701,30 @@ def scan_force_unwraps(target: str) -> dict:
                 "context": context, "reachability": reach,
             })
 
+    # coalesce multiple operators on the same file+line into one finding —
+    # a line can carry both `try!` and a trailing `!`. keep the worst
+    # severity and the most severe primary kind so the ranking is honest.
+    by_spot: dict[tuple[str, int], dict] = {}
+    for f in findings:
+        key = (f["file"], f["line"])
+        existing = by_spot.get(key)
+        if existing is None:
+            by_spot[key] = f
+            continue
+        # merge subkinds
+        for k, v in f.get("subkinds", {}).items():
+            existing.setdefault("subkinds", {})[k] = existing["subkinds"].get(k, 0) + v
+        # worst primary wins (try_force/as_cast > force_unwrap)
+        order = {"force_unwrap": 0, "try_force": 1, "as_cast": 1}
+        if order.get(f["primary"], 0) > order.get(existing["primary"], 0):
+            existing["primary"] = f["primary"]
+        # worst severity wins
+        sev_order = {"low": 0, "medium": 1, "high": 2}
+        if sev_order.get(f["severity"], 0) > sev_order.get(existing["severity"], 0):
+            existing["severity"] = f["severity"]
+
+    findings = list(by_spot.values())
+    findings.sort(key=lambda f: (f["file"], f["line"]))
     return {"ok": True, "target": target, "count": len(findings), "findings": findings}
 
 
@@ -871,10 +954,11 @@ def list_dependencies(target: str, compact: bool = False) -> dict:
         return {"ok": False, "error": f"failed to parse deps output: {exc}",
                 "dependencies": []}
 
-    # Flatten the tree into a list
+    # Flatten the tree into a list. walk children only — the root node is the
+    # package under analysis, not a dependency of itself.
     deps: list[dict] = []
 
-    def _walk(node: dict, depth: int = 0):
+    def _walk(node: dict, depth: int):
         name = node.get("identity") or node.get("name", "")
         url = node.get("url", "")
         version = node.get("version") or ""
@@ -895,7 +979,9 @@ def list_dependencies(target: str, compact: bool = False) -> dict:
         for child in node.get("dependencies", []):
             _walk(child, depth + 1)
 
-    _walk(data)
+    # start at the root's children so the package itself is never listed
+    for child in data.get("dependencies", []):
+        _walk(child, 1)
 
     if compact:
         deps = [
@@ -951,21 +1037,42 @@ def list_targets(target: str, compact: bool = False) -> dict:
         path = t.get("path", "")
         sources = t.get("sources", [])
 
+        # swift package describe emits the target path relative to the package
+        # dir, and each source as a bare filename relative to the target path.
+        # anchor both before touching the filesystem.
+        def _abs(p: str) -> Path:
+            pp = Path(p)
+            return (pkg_dir / pp) if not pp.is_absolute() else pp
+
+        target_dir = _abs(path) if path else None
+        source_paths = [(target_dir / s) if target_dir else _abs(s) for s in sources]
+
+        # derive whether the path came from SwiftPM's default rule (Sources/<Name>
+        # for library/executable, Tests/<Name> for test targets) or an explicit
+        # `path` property — describe does not flag this itself.
+        def _default_path(n: str, kind: str) -> str:
+            if kind == "test":
+                return f"Tests/{n}"
+            return f"Sources/{n}"
+
+        kind_default = _default_path(name, ttype)
+        path_kind = "default" if path == kind_default else "explicit"
+
         entry = {
             "name": name,
             "type": ttype,
             "path": path,
-            "swift_file_count": len(sources),
+            "path_kind": path_kind,
+            "swift_file_count": len(source_paths),
             "swift_files": sources,
-            "exists": Path(path).is_dir() if path else False,
+            "exists": target_dir.is_dir() if target_dir else False,
         }
 
-        if sources:
+        if source_paths:
             # Count lines per file using swift-package-tool index or simple wc
             file_stats = []
             total_lines = 0
-            for src in sources:
-                src_path = Path(src)
+            for src_path in source_paths:
                 if src_path.exists():
                     try:
                         text = src_path.read_text(encoding="utf-8", errors="replace")
@@ -975,10 +1082,42 @@ def list_targets(target: str, compact: bool = False) -> dict:
                     file_stats.append({
                         "path": str(src_path.relative_to(pkg_dir)),
                         "lines": line_count,
+                        "symbols": {},
                     })
                     total_lines += line_count
+
+            # AST-backed symbol counts: one swift-package-tool query over the
+            # target's sources, bucketed per file by declaration kind.
+            swift_source_paths = [p for p in source_paths if p.suffix == ".swift"]
+            per_file_kinds: dict[str, dict[str, int]] = {}
+            total_symbols = 0
+            if swift_source_paths:
+                qr = _run_swift_code_query(
+                    ["query", "--all"] + [str(p) for p in swift_source_paths]
+                    + ["--output-format", "compact"],
+                    timeout=60,
+                )
+                qdata = qr.get("data") if qr.get("ok", True) else None
+                if isinstance(qdata, list):
+                    for decl in qdata:
+                        if not isinstance(decl, dict):
+                            continue
+                        # query preserves the path form it was given; resolve
+                        # symlinks (e.g. /var -> /private/var on macOS) so the
+                        # file key matches the resolved target directory.
+                        f = os.path.realpath(decl.get("file", ""))
+                        kind = decl.get("kind", "declaration")
+                        bucket = per_file_kinds.setdefault(f, {})
+                        bucket[kind] = bucket.get(kind, 0) + 1
+                        total_symbols += 1
+
+            for stats in file_stats:
+                abspath = os.path.realpath(str(pkg_dir / stats["path"]))
+                stats["symbols"] = per_file_kinds.get(abspath, {})
+
             file_stats.sort(key=lambda s: -s["lines"])
             entry["file_stats"] = file_stats
+            entry["total_symbols"] = total_symbols
             entry["total_lines"] = total_lines
             entry["largest_files"] = [
                 {"path": s["path"], "lines": s["lines"]}
@@ -987,6 +1126,7 @@ def list_targets(target: str, compact: bool = False) -> dict:
         else:
             entry["file_stats"] = []
             entry["total_lines"] = 0
+            entry["total_symbols"] = 0
             entry["largest_files"] = []
 
         targets.append(entry)
@@ -1140,10 +1280,11 @@ def docc_check(target: str, uncovered_limit: Optional[int] = None) -> dict:
             ["api", sources_path, "--include-internal", "--output-format", "compact"],
             timeout=60,
         )
-        if api_result.get("ok", True) and isinstance(api_result, list):
+        api_list = api_result.get("data") if api_result.get("ok", True) else None
+        if isinstance(api_list, list) and api_list:
             # Use the API result for coverage stats
-            total = len(api_result)
-            documented = sum(1 for a in api_result if a.get("docComment", "").strip())
+            total = len(api_list)
+            documented = sum(1 for a in api_list if a.get("docComment", "").strip())
             undoc = total - documented
             coverage = {
                 "declarations": total,
@@ -1154,20 +1295,20 @@ def docc_check(target: str, uncovered_limit: Optional[int] = None) -> dict:
                     {"name": a["name"], "kind": a["kind"],
                      "file": a["file"], "line": a["line"],
                      "decl": a["signature"][:120]}
-                    for a in api_result if not a.get("docComment", "").strip()
+                    for a in api_list if not a.get("docComment", "").strip()
                 ][:uncovered_limit] if uncovered_limit is not None else [
                     {"name": a["name"], "kind": a["kind"],
                      "file": a["file"], "line": a["line"],
                      "decl": a["signature"][:120]}
-                    for a in api_result if not a.get("docComment", "").strip()
+                    for a in api_list if not a.get("docComment", "").strip()
                 ],
                 "uncovered_symbol_count": sum(
-                    1 for a in api_result if not a.get("docComment", "").strip()),
+                    1 for a in api_list if not a.get("docComment", "").strip()),
                 "undocumented_samples": [
                     {"name": a["name"], "kind": a["kind"],
                      "file": a["file"], "line": a["line"],
                      "decl": a["signature"][:120]}
-                    for a in api_result if not a.get("docComment", "").strip()
+                    for a in api_list if not a.get("docComment", "").strip()
                 ][:8],
             }
         else:

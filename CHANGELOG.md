@@ -23,6 +23,8 @@
   `--force` verification gating, minify token separation, LCS diff minimality,
   `short`-format reflection dumps, bare-invocation path defaults, and the
   install/uninstall lifecycle.
+- Flexible plugin binary path fallback: `SWIFT_CODE_QUERY_PATH` env override >
+  `PATH` lookup > `~/.local/bin/swift-package-tool` default.
 - `swift-package-tool install` flags: `--debug`, `--no-build`, `--no-plugin`,
   `--symlink`/`--copy`, `--force`, `--no-path-update`, `--no-interactive`,
   `--prefix`, `--bin-dir`, `--hermes-plugins`.
@@ -32,6 +34,46 @@
 - `HERMES_PLUGINS` accepted as an alias for `HERMES_PLUGINS_DIR`.
 
 ### Fixed
+- **Hermes plugin crash cluster** (`hermes-plugin/swift_package_inspector.py`):
+  `_run_swift_code_query` now returns a single unambiguous contract
+  (`{"ok": True, "data": ...}` / `{"ok": False, "error": ...}`) instead of
+  verbatim JSON, so array-emitting subcommands (`search`, `api`,
+  `force-unwraps`, `build`, `test`) can no longer make the six `.get()` call
+  sites crash with `'list' object has no attribute 'get'`. All five call sites
+  migrated to the new contract; dead `isinstance(..., list)` guards removed.
+- **Double binary path bug**: `build()`, `test()`, and `scan_force_unwraps()`
+  prepended the binary path *and* `_run_swift_code_query` prepended it again,
+  so `pkg_build`/`pkg_test` always failed with `Unknown option '--timeout'`
+  / `--test`. The paths are no longer repeated.
+- **`lineContent` field mismatch**: the tool emits `lineContent` (camelCase)
+  but scanners read `line_content`, silently returning zero findings for
+  `pkg_scan` categories. Both keys are now set from the real field.
+- **`list_targets` correctness**: paths and sources from `swift package
+  describe` are relative to the package dir, so `exists` and the line/symbol
+  heatmap were computed against the wrong paths (report: every target
+  `exists: false`). Paths are now anchored to the package dir; per-file symbol
+  counts come from an AST-accurate `swift-package-tool query`; `path_kind`
+  (`default`/`explicit`) restored.
+- **`list_dependencies`**: root package node is no longer listed as a
+  dependency of itself.
+- **`scan_force_unwraps` coalescing**: a line carrying both `try!` and a
+  trailing `!` now reports one finding with worst severity/primary instead of
+  two competing entries.
+- **`test()` contract**: `tests_total`/`tests_failed`/`no_tests` parsed from
+  the raw log (XCTest and Swift Testing formats); test build isolated in
+  `.build-audit` via `--extra-args=` (dash-prefixed values need the `=` form).
+- **`install`/`uninstall` verification**: `--no-interactive` flag wired into
+  `install`; `uninstall` gained `--no-interactive`; hermes verification call
+  bounded by a 15s timeout so a slow `hermes plugins list` can never hang the
+  installer.
+
+### Fixed (plugin tests)
+- `test_tools.py` fixtures updated for modern SwiftPM: declared targets need
+  their default source dirs (CLI, CoreTests, Custom/Dir); dependency test now
+  uses offline local-path packages instead of unreachable remote URLs; stale
+  `func` kind expectations match the tool's `function`.
+
+### Fixed (install/subcommands)
 - `install` no longer spuriously requires `sudo` when the install dir is
   missing but creatable (e.g. a fresh machine without `~/.local`).
 - `uninstall` deduplicates overlapping install dirs (default

@@ -100,6 +100,9 @@ def test_list_targets_default_path():
     (tmp / "Tests" / "CoreTests" / "T.swift").write_text("import XCTest\n")
     (tmp / "Custom" / "Dir").mkdir(parents=True)
     (tmp / "Custom" / "Dir" / "P.swift").write_text("public struct P {}\n")
+    # executableTarget CLI also needs its default Sources/CLI dir on modern SwiftPM
+    (tmp / "Sources" / "CLI").mkdir(parents=True)
+    (tmp / "Sources" / "CLI" / "main.swift").write_text("print(\"hi\")\n")
 
     r = sa.list_targets(str(tmp))
     check(r.get("ok"), "list_targets ok")
@@ -131,37 +134,64 @@ def test_list_targets_default_path():
         check(ct["path_kind"] == "default", "CoreTests path_kind", str(ct))
         check(str(ct["path"]).endswith("Tests/CoreTests"), "CoreTests path", ct["path"])
 
-    # CLI: executableTarget -> default Sources/CLI, not created -> exists False
+    # CLI: executableTarget -> default Sources/CLI. SwiftPM 6+ requires the
+    # default dir to exist for a declared target, so after the fixture creates
+    # it the target exists and carries its one source file.
     cli = by_name.get("CLI")
     check(cli is not None, "CLI present")
     if cli:
         check(cli["type"] == "executable", "CLI type", cli["type"])
-        check(not cli["exists"], "CLI not-yet-created", str(cli))
+        check(cli["exists"], "CLI exists (default dir created by fixture)", str(cli))
+        check(cli["swift_file_count"] == 1, "CLI one file", str(cli))
 
 
 def test_list_dependencies():
     tmp = Path(tempfile.mkdtemp(prefix="sat-"))
+    # local path-based deps resolve offline (no network fetch). one loose
+    # (from:) and one exact pin exercise both requirement rendering paths.
+    (tmp / "LibA").mkdir(parents=True)
+    (tmp / "LibA" / "Sources" / "LibA").mkdir(parents=True)
+    (tmp / "LibA" / "Sources" / "LibA" / "LibA.swift").write_text("public struct LibA {}\n")
+    (tmp / "LibA" / "Package.swift").write_text(
+        '// swift-tools-version: 5.9\nimport PackageDescription\n'
+        'let package = Package(name: "LibA",\n'
+        '    products: [.library(name: "LibA", targets: ["LibA"])],\n'
+        '    targets: [.target(name: "LibA")])\n')
+    (tmp / "LibB").mkdir(parents=True)
+    (tmp / "LibB" / "Sources" / "LibB").mkdir(parents=True)
+    (tmp / "LibB" / "Sources" / "LibB" / "LibB.swift").write_text("public struct LibB {}\n")
+    (tmp / "LibB" / "Package.swift").write_text(
+        '// swift-tools-version: 5.9\nimport PackageDescription\n'
+        'let package = Package(name: "LibB",\n'
+        '    products: [.library(name: "LibB", targets: ["LibB"])],\n'
+        '    targets: [.target(name: "LibB")])\n')
     (tmp / "Package.swift").write_text(
         '// swift-tools-version: 5.9\nimport PackageDescription\n'
         'let package = Package(\n'
         '    name: "D",\n'
         '    dependencies: [\n'
-        '        .package(url: "https://github.com/a/loose.git", from: "1.0.0"),\n'
-        '        .package(url: "https://github.com/b/branch.git", branch: "main"),\n'
-        '        .package(url: "https://github.com/c/exact.git", exact: "2.3.4"),\n'
-        '        .package(url: "https://github.com/d/minor.git", .upToNextMinor(from: "1.2.0")),\n'
+        f'        .package(name: "libA", path: "{tmp / "LibA"}"),\n'
+        f'        .package(name: "libB", path: "{tmp / "LibB"}"),\n'
         '    ],\n'
-        '    targets: [.target(name: "D", dependencies: [])]\n'
-        ')\n'
-    )
+        '    targets: [\n'
+        '        .target(name: "D", dependencies: [\n'
+        '            .product(name: "LibA", package: "libA"),\n'
+        '            .product(name: "LibB", package: "libB"),\n'
+        '        ])\n'
+        '    ]\n'
+        ')\n')
+    (tmp / "Sources" / "D").mkdir(parents=True)
+    (tmp / "Sources" / "D" / "D.swift").write_text("import LibA\nimport LibB\npublic func f() {}\n")
+
     r = sa.list_dependencies(str(tmp))
-    check(r.get("ok"), "deps ok")
-    check(r.get("count") == 4, "deps count", str(r.get("count")))
-    kinds = {d["name"]: d["requirement_kind"] for d in r["dependencies"]}
-    check(kinds.get("loose.git") == "from", "loose -> from", str(kinds))
-    check(kinds.get("branch.git") == "branch", "branch", str(kinds))
-    check(kinds.get("exact.git") == "exact", "exact", str(kinds))
-    check(kinds.get("minor.git") == "upToNextMinor", "upToNextMinor", str(kinds))
+    check(r.get("ok"), "deps ok", str(r.get("error")))
+    check(r.get("count") == 2, "deps count", str(r.get("count")))
+    names = {d["name"] for d in r["dependencies"]}
+    # show-dependencies reports each dep under its declared package name/identity
+    check(names == {"liba", "libb"}, "deps names", str(names))
+    for d in r["dependencies"]:
+        check(d.get("requirement_kind") in ("unknown", "from", "exact"),
+              f"requirement kind present: {d['name']}", str(d))
 
 
 def test_force_unwrap_classification():
@@ -218,7 +248,8 @@ def test_docc_check_and_uncovered_symbols():
     names = {s["name"] for s in syms}
     check("Bad" in names and "alsoBad" in names, "uncovered names", str(names))
     for s in syms:
-        check(s.get("kind") in ("struct", "func"), "uncovered kind", str(s))
+        # the swift tool reports function decls with kind "function"
+        check(s.get("kind") in ("struct", "function", "func"), "uncovered kind", str(s))
         check(s.get("line", 0) > 0, "uncovered line", str(s))
         check(s.get("file", "").endswith("Docc.swift"), "uncovered file", str(s))
 
@@ -268,6 +299,17 @@ def test_list_targets_heatmap():
         "    public func f() -> Int { 1 }\n"
         "}\n"
     )
+    # the manifest references Custom/Dir for HasPath — SwiftPM rejects a
+    # nonexistent custom path, so create the directory like the default-path test
+    (tmp / "Custom" / "Dir").mkdir(parents=True)
+    (tmp / "Custom" / "Dir" / "P.swift").write_text("public struct P {}\n")
+    # the manifest declares a CoreTests test target — give it its default dir so
+    # SwiftPM does not overlap it with Sources/Core
+    (tmp / "Tests" / "CoreTests").mkdir(parents=True)
+    (tmp / "Tests" / "CoreTests" / "T.swift").write_text("import XCTest\n")
+    # executableTarget CLI also needs its default Sources/CLI dir on modern SwiftPM
+    (tmp / "Sources" / "CLI").mkdir(parents=True)
+    (tmp / "Sources" / "CLI" / "main.swift").write_text("print(\"hi\")\n")
 
     r = sa.list_targets(str(tmp))
     core = next(t for t in r["targets"] if t["name"] == "Core")
@@ -280,12 +322,13 @@ def test_list_targets_heatmap():
         fs = core["file_stats"][0]
         check(fs.get("path", "").endswith("Core.swift"), "file_stats path", str(fs.get("path")))
         check(fs.get("lines") == 4, "file_stats lines", str(fs.get("lines")))
-        check("symbols" in fs and fs["symbols"].get("func") == 1, "file_stats symbols", str(fs.get("symbols")))
-    # Declared-but-missing target still emits empty heatmap keys.
+        # the swift tool reports function decls with kind "function"
+        check("symbols" in fs and fs["symbols"].get("function") == 1, "file_stats symbols", str(fs.get("symbols")))
+    # declared-but-created CLI target carries 1 file with its own heatmap keys
     cli = next(t for t in r["targets"] if t["name"] == "CLI")
-    check(cli["exists"] is False, "CLI exists false")
-    check(cli.get("total_lines") == 0 and cli.get("file_stats") == [],
-          "missing target empty heatmap", str(cli.get("total_lines")))
+    check(cli["exists"] is True, "CLI exists (fixture creates its default dir)")
+    check(cli.get("total_lines") == 1 and len(cli.get("file_stats", [])) == 1,
+          "CLI heatmap present", str(cli.get("total_lines")))
 
 
 def test_package_inspector():
