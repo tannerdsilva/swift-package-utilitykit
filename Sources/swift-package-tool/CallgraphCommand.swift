@@ -100,13 +100,18 @@ struct CallgraphCommand: ParsableCommand {
     }
 }
 
-struct CallEdge: Codable, Sendable {
+struct CallEdge: Codable, Sendable, CustomStringConvertible {
     let caller: String
     let callee: String
     let file: String
     let line: Int
     let column: Int
     let resolved: Bool     // true if callee is a known function in the project
+
+    var description: String {
+        let status = resolved ? "resolved" : "unknown"
+        return "\(file):\(line):\(column)  [\(status)]  \(caller) -> \(callee)"
+    }
 
     static let jsonSchema = """
     {

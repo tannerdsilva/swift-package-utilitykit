@@ -79,13 +79,21 @@ struct FormatCommand: ParsableCommand {
         let tree = Parser.parse(source: source)
         var result = ""
 
+        var lastToken: TokenSyntax? = nil
         for token in tree.statements.tokens(viewMode: .sourceAccurate) {
             let leadingTrivia = token.leadingTrivia
             let trailingTrivia = token.trailingTrivia
+            let previousTrailing = lastToken?.trailingTrivia ?? []
 
-            // determine if we need a separator before this token
+            // determine if we need a separator before this token. whitespace
+            // between two tokens can be attached to either the current token's
+            // leading trivia or the previous token's trailing trivia, so both
+            // must be inspected.
             let needsNewline: Bool = {
                 for piece in leadingTrivia {
+                    if case .newlines = piece { return true }
+                }
+                for piece in previousTrailing {
                     if case .newlines = piece { return true }
                 }
                 return false
@@ -93,6 +101,10 @@ struct FormatCommand: ParsableCommand {
 
             let needsSpace: Bool = {
                 for piece in leadingTrivia {
+                    if case .spaces = piece { return true }
+                    if case .tabs = piece { return true }
+                }
+                for piece in previousTrailing {
                     if case .spaces = piece { return true }
                     if case .tabs = piece { return true }
                 }
@@ -177,6 +189,8 @@ struct FormatCommand: ParsableCommand {
                     break
                 }
             }
+
+            lastToken = token
         }
 
         // clean up: collapse runs of newlines to at most one

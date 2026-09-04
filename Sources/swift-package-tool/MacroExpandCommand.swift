@@ -72,13 +72,17 @@ struct MacroExpandCommand: ParsableCommand {
     }
 }
 
-struct MacroExpansion: Codable, Sendable {
+struct MacroExpansion: Codable, Sendable, CustomStringConvertible {
     let file: String
     let line: Int
     let column: Int
     let name: String
     let kind: String  // "declaration" or "expression"
     let arguments: String
+
+    var description: String {
+        return "\(file):\(line):\(column)  [\(kind)]  \(name)(\(arguments))"
+    }
 }
 
 /// walk a syntax tree collecting all macro expansion sites.

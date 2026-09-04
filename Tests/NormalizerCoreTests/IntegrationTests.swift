@@ -58,8 +58,8 @@ struct SwiftCodeQueryIntegrationTests {
     @Test("complexity command returns results")
     func complexityReturnsResults() throws {
         let output = try runCommand(["complexity", testSourcesDir, "--output-format", "short"])
-        #expect(output.contains("complexity:"))
-        #expect(output.contains("rating:"))
+        #expect(output.contains("[complexity"))
+        #expect(output.contains("(complex)") || output.contains("(moderate)") || output.contains("(simple)"))
     }
 
     @Test("complexity command supports --min-complexity filter")
@@ -81,9 +81,8 @@ struct SwiftCodeQueryIntegrationTests {
     func diffIdenticalFiles() throws {
         let file1 = "\(testSourcesDir)/Normalizer.swift"
         let output = try runCommand(["diff", file1, file1, "--output-format", "short"])
-        #expect(output.contains("addedCount: 0"))
-        #expect(output.contains("removedCount: 0"))
-        #expect(output.contains("changedCount: 0"))
+        // short format renders the summary as "+0 -0 ~0" for an empty diff
+        #expect(output.contains("+0 -0 ~0"))
     }
 
     @Test("diff command detects added declarations")
@@ -102,7 +101,7 @@ struct SwiftCodeQueryIntegrationTests {
         }
 
         let output = try runCommand(["diff", emptyFile.path, structFile.path, "--output-format", "short"])
-        #expect(output.contains("addedCount: 1"))
+        #expect(output.contains("+1 -0"))
     }
 
     @Test("diff command supports stdin with -")
@@ -120,8 +119,9 @@ struct SwiftCodeQueryIntegrationTests {
         }
 
         let output = try runCommand(["diff", file1.path, file2.path, "--output-format", "short"])
-        #expect(output.contains("addedCount: 1"))
-        #expect(output.contains("removedCount: 1"))
+        #expect(output.contains("+1 -1"))
+        #expect(output.contains("newFunc"))
+        #expect(output.contains("oldFunc"))
     }
 
     @Test("members command lists type members")
@@ -141,9 +141,7 @@ struct SwiftCodeQueryIntegrationTests {
 
     @Test("all commands support --schema")
     func schemaFlag() throws {
-        // only test commands without required arguments (--schema is checked before
-        // argument parsing completes for commands with required @Argument properties)
-        for cmd in ["complexity", "api", "conformances", "callgraph"] {
+        for cmd in ["complexity", "api", "conformances", "callgraph", "query", "dependencies", "index", "members", "find"] {
             let output = try runCommand([cmd, "--schema"])
             #expect(output.contains("\"$schema\""), "\(cmd) --schema should return valid JSON Schema")
         }
@@ -763,8 +761,10 @@ struct SwiftCodeQueryIntegrationTests {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let output = try runCommand(["prepend", tmp.path, "--content", "newfirst", "--dry-run"])
+        // LCS diff shows only the added line at the top; unchanged lines stay out of the diff
         #expect(output.contains("newfirst"))
-        #expect(output.contains("existing"))
+        let content = try String(contentsOf: tmp, encoding: .utf8)
+        #expect(content.contains("existing"))
     }
 
     @Test("append works")

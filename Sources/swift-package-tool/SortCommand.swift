@@ -85,6 +85,16 @@ struct SortCommand: ParsableCommand, EditCommand {
             return
         }
 
+        // block the write when verification fails unless --force is set
+        guard verified || force else {
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(result)
+            print(String(data: data, encoding: .utf8)!)
+            return
+        }
+
         if backup {
             try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
         }

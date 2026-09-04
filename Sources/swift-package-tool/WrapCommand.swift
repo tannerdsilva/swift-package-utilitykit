@@ -56,7 +56,7 @@ struct WrapCommand: ParsableCommand, EditCommand {
         }
 
         let result = try FileEditor.edit(
-            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             let startIdx = max(0, startLine - 1)

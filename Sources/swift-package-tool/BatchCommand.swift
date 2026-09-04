@@ -138,7 +138,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             throw ValidationError("add-import requires --module")
         }
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             let importLine = "import \(module)"
@@ -189,7 +189,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let processedContent = FileEditor.processMultilineContent(content)
 
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             var newLines = lines
@@ -225,7 +225,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let processedNew = FileEditor.processMultilineContent(new)
 
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             source = source.replacingOccurrences(of: old, with: processedNew)
             return ""
@@ -239,7 +239,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let processedContent = FileEditor.processMultilineContent(content)
 
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
             source = trimmed + "\n" + processedContent + "\n"
@@ -254,7 +254,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let processedContent = FileEditor.processMultilineContent(content)
 
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             if op.afterImports == true {
                 let lines = source.components(separatedBy: "\n")
@@ -274,7 +274,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
     private func executeDelete(_ op: BatchOperation) throws -> EditResult {
         // Reuse the existing DeleteCommand logic by calling FileEditor.edit
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             var newLines = lines
@@ -333,7 +333,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         }
 
         return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             guard let typeIdx = lines.firstIndex(where: { $0.contains("\(typeName):") || $0.contains("\(typeName) {") }) else {
@@ -397,6 +397,11 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
         if dryRun {
             return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+        }
+
+        // block the write when verification fails unless --force is set
+        guard verified || force else {
+            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
         }
 
         if backup {

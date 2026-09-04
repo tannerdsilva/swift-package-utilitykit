@@ -58,7 +58,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         }
 
         let result = try FileEditor.edit(
-            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
 
@@ -134,6 +134,16 @@ struct DeleteCommand: ParsableCommand, EditCommand {
             return
         }
 
+        // block the write when verification fails unless --force is set
+        guard verified || force else {
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(result)
+            print(String(data: data, encoding: .utf8)!)
+            return
+        }
+
         if backup {
             try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
         }
@@ -150,6 +160,11 @@ struct DeleteCommand: ParsableCommand, EditCommand {
 }
 
 /// SyntaxRewriter that removes a declaration by name.
+///
+/// filtering is done at the item-list level (top-level `CodeBlockItemListSyntax`
+/// and member `MemberBlockItemListSyntax`) — returning `nil` from `visitAny`
+/// is not reliable on this swift-syntax version because the generated typed
+/// visit methods take precedence for declaration nodes.
 class DeclarationDeleteRewriter: SyntaxRewriter {
     let targetName: String
     var didDelete = false
@@ -159,12 +174,26 @@ class DeclarationDeleteRewriter: SyntaxRewriter {
         super.init(viewMode: .sourceAccurate)
     }
 
-    override func visitAny(_ node: Syntax) -> Syntax? {
-        if let decl = node.as(DeclSyntax.self), matchesTarget(decl) {
-            didDelete = true
-            return nil
+    override func visit(_ node: CodeBlockItemListSyntax) -> CodeBlockItemListSyntax {
+        let kept: [CodeBlockItemSyntax] = node.compactMap { item in
+            if let decl = item.item.as(DeclSyntax.self), matchesTarget(decl) {
+                didDelete = true
+                return nil
+            }
+            return item
         }
-        return node
+        return CodeBlockItemListSyntax(kept)
+    }
+
+    override func visit(_ node: MemberBlockItemListSyntax) -> MemberBlockItemListSyntax {
+        let kept: [MemberBlockItemSyntax] = node.compactMap { item in
+            if matchesTarget(item.decl) {
+                didDelete = true
+                return nil
+            }
+            return item
+        }
+        return MemberBlockItemListSyntax(kept)
     }
 
     private func matchesTarget(_ decl: DeclSyntax) -> Bool {

@@ -110,7 +110,7 @@ struct DiffCommand: ParsableCommand {
     }
 }
 
-struct DiffResult: Codable, Sendable {
+struct DiffResult: Codable, Sendable, CustomStringConvertible {
     let file1: String
     let file2: String
     let addedCount: Int
@@ -119,6 +119,22 @@ struct DiffResult: Codable, Sendable {
     let added: [DiffDeclaration]
     let removed: [DiffDeclaration]
     let changed: [DiffChange]
+
+    var description: String {
+        var lines: [String] = [
+            "\(file1) vs \(file2): +\(addedCount) -\(removedCount) ~\(changedCount)"
+        ]
+        for decl in added {
+            lines.append("  + \(decl.description)")
+        }
+        for decl in removed {
+            lines.append("  - \(decl.description)")
+        }
+        for change in changed {
+            lines.append("  ~ \(change.description)")
+        }
+        return lines.joined(separator: "\n")
+    }
 
     static let jsonSchema = """
     {
@@ -162,22 +178,30 @@ struct DiffResult: Codable, Sendable {
     """
 }
 
-struct DiffDeclaration: Codable, Sendable {
+struct DiffDeclaration: Codable, Sendable, CustomStringConvertible {
     let name: String
     let kind: String
     let file: String
     let signature: String
     let line: Int
     let column: Int
+
+    var description: String {
+        return "\(file):\(line):\(column)  [\(kind)]  \(name) \(signature)"
+    }
 }
 
-struct DiffChange: Codable, Sendable {
+struct DiffChange: Codable, Sendable, CustomStringConvertible {
     let name: String
     let kind: String
     let oldSignature: String
     let newSignature: String
     let oldLine: Int
     let newLine: Int
+
+    var description: String {
+        return "\(name) [\(kind)]: \(oldLine):\(oldSignature) -> \(newLine):\(newSignature)"
+    }
 }
 
 /// collect all declarations from a syntax tree (flat walk, includes nested).

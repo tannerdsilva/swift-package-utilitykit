@@ -74,12 +74,16 @@ struct ForceUnwrapsCommand: ParsableCommand {
     }
 }
 
-struct ForceUnwrapItem: Codable, Sendable {
+struct ForceUnwrapItem: Codable, Sendable, CustomStringConvertible {
     let file: String
     let line: Int
     let column: Int
     let kind: String       // "force_unwrap", "try_force", "as_cast"
     let context: String    // surrounding source text snippet
+
+    var description: String {
+        return "\(file):\(line):\(column)  [\(kind)]"
+    }
 
     static let jsonSchema = """
     {

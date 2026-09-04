@@ -81,7 +81,7 @@ struct ApiCommand: ParsableCommand {
     }
 }
 
-struct ApiItem: Codable, Sendable {
+struct ApiItem: Codable, Sendable, CustomStringConvertible {
     let name: String
     let kind: String
     let access: String
@@ -91,6 +91,11 @@ struct ApiItem: Codable, Sendable {
     let signature: String
     let conformsTo: [String]
     let docComment: String
+
+    var description: String {
+        let mods = access.isEmpty ? "" : "\(access) "
+        return "\(file):\(line):\(column)  [\(kind)]  \(mods)\(signature)"
+    }
 
     static let jsonSchema = """
     {

@@ -18,6 +18,7 @@ protocol EditCommand: ParsableCommand {
     var verify: Bool { get set }
     var showDiff: Bool { get set }
     var outputPath: String { get set }
+    var force: Bool { get set }
 }
 
 // MARK: - Edit result
@@ -43,6 +44,7 @@ enum FileEditor {
         verify: Bool,
         showDiff: Bool,
         outputPath: String,
+        force: Bool,
         transform: (inout String) -> String
     ) throws -> EditResult {
         let resolved = NSString(string: file).standardizingPath
@@ -83,6 +85,11 @@ enum FileEditor {
             return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: verifyWarning)
         }
 
+        // Block the write when verification fails unless --force is set
+        if !verified && !force {
+            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: verifyWarning)
+        }
+
         // Backup
         if backup {
             try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
@@ -101,16 +108,44 @@ enum FileEditor {
         let modLines = modified.components(separatedBy: "\n")
         var result = ""
 
-        // Simple line-by-line diff
-        var i = 0
-        while i < max(origLines.count, modLines.count) {
-            let orig = i < origLines.count ? origLines[i] : nil
-            let mod = i < modLines.count ? modLines[i] : nil
-            if orig != mod {
-                if let o = orig { result += "-\(o)\n" }
-                if let m = mod { result += "+\(m)\n" }
+        // longest-common-subsequence diff: unchanged lines are aligned so an
+        // insertion or deletion in the middle doesn't flag the whole tail of
+        // the file as changed.
+        var matrix = Array(
+            repeating: Array(repeating: 0, count: modLines.count + 1),
+            count: origLines.count + 1
+        )
+        for i in stride(from: origLines.count - 1, through: 0, by: -1) {
+            for j in stride(from: modLines.count - 1, through: 0, by: -1) {
+                if origLines[i] == modLines[j] {
+                    matrix[i][j] = matrix[i + 1][j + 1] + 1
+                } else {
+                    matrix[i][j] = max(matrix[i + 1][j], matrix[i][j + 1])
+                }
             }
+        }
+
+        var i = 0
+        var j = 0
+        while i < origLines.count && j < modLines.count {
+            if origLines[i] == modLines[j] {
+                i += 1
+                j += 1
+            } else if matrix[i + 1][j] >= matrix[i][j + 1] {
+                result += "-\(origLines[i])\n"
+                i += 1
+            } else {
+                result += "+\(modLines[j])\n"
+                j += 1
+            }
+        }
+        while i < origLines.count {
+            result += "-\(origLines[i])\n"
             i += 1
+        }
+        while j < modLines.count {
+            result += "+\(modLines[j])\n"
+            j += 1
         }
 
         return result

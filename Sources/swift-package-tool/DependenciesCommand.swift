@@ -11,7 +11,7 @@ struct DependenciesCommand: ParsableCommand {
     )
 
     @Argument(help: "Files or directories to analyze.")
-    var paths: [String]
+    var paths: [String] = []
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact

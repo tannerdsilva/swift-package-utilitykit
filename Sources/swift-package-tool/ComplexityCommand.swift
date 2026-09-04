@@ -83,13 +83,17 @@ struct ComplexityCommand: ParsableCommand {
     }
 }
 
-struct ComplexityItem: Codable, Sendable {
+struct ComplexityItem: Codable, Sendable, CustomStringConvertible {
     let name: String
     let file: String
     let line: Int
     let column: Int
     let complexity: Int
     let rating: String
+
+    var description: String {
+        return "\(file):\(line):\(column)  [complexity \(complexity)]  \(name) (\(rating))"
+    }
 
     static let jsonSchema = """
     {

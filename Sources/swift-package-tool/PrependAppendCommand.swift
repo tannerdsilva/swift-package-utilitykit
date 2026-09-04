@@ -39,7 +39,7 @@ struct PrependCommand: ParsableCommand, EditCommand {
     mutating func run() throws {
         let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
-            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             if afterImports {
                 let lines = source.components(separatedBy: "\n")
@@ -96,7 +96,7 @@ struct AppendCommand: ParsableCommand, EditCommand {
     mutating func run() throws {
         let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
-            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
             source = trimmed + "\n" + processedContent + "\n"

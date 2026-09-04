@@ -84,13 +84,18 @@ struct ConformancesCommand: ParsableCommand {
     }
 }
 
-struct ConformanceItem: Codable, Sendable {
+struct ConformanceItem: Codable, Sendable, CustomStringConvertible {
     let name: String
     let kind: String
     let file: String
     let line: Int
     let inherits: [String]       // superclass/protocol names from declaration
     let source: String           // "declaration" or "extension"
+
+    var description: String {
+        let base = inherits.isEmpty ? "" : " : \(inherits.joined(separator: ", "))"
+        return "\(file):\(line)  [\(kind) \(source)]  \(name)\(base)"
+    }
 
     static let jsonSchema = """
     {

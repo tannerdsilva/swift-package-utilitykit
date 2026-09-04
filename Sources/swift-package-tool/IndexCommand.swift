@@ -11,7 +11,7 @@ struct IndexCommand: ParsableCommand {
     )
 
     @Argument(help: "Files or directories to index.")
-    var paths: [String]
+    var paths: [String] = []
 
     @Option(name: .long, help: "Output format: json, compact, csv, jsonl.")
     var outputFormat: OutputFormat = .compact

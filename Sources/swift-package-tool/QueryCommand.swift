@@ -11,7 +11,7 @@ struct QueryCommand: ParsableCommand {
     )
 
     @Argument(help: "Files or directories to query.")
-    var paths: [String]
+    var paths: [String] = []
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Include functions.")
     var functions = false

@@ -56,7 +56,7 @@ struct InsertCommand: ParsableCommand, EditCommand {
         let processedContent = FileEditor.processMultilineContent(content)
 
         let result = try FileEditor.edit(
-            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
             let lines = source.components(separatedBy: "\n")
             var newLines = lines

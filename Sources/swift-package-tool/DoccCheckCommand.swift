@@ -99,13 +99,17 @@ struct DoccCheckCommand: ParsableCommand {
     }
 }
 
-struct DoccWarning: Codable, Sendable {
+struct DoccWarning: Codable, Sendable, CustomStringConvertible {
     let file: String
     let line: Int
     let column: Int
     let severity: String
     let message: String
     let referencedSymbol: String
+
+    var description: String {
+        return "\(file):\(line):\(column)  [\(severity)]  \(message)"
+    }
 }
 
 /// extract symbol references from a docc comment.

@@ -200,7 +200,7 @@ class MemberCollector {
     }
 }
 
-struct MemberItem: Codable, Sendable {
+struct MemberItem: Codable, Sendable, CustomStringConvertible {
     let name: String
     let kind: String
     let file: String
@@ -208,6 +208,11 @@ struct MemberItem: Codable, Sendable {
     let column: Int
     let signature: String
     let modifiers: [String]
+
+    var description: String {
+        let mods = modifiers.isEmpty ? "" : "\(modifiers.joined(separator: " ")) "
+        return "\(file):\(line):\(column)  [\(kind)]  \(mods)\(signature)"
+    }
 
     static let jsonSchema = """
     {
