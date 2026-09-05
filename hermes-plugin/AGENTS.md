@@ -12,9 +12,9 @@ well-bounded checks instead of open-ended reasoning.
 ```
 Your agent
   │
-  ├── pkg_build              → swift build (isolated .build-audit/)
-  ├── pkg_test               → swift test (isolated .build-audit/)
-  ├── pkg_clean              → swift package clean (isolated .build-audit/)
+  ├── pkg_build              → swift build (ephemeral scratch under .build/)
+  ├── pkg_test               → swift test (ephemeral scratch under .build/)
+  ├── pkg_clean              → sweep crashed-run scratch + legacy residue
   ├── pkg_list_dependencies  → swift package show-dependencies --format json
   ├── pkg_list_targets       → swift package describe --type json
   ├── pkg_docc_check         → swift-package-tool api + heuristic fallback
@@ -25,6 +25,16 @@ Your agent
 The Python layer retains scope-clustering, severity-ranking, and
 reachability-classification logic.  Everything else delegates to the Swift
 toolchain for AST-guaranteed accuracy.
+
+**Build/test isolation.** `pkg_build` and `pkg_test` compile into a fresh,
+ephemeral scratch dir under the consumer package's own `.build`
+(`.build/swift-package-audit/run-*`) that the call deletes before returning.
+The tool keeps **no persistent build state** — every verdict is a clean-room
+build of the current source — and never creates a new top-level directory in
+the project; real `.build` products are never touched. `pkg_clean` sweeps
+scratch dirs abandoned by crashed runs (older than 1h, so a live concurrent
+audit is never removed) plus legacy `.build-audit` residue from the old
+design.
 
 ## Recommended workflow
 
@@ -80,7 +90,7 @@ docs = await call_tool("pkg_docc_check", {"target": "/path/to/project", "uncover
 | `pkg_list_dependencies` | List dependencies | name, requirement kind, pinned version |
 | `pkg_list_targets` | List targets with source paths | name, type, file count, line count, heatmap |
 | `pkg_test` | Run tests | pass/fail, tests executed/failed |
-| `pkg_clean` | Remove audit build artifacts | confirmation |
+| `pkg_clean` | Sweep crashed-run scratch + legacy residue under `.build/` | `removed_runs` / `scratch_root` confirmation |
 | `pkg_docc_check` | DocC documentation analysis | coverage ratio, uncovered symbol inventory |
 | `pkg_inspector` | One-call orientation | targets, deps, audit totals, build/test/docs verdicts |
 
