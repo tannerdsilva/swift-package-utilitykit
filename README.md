@@ -312,12 +312,12 @@ has been moved into the ``swift-package-tool`` binary:
 
 | Tool | Engine | What changed |
 |---|---|---|
-| ``pkg_build`` | ``swift build`` | Unchanged (build system operation) |
+| ``pkg_build`` | ``swift build`` | Builds in a fresh ephemeral scratch dir under ``.build/swift-package-audit/run-*``, removed when the run finishes — no persistent build state, real ``.build`` products untouched |
 | ``pkg_scan`` | ``swift-package-tool search`` + Python post-processing | Regex matching delegated to the Swift binary |
 | ``pkg_list_dependencies`` | ``swift package show-dependencies --format json`` | Replaced regex-based Package.swift parser |
 | ``pkg_list_targets`` | ``swift package describe --type json`` | Replaced regex-based Package.swift parser |
-| ``pkg_test`` | ``swift test`` | Unchanged |
-| ``pkg_clean`` | ``swift package clean`` | Unchanged |
+| ``pkg_test`` | ``swift test`` | Same ephemeral scratch isolation as ``pkg_build`` |
+| ``pkg_clean`` | scratch sweep (no ``swift package clean`` subprocess) | Sweeps crashed-run scratch dirs under ``.build/`` (stale-only) and legacy ``.build-audit`` residue |
 | ``pkg_docc_check`` | ``swift-package-tool api`` + heuristic fallback | Doc coverage uses AST-guaranteed API output |
 | ``pkg_inspector`` | Composes all above | Uses swift-package-tool for analysis sub-tools |
 

@@ -8,9 +8,10 @@ ARCHITECTURE (refactored 2026-08-13):
     - Calls ``swift-package-tool`` for code analysis (scans, API surface, index)
     - Calls ``swift package show-dependencies --format json`` for dependencies
     - Calls ``swift package describe --type json`` for target metadata
-    - Calls ``swift build`` / ``swift test`` / ``swift package clean`` for
-      build/test/clean (these remain shell wrappers since they are build-system
-      operations, not analysis)
+    - Calls ``swift build`` / ``swift test`` for build/test (each run gets a
+      fresh ephemeral scratch dir under the package's own ``.build``, deleted
+      when the run finishes — no persistent build state, no new top-level
+      dir) and sweeps crashed-run leftovers on clean
 
   This eliminates ~1200 lines of regex-based parsing and AST heuristics from
   the Python layer, replacing them with the AST-guaranteed output of the Swift
@@ -30,6 +31,8 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -116,6 +119,37 @@ def _package_path(target: str) -> Path:
     return cand
 
 
+# Root, per package, for audit build scratch: a subdirectory of the package's
+# own .build (the standard SwiftPM derived-data location, gitignored by
+# convention), so an audit never creates a new top-level directory in the
+# project.  the tool still keeps no persistent build state: each build/test
+# run gets a fresh, empty run-* subdir that it removes when the run finishes,
+# so nothing on disk can go stale or drift from the current source.  only
+# crashed runs leave residue here, swept by clean().
+def _audit_root(pkg_dir: Path) -> Path:
+    """The audit scratch root for a package: ``<pkg>/.build/swift-package-audit``."""
+    return pkg_dir / ".build" / "swift-package-audit"
+
+
+# run dirs under _audit_root() older than this are considered abandoned (a
+# live concurrent audit never sits idle that long) and are swept by clean().
+_STALE_RUN_AGE_SECONDS = 3600
+
+
+def _new_scratch(pkg_dir: Path) -> Path:
+    """Create a fresh, empty scratch dir for a single audit build/test run.
+
+    the created dir lives under ``<pkg>/.build/swift-package-audit/`` — never
+    a new top-level dir — and is owned by the caller, which must remove it
+    when the run finishes. every run starts from a clean slate, so an audit
+    verdict always reflects the current source with no cached incremental
+    state that could be corrupt or out of alignment.
+    """
+    root = _audit_root(pkg_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="run-", dir=str(root)))
+
+
 def _iter_swift_files(root: str) -> list[Path]:
     """Return all .swift files under root, excluding .build and .git."""
     root_path = Path(root)
@@ -169,76 +203,96 @@ def build(target: str, build_args: Optional[List[str]] = None,
 
     Delegates to the Swift binary which parses the raw build output into
     structured phases, diagnostics, and a summary — much more LLM-friendly
-    than raw stdout.
+    than raw stdout. builds in a fresh ephemeral scratch dir under the
+    package's own ``.build`` that this call removes when it finishes — no
+    persistent build state, and the real ``.build`` products are untouched.
     """
     target = _resolve_target(target)
     pkg = _package_path(target)
     pkg_dir = pkg.parent
 
-    # note: the binary path is not repeated here — _run_swift_code_query
-    # prepends it. doubling it breaks argument parsing (the binary ends up
-    # consumed as find's <symbol> and --timeout is rejected).
-    cmd = ["build", str(pkg_dir), "--timeout", "600"]
-    if build_target:
-        cmd += ["--target", build_target]
-    if build_args:
-        # pass extra args as a single string; = form avoids the
-        # dash-prefixed-value rejection
-        cmd += [f"--extra-args={' '.join(build_args)}"]
-    cmd += ["--output-format", "json"]
-
+    scratch = _new_scratch(pkg_dir)
     try:
-        result = _run_swift_code_query(cmd)
-    except Exception as exc:
-        return {"ok": False, "build_succeeded": False,
-                "error": f"swift-package-tool build failed: {exc}",
-                "stdout": "", "stderr": "", "exit_code": None,
-                "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
-                               "has_warnings": False, "has_errors": False}}
+        # note: the binary path is not repeated here — _run_swift_code_query
+        # prepends it. doubling it breaks argument parsing (the binary ends up
+        # consumed as find's <symbol> and --timeout is rejected).
+        cmd = ["build", str(pkg_dir), "--timeout", "600"]
+        if build_target:
+            cmd += ["--target", build_target]
+        if build_args:
+            # pass extra args as a single string; = form avoids the
+            # dash-prefixed-value rejection
+            cmd += [f"--extra-args={' '.join(build_args)}"]
+        # build into a fresh ephemeral scratch dir under .build that this call
+        # removes when it finishes — no persistent build state, and the real
+        # .build products are never touched
+        cmd += [f"--extra-args=--scratch-path {scratch}"]
+        cmd += ["--output-format", "json"]
 
-    if not result.get("ok", True) or "error" in result:
-        return {"ok": False, "build_succeeded": False,
-                "error": result.get("error", "unknown error"),
-                "stdout": "", "stderr": "", "exit_code": None,
-                "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
-                               "has_warnings": False, "has_errors": False}}
+        try:
+            result = _run_swift_code_query(cmd)
+        except Exception as exc:
+            return {"ok": False, "build_succeeded": False,
+                    "error": f"swift-package-tool build failed: {exc}",
+                    "stdout": "", "stderr": "", "exit_code": None,
+                    "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
+                                   "has_warnings": False, "has_errors": False}}
 
-    try:
-        raw = result.get("data")
-        if raw is None:
-            raise KeyError("missing data")
-        if isinstance(raw, list) and len(raw) == 1:
-            raw = raw[0]
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "build_succeeded": False,
-                "error": f"failed to parse build result: {exc}",
-                "stdout": str(result.get("stdout", "")),
-                "stderr": str(result.get("stderr", "")), "exit_code": None,
-                "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
-                               "has_warnings": False, "has_errors": False}}
+        if not result.get("ok", True) or "error" in result:
+            return {"ok": False, "build_succeeded": False,
+                    "error": result.get("error", "unknown error"),
+                    "stdout": "", "stderr": "", "exit_code": None,
+                    "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
+                                   "has_warnings": False, "has_errors": False}}
 
-    diag = raw.get("diagnostics", {})
-    return {
-        "ok": True,
-        "build_succeeded": raw.get("succeeded", False),
-        "exit_code": raw.get("exitCode"),
-        "target": target,
-        "package_path": str(pkg_dir),
-        "duration": raw.get("duration", 0),
-        "phases": raw.get("phases", []),
-        "diagnostics": {
-            "warning_count": diag.get("warningCount", 0),
-            "error_count": diag.get("errorCount", 0),
-            "note_count": diag.get("noteCount", 0),
-            "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
-            "errors": [e.get("message", "") for e in diag.get("errors", [])],
-            "notes": [n.get("message", "") for n in diag.get("notes", [])],
-            "has_warnings": diag.get("warningCount", 0) > 0,
-            "has_errors": diag.get("errorCount", 0) > 0,
-        },
-        "summary": raw.get("summary", ""),
-        "raw_log": raw.get("rawLog", ""),
-    }
+        try:
+            raw = result.get("data")
+            if raw is None:
+                raise KeyError("missing data")
+            if isinstance(raw, list) and len(raw) == 1:
+                raw = raw[0]
+        except (KeyError, IndexError) as exc:
+            return {"ok": False, "build_succeeded": False,
+                    "error": f"failed to parse build result: {exc}",
+                    "stdout": str(result.get("stdout", "")),
+                    "stderr": str(result.get("stderr", "")), "exit_code": None,
+                    "diagnostics": {"warning_count": 0, "error_count": 0, "note_count": 0,
+                                   "has_warnings": False, "has_errors": False}}
+
+        diag = raw.get("diagnostics", {})
+        return {
+            "ok": True,
+            "build_succeeded": raw.get("succeeded", False),
+            "exit_code": raw.get("exitCode"),
+            "target": target,
+            "package_path": str(pkg_dir),
+            "duration": raw.get("duration", 0),
+            "phases": raw.get("phases", []),
+            "diagnostics": {
+                "warning_count": diag.get("warningCount", 0),
+                "error_count": diag.get("errorCount", 0),
+                "note_count": diag.get("noteCount", 0),
+                "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
+                "errors": [e.get("message", "") for e in diag.get("errors", [])],
+                "notes": [n.get("message", "") for n in diag.get("notes", [])],
+                "has_warnings": diag.get("warningCount", 0) > 0,
+                "has_errors": diag.get("errorCount", 0) > 0,
+            },
+            "summary": raw.get("summary", ""),
+            "raw_log": raw.get("rawLog", ""),
+        }
+    finally:
+        # the scratch dir is wholly owned by this run — remove it and the
+        # now-empty audit dirs so no build state survives the call
+        shutil.rmtree(scratch, ignore_errors=True)
+        try:
+            _audit_root(pkg_dir).rmdir()
+        except OSError:
+            pass  # concurrent run still active, or root not empty
+        try:
+            (pkg_dir / ".build").rmdir()
+        except OSError:
+            pass  # package's own build products exist — never touch them
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +302,10 @@ def build(target: str, build_args: Optional[List[str]] = None,
 def test(target: str, filter: Optional[str] = None) -> dict:
     """Run ``swift test`` via ``swift-package-tool build --test`` and return structured JSON.
 
-    The test build runs in an isolated ``.build-audit`` scratch path so the
-    consumer package's real ``.build`` is never touched (see ``clean()``).
+    The test build runs in a fresh ephemeral scratch dir under the package's
+    own ``.build`` that this call removes when it finishes, so the consumer
+    package's real build products are never touched and no build state
+    survives the run (see ``clean()``).
     """
     target = _resolve_target(target)
     pkg = _package_path(target)
@@ -257,82 +313,98 @@ def test(target: str, filter: Optional[str] = None) -> dict:
         return {"ok": False, "test_succeeded": False, "error": f"no Package.swift at {pkg}"}
     pkg_dir = pkg.parent
 
-    # note: same as build() — no binary path here, _run_swift_code_query adds it
-    cmd = ["build", str(pkg_dir), "--test", "--timeout", "1200",
-           "--output-format", "json"]
-    if filter:
-        cmd += ["--filter", filter]
-    # isolate the test build in .build-audit (the plugin's documented contract).
-    # use the = form: argument-parser rejects a dash-prefixed option value.
-    cmd += [f"--extra-args=--scratch-path {pkg_dir}/.build-audit"]
-
+    scratch = _new_scratch(pkg_dir)
     try:
-        result = _run_swift_code_query(cmd)
-    except Exception as exc:
-        return {"ok": False, "test_succeeded": False,
-                "error": f"swift-package-tool build --test failed: {exc}",
-                "stdout": "", "stderr": "", "exit_code": None}
+        # note: same as build() — no binary path here, _run_swift_code_query adds it
+        cmd = ["build", str(pkg_dir), "--test", "--timeout", "1200",
+               "--output-format", "json"]
+        if filter:
+            cmd += ["--filter", filter]
+        # isolate the test build in a fresh ephemeral scratch dir under .build
+        # that this call removes when it finishes — no persistent build state,
+        # and the real .build products are never touched. use the = form:
+        # argument-parser rejects a dash-prefixed option value.
+        cmd += [f"--extra-args=--scratch-path {scratch}"]
 
-    if not result.get("ok", True) or "error" in result:
-        return {"ok": False, "test_succeeded": False,
-                "error": result.get("error", "unknown error"),
-                "stdout": "", "stderr": "", "exit_code": None}
+        try:
+            result = _run_swift_code_query(cmd)
+        except Exception as exc:
+            return {"ok": False, "test_succeeded": False,
+                    "error": f"swift-package-tool build --test failed: {exc}",
+                    "stdout": "", "stderr": "", "exit_code": None}
 
-    try:
-        raw = result.get("data")
-        if raw is None:
-            raise KeyError("missing data")
-        if isinstance(raw, list) and len(raw) == 1:
-            raw = raw[0]
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "test_succeeded": False,
-                "error": f"failed to parse test result: {exc}",
-                "stdout": str(result.get("stdout", "")),
-                "stderr": str(result.get("stderr", "")), "exit_code": None}
+        if not result.get("ok", True) or "error" in result:
+            return {"ok": False, "test_succeeded": False,
+                    "error": result.get("error", "unknown error"),
+                    "stdout": "", "stderr": "", "exit_code": None}
 
-    # parse executed/failed test counts from the run log. XCTest emits
-    # "Executed N tests, with M failures" and Swift Testing emits
-    # "Test run with N tests in M suites".
-    raw_log = raw.get("rawLog", "") or ""
-    tests_total: Optional[int] = None
-    tests_failed: Optional[int] = None
-    m = re.search(r"Executed (\d+) tests?, with (\d+) failure", raw_log)
-    if m:
-        tests_total = int(m.group(1))
-        tests_failed = int(m.group(2))
-    else:
-        m = re.search(r"Test run with (\d+) tests? in", raw_log)
+        try:
+            raw = result.get("data")
+            if raw is None:
+                raise KeyError("missing data")
+            if isinstance(raw, list) and len(raw) == 1:
+                raw = raw[0]
+        except (KeyError, IndexError) as exc:
+            return {"ok": False, "test_succeeded": False,
+                    "error": f"failed to parse test result: {exc}",
+                    "stdout": str(result.get("stdout", "")),
+                    "stderr": str(result.get("stderr", "")), "exit_code": None}
+
+        # parse executed/failed test counts from the run log. XCTest emits
+        # "Executed N tests, with M failures" and Swift Testing emits
+        # "Test run with N tests in M suites".
+        raw_log = raw.get("rawLog", "") or ""
+        tests_total: Optional[int] = None
+        tests_failed: Optional[int] = None
+        m = re.search(r"Executed (\d+) tests?, with (\d+) failure", raw_log)
         if m:
             tests_total = int(m.group(1))
-            tests_failed = 0
-    no_tests = (tests_total == 0) if tests_total is not None else \
-        ("no tests found" in raw_log.lower() or "no test" in raw_log.lower())
+            tests_failed = int(m.group(2))
+        else:
+            m = re.search(r"Test run with (\d+) tests? in", raw_log)
+            if m:
+                tests_total = int(m.group(1))
+                tests_failed = 0
+        no_tests = (tests_total == 0) if tests_total is not None else \
+            ("no tests found" in raw_log.lower() or "no test" in raw_log.lower())
 
-    diag = raw.get("diagnostics", {})
-    return {
-        "ok": True,
-        "test_succeeded": raw.get("succeeded", False),
-        "exit_code": raw.get("exitCode"),
-        "target": target,
-        "package_path": str(pkg_dir),
-        "duration": raw.get("duration", 0),
-        "tests_total": tests_total,
-        "tests_failed": tests_failed,
-        "no_tests": no_tests,
-        "phases": raw.get("phases", []),
-        "diagnostics": {
-            "warning_count": diag.get("warningCount", 0),
-            "error_count": diag.get("errorCount", 0),
-            "note_count": diag.get("noteCount", 0),
-            "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
-            "errors": [e.get("message", "") for e in diag.get("errors", [])],
-            "notes": [n.get("message", "") for n in diag.get("notes", [])],
-            "has_warnings": diag.get("warningCount", 0) > 0,
-            "has_errors": diag.get("errorCount", 0) > 0,
-        },
-        "summary": raw.get("summary", ""),
-        "raw_log": raw_log,
-    }
+        diag = raw.get("diagnostics", {})
+        return {
+            "ok": True,
+            "test_succeeded": raw.get("succeeded", False),
+            "exit_code": raw.get("exitCode"),
+            "target": target,
+            "package_path": str(pkg_dir),
+            "duration": raw.get("duration", 0),
+            "tests_total": tests_total,
+            "tests_failed": tests_failed,
+            "no_tests": no_tests,
+            "phases": raw.get("phases", []),
+            "diagnostics": {
+                "warning_count": diag.get("warningCount", 0),
+                "error_count": diag.get("errorCount", 0),
+                "note_count": diag.get("noteCount", 0),
+                "warnings": [w.get("message", "") for w in diag.get("warnings", [])],
+                "errors": [e.get("message", "") for e in diag.get("errors", [])],
+                "notes": [n.get("message", "") for n in diag.get("notes", [])],
+                "has_warnings": diag.get("warningCount", 0) > 0,
+                "has_errors": diag.get("errorCount", 0) > 0,
+            },
+            "summary": raw.get("summary", ""),
+            "raw_log": raw_log,
+        }
+    finally:
+        # the scratch dir is wholly owned by this run — remove it and the
+        # now-empty audit dirs so no build state survives the call
+        shutil.rmtree(scratch, ignore_errors=True)
+        try:
+            _audit_root(pkg_dir).rmdir()
+        except OSError:
+            pass  # concurrent run still active, or root not empty
+        try:
+            (pkg_dir / ".build").rmdir()
+        except OSError:
+            pass  # package's own build products exist — never touch them
 
 
 # ---------------------------------------------------------------------------
@@ -340,43 +412,57 @@ def test(target: str, filter: Optional[str] = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def clean(target: str) -> dict:
-    """Remove the audit build artifacts for a package (isolated, non-destructive)."""
+    """Remove audit build artifacts (ephemeral, non-destructive).
+
+    every build()/test() run uses a fresh scratch dir under
+    ``<pkg>/.build/swift-package-audit/`` that it deletes when done, so the
+    tool normally leaves nothing to clean. this method sweeps any leftover
+    scratch dirs abandoned by crashed runs (those older than
+    ``_STALE_RUN_AGE_SECONDS``, so a concurrent live audit is never touched)
+    and removes legacy pre-ephemeral ``.build-audit`` residue from the package
+    dir. the package's real ``.build`` products and sources are never touched.
+    """
     target = _resolve_target(target)
     pkg = _package_path(target)
     if not pkg.exists():
         return {"ok": False, "cleaned": False, "error": f"no Package.swift at {pkg}"}
     pkg_dir = pkg.parent
-    audit_dir = pkg_dir / ".build-audit"
 
-    if audit_dir.exists():
-        existed = True
+    root = _audit_root(pkg_dir)
+    removed_runs = 0
+    now = time.time()
+    if root.exists():
+        for entry in root.iterdir():
+            try:
+                if entry.is_dir() and (now - entry.stat().st_mtime) > _STALE_RUN_AGE_SECONDS:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    removed_runs += 1
+            except OSError:
+                continue
         try:
-            proc = _run_swift(
-                ["swift", "package", "clean", "--build-path", str(audit_dir)],
-                str(pkg_dir), timeout=120,
-            )
-            exit_code = proc.returncode
-        except FileNotFoundError:
-            return {"ok": False, "cleaned": False,
-                    "error": "swift executable not found on PATH", "exit_code": None}
-        except subprocess.TimeoutExpired:
-            return {"ok": True, "cleaned": False, "error": "clean timed out",
-                    "exit_code": "timeout"}
-        shutil.rmtree(audit_dir, ignore_errors=True)
-    else:
-        existed = False
-        exit_code = 0
+            root.rmdir()
+        except OSError:
+            pass  # live runs remain under the root
+
+    # legacy residue from the pre-ephemeral design (deterministic .build-audit)
+    legacy = pkg_dir / ".build-audit"
+    if legacy.exists():
+        shutil.rmtree(legacy, ignore_errors=True)
 
     return {
         "ok": True,
-        "cleaned": not audit_dir.exists(),
-        "exit_code": exit_code,
+        "cleaned": True,
+        "exit_code": 0,
         "target": target,
         "package_path": str(pkg_dir),
-        "audit_build_dir": str(audit_dir),
-        "audit_build_dir_existed": existed,
-        "note": "Removed the isolated .build-audit artifacts only; "
-                "the package's real .build and sources are untouched.",
+        "scratch_root": str(root),
+        "removed_runs": removed_runs,
+        "removed_legacy_build_audit": not legacy.exists(),
+        "note": "Audit builds use ephemeral scratch dirs under "
+                "<pkg>/.build/swift-package-audit/ that clean up after "
+                "themselves; this swept crashed-run leftovers and legacy "
+                ".build-audit residue. the package's real .build products "
+                "and sources are untouched.",
     }
 
 

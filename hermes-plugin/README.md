@@ -14,7 +14,7 @@ reasoning.
 | `pkg_list_dependencies` | List dependencies | name, requirement kind, pinned version. Use compact=true for names only |
 | `pkg_list_targets` | List targets with source paths | name, type, file count, line count, per-file heatmap. Use compact=true for names/types only |
 | `pkg_test` | Run tests | pass/fail, tests executed/failed, build-vs-test error disambiguation |
-| `pkg_clean` | Remove audit build artifacts | confirmation that `.build-audit` was reset (never touches real `.build`/sources) |
+| `pkg_clean` | Remove audit build artifacts | sweeps crashed-run leftovers + legacy residue from under `.build/` (never touches real products or sources) |
 | `pkg_docc_check` | DocC documentation analysis | coverage ratio, catalog layout, uncovered symbol inventory |
 | `pkg_inspector` | One-call orientation | targets, deps, audit totals, build/test/docs verdicts, README intent, git state. Use compact=true for summary + counts only |
 
@@ -103,9 +103,10 @@ without a second call. When absent, `agents_md` is `{"present": false}`.
 The payload is also **diff-aware**: the `git` field reports whether the working
 tree differs from HEAD (via `git status --porcelain`), listing the changed
 files. This surfaces in-flight, uncommitted hardening work that a static scan of
-the committed tree would miss. Build/derived artifacts (`.build-audit`,
-`.build`, `.swiftpm`, `DerivedData`) are filtered so the diff reflects real
-source changes, not the tool's own build caches.
+the committed tree would miss. Build/derived artifacts (`.build`, `.swiftpm`,
+`DerivedData`, plus legacy `.build-audit` residue) are filtered so the diff
+reflects real source changes, not build caches — audit builds themselves never
+write into the project tree (see below).
 
 ### Process-safety scan
 
@@ -124,10 +125,16 @@ machine-checked results so they never guess whether a project builds or its
 tests pass. `pkg_test` distinguishes three outcomes: tests pass, tests
 fail, or the package fails to **compile** (a `build_errored` flag separates
 toolchain/compiler errors from genuine test failures), and reports the executed
-test count. Both build into an isolated `.build-audit/` directory so the audit
-never pollutes the package's real build state. `pkg_clean` resets that
-isolated dir (`swift package clean --build-path .build-audit`); it never touches
-the real `.build` or checked-in sources.
+test count. Each build/test run uses a fresh, empty scratch directory under
+the package's own `.build` — `<pkg>/.build/swift-package-audit/run-*` — that
+the call deletes when it finishes. The tool keeps **no persistent build state**
+and never creates a new top-level directory in the project: the only location
+touched is the standard, gitignored `.build`, and the real `.build` products
+are never touched. Every verdict is a clean-room build of the current source:
+no cached incremental state that could go stale or drift. `pkg_clean` sweeps
+scratch dirs abandoned by crashed runs and legacy `.build-audit` residue from
+the old design; it never touches the real `.build` products or checked-in
+sources.
 
 ### DocC documentation analysis
 

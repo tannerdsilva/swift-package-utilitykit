@@ -16,6 +16,17 @@
   and is backward-compatible with blocks written by the old `path-wire.sh`.
 - Hermes verification during `install` is bounded by a 15s timeout so a slow
   `hermes plugins list` can never hang the installer.
+- Audit builds keep no persistent state and never create a new top-level
+  directory in the consumer's project. `pkg_build` and `pkg_test` run `swift
+  build`/`swift test` in a fresh ephemeral scratch dir under the package's own
+  `.build` (`<pkg>/.build/swift-package-audit/run-*`) that each call deletes
+  when it finishes — every audit is a clean-room build of the current source
+  (no incremental reuse), the real `.build` products are untouched, and the
+  only location touched is the standard gitignored `.build`. `pkg_clean`
+  sweeps `run-*` scratch dirs abandoned by crashed runs (older than 1h, so
+  live concurrent audits are kept) plus legacy pre-ephemeral `.build-audit`
+  residue; its payload reports `scratch_root`, `removed_runs`,
+  `removed_legacy_build_audit`.
 
 ### Added
 - Regression test suite (`Tests/NormalizerCoreTests/RegressionTests.swift`) covering
@@ -60,8 +71,9 @@
   trailing `!` now reports one finding with worst severity/primary instead of
   two competing entries.
 - **`test()` contract**: `tests_total`/`tests_failed`/`no_tests` parsed from
-  the raw log (XCTest and Swift Testing formats); test build isolated in
-  `.build-audit` via `--extra-args=` (dash-prefixed values need the `=` form).
+  the raw log (XCTest and Swift Testing formats); test build isolated in a
+  scratch dir under the package's `.build` via `--extra-args=`
+  (dash-prefixed values need the `=` form).
 - **`install`/`uninstall` verification**: `--no-interactive` flag wired into
   `install`; `uninstall` gained `--no-interactive`; hermes verification call
   bounded by a 15s timeout so a slow `hermes plugins list` can never hang the

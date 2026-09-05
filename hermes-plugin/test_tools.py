@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -267,6 +268,18 @@ def test_docc_check_and_uncovered_symbols():
 def test_build_test_clean(tmp):
     pkg = _make_package(tmp)
 
+    # clear any residue from earlier crashed runs so the assertions below
+    # reflect exactly what this test's build/test calls produce
+    root = sa._audit_root(pkg)
+    if root.exists():
+        for e in root.iterdir():
+            shutil.rmtree(e, ignore_errors=True)
+    # top-level baseline: the audit may only introduce .build at top level,
+    # never a new sibling directory (the original .build-audit violation)
+    top_before = {p.name for p in pkg.iterdir()}
+    _top_check = {"Package.swift", "Sources", "Tests"}
+    check(top_before <= _top_check, "expected fixture top level", str(top_before))
+
     # build must succeed and report the real exit code
     b = sa.build(str(pkg))
     check(b.get("build_succeeded"), "build succeeds", str(b.get("raw_stderr"))[-400:])
@@ -278,13 +291,35 @@ def test_build_test_clean(tmp):
     check(t.get("tests_failed") == 0, "test_check 0 failures", str(t.get("tests_failed")))
     check(t.get("no_tests") is False, "test_check has tests", str(t.get("no_tests")))
 
-    # .build-audit must exist after the test run
-    check((pkg / ".build-audit").exists(), ".build-audit exists after test", str(pkg))
+    # ephemeral scratch under .build: no new top-level dir, nothing persists
+    # after a run, and the real .build products are never touched
+    leftover = [e.name for e in root.iterdir()] if root.exists() else []
+    check(leftover == [], "no leftover scratch runs", str(leftover))
+    check(not (pkg / ".build-audit").exists(), "no .build-audit in project", str(pkg))
+    check(not (pkg / ".build" / "debug").exists(), "real .build products untouched", str(pkg))
+    top_after = {p.name for p in pkg.iterdir()}
+    check(top_after <= (top_before | {".build"}), "no new top-level dirs", str(sorted(top_after)))
 
-    # clean must remove the isolated audit dir and never touch .build/sources
+    # clean: sweeps abandoned crash leftovers but keeps live/fresh runs, and
+    # removes legacy pre-ephemeral .build-audit residue from the package dir
+    stale = root / "run-stale"
+    stale.mkdir(parents=True, exist_ok=True)
+    (stale / "x.o").write_text("junk")
+    old = time.time() - 2 * sa._STALE_RUN_AGE_SECONDS
+    os.utime(stale, (old, old))
+    fresh = root / "run-fresh"
+    fresh.mkdir(parents=True, exist_ok=True)
+
+    legacy = pkg / ".build-audit"
+    legacy.mkdir(parents=True, exist_ok=True)
+    (legacy / "junk").write_text("junk")
+
     c = sa.clean(str(pkg))
+    check(c.get("ok"), "clean reports ok", str(c))
     check(c.get("cleaned"), "clean reports cleaned", str(c))
-    check(not (pkg / ".build-audit").exists(), "clean removed .build-audit", str(pkg))
+    check(not stale.exists(), "clean removed stale run", str(stale))
+    check(fresh.exists(), "clean kept fresh/live run", str(fresh))
+    check(not legacy.exists(), "clean removed legacy .build-audit", str(pkg))
     check((pkg / "Sources" / "Fixture" / "Fixture.swift").exists(), "clean preserved sources", str(pkg))
 
 
