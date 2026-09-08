@@ -20,199 +20,180 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Tool schemas (OpenAI-style function schemas).  Keep params minimal and
-# explicit so a small model cannot invent parameters or drift off-scope.
+# Tool schemas (Hermes registry form).  The registry expects a bare function
+# object — ``name``, ``description``, ``parameters`` — and wraps it in the
+# OpenAI ``{"type":"function","function":{...}}`` envelope itself (and injects
+# ``name``).  Passing a pre-wrapped envelope double-wraps the schema and hides
+# description/parameters from ``tool_describe`` / ``tool_search``.  Keep params
+# minimal and explicit so a small model cannot invent parameters or drift
+# off-scope.
 # ---------------------------------------------------------------------------
 
 _BUILD_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_build",
-        "description": "Build the package (or a specific target). Returns pass/fail + warning/error counts.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "build_target": {
-                    "type": "string",
-                    "description": "Optional: build only this target (e.g. 'MyLibrary'). Faster than a full build.",
-                },
-                "build_args": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional extra args to swift build. Default: none.",
-                },
+    "name": "pkg_build",
+    "description": "Build the package (or a specific target). Returns pass/fail + warning/error counts.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "build_target": {
+                "type": "string",
+                "description": "Optional: build only this target (e.g. 'MyLibrary'). Faster than a full build.",
+            },
+            "build_args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional extra args to swift build. Default: none.",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _SCAN_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_scan",
-        "description": (
-            "Scan for security and code-quality issues. Runs one or more "
-            "scan categories and returns unified findings with severity counts. "
-            "Use compact=true for a quick triage pass."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "categories": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": [
-                        "unsafe_ptrs", "force_unwraps", "process_safety", "secrets", "all"
-                    ]},
-                    "description": "Scan categories to run. Default: all.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "If true, return counts and top-5 findings only. Default: false.",
-                },
+    "name": "pkg_scan",
+    "description": (
+        "Scan for security and code-quality issues. Runs one or more "
+        "scan categories and returns unified findings with severity counts. "
+        "Use compact=true for a quick triage pass."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "categories": {
+                "type": "array",
+                "items": {"type": "string", "enum": [
+                    "unsafe_ptrs", "force_unwraps", "process_safety", "secrets", "all"
+                ]},
+                "description": "Scan categories to run. Default: all.",
+            },
+            "compact": {
+                "type": "boolean",
+                "description": "If true, return counts and top-5 findings only. Default: false.",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _DEPS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_list_dependencies",
-        "description": "List dependencies with requirement kinds and pinned versions. Use compact=true for names only.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "If true, return name, requirement kind, and pinned version only. Default: false.",
-                },
+    "name": "pkg_list_dependencies",
+    "description": "List dependencies with requirement kinds and pinned versions. Use compact=true for names only.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "compact": {
+                "type": "boolean",
+                "description": "If true, return name, requirement kind, and pinned version only. Default: false.",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _TARGETS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_list_targets",
-        "description": "List targets with source paths and file counts. Use compact=true for names and types only.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "If true, return name, type, file count, and line count only. Default: false.",
-                },
+    "name": "pkg_list_targets",
+    "description": "List targets with source paths and file counts. Use compact=true for names and types only.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "compact": {
+                "type": "boolean",
+                "description": "If true, return name, type, file count, and line count only. Default: false.",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _TEST_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_test",
-        "description": "Run tests and report pass/fail with counts. Distinguishes test failures from build errors.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "filter": {
-                    "type": "string",
-                    "description": "Optional regex to run only matching test cases (passed to `swift test --filter`).",
-                },
+    "name": "pkg_test",
+    "description": "Run tests and report pass/fail with counts. Distinguishes test failures from build errors.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "filter": {
+                "type": "string",
+                "description": "Optional regex to run only matching test cases (passed to `swift test --filter`).",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _CLEAN_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_clean",
-        "description": "Remove isolated audit build artifacts. Safe: never touches real .build or sources.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
+    "name": "pkg_clean",
+    "description": "Remove isolated audit build artifacts. Safe: never touches real .build or sources.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
         },
+        "required": ["target"],
     },
 }
 
 _DOCC_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_docc_check",
-        "description": "Analyze DocC documentation coverage. Returns coverage ratio and uncovered symbols.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "uncovered_limit": {
-                    "type": "integer",
-                    "description": "Optional cap on uncovered symbols returned (0 or omit = all).",
-                },
+    "name": "pkg_docc_check",
+    "description": "Analyze DocC documentation coverage. Returns coverage ratio and uncovered symbols.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "uncovered_limit": {
+                "type": "integer",
+                "description": "Optional cap on uncovered symbols returned (0 or omit = all).",
+            },
         },
+        "required": ["target"],
     },
 }
 
 _OVERVIEW_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "pkg_inspector",
-        "description": (
-            "One-call orientation: targets, deps, audit totals, build/test verdicts, "
-            "doc coverage, README intent, and git state. Call this FIRST to understand "
-            "a package before drilling into specific tools."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the Swift package directory or Package.swift.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "If true, return summary and counts only. Default: false.",
-                },
+    "name": "pkg_inspector",
+    "description": (
+        "One-call orientation: targets, deps, audit totals, build/test verdicts, "
+        "doc coverage, README intent, and git state. Call this FIRST to understand "
+        "a package before drilling into specific tools."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Absolute path to the Swift package directory or Package.swift.",
             },
-            "required": ["target"],
+            "compact": {
+                "type": "boolean",
+                "description": "If true, return summary and counts only. Default: false.",
+            },
         },
+        "required": ["target"],
     },
 }
 

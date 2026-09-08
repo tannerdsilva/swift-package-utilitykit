@@ -78,6 +78,17 @@
   `install`; `uninstall` gained `--no-interactive`; hermes verification call
   bounded by a 15s timeout so a slow `hermes plugins list` can never hang the
   installer.
+- **Schema envelope double-wrap** (`hermes-plugin/__init__.py`): tool schemas
+  were declared in the OpenAI full-envelope form
+  (`{"type":"function","function":{...}}`), but the Hermes registry expects a
+  bare function object and wraps it itself — so `description`/`parameters`
+  landed one level too deep and `tool_describe`/`tool_search` saw an empty
+  description and empty parameters for every `pkg_*` tool. All 8 schemas are
+  now bare form (`name`, `description`, `parameters` at top level), so the
+  model-facing metadata survives the registry wrap. Added a structural
+  regression test (`test_tool_schema_shape`) asserting every schema is
+  envelope-free with non-empty description/parameters that survive a simulated
+  registry wrap.
 
 ### Fixed (plugin tests)
 - `test_tools.py` fixtures updated for modern SwiftPM: declared targets need

@@ -504,6 +504,76 @@ def test_scan_process_safety():
           "summarize includes process_safety", str(a["totals"]["category"]))
 
 
+_SCHEMA_TOOL_NAMES = [
+    "pkg_build", "pkg_scan", "pkg_list_dependencies", "pkg_list_targets",
+    "pkg_test", "pkg_clean", "pkg_docc_check", "pkg_inspector",
+]
+
+
+def _load_plugin():
+    """Import the plugin ``__init__.py`` as a module for schema assertions.
+
+    ``register(ctx)`` is a contract, not a side effect, so executing the file
+    is safe.  The plugin dir is already on ``sys.path`` (the import just above
+    pulled in ``swift_package_inspector``); ``__init__.py`` itself is loaded as
+    a synthetic package so its ``from . import swift_package_inspector``
+    relative import resolves.
+    """
+    import types
+    plugin_dir = os.path.dirname(os.path.abspath(__file__))
+    mod = types.ModuleType("spi_plugin")
+    mod.__file__ = os.path.join(plugin_dir, "__init__.py")
+    mod.__path__ = [plugin_dir]
+    mod.__package__ = "spi_plugin"
+    sys.modules["spi_plugin"] = mod
+    with open(mod.__file__, encoding="utf-8") as fh:
+        exec(compile(fh.read(), mod.__file__, "exec"), mod.__dict__)
+    return mod
+
+
+def test_tool_schema_shape():
+    """Every tool schema must be Hermes-registry bare form.
+
+    The registry expects ``{name, description, parameters}`` at the top level
+    and wraps it in the OpenAI ``{"type":"function","function":{...}}``
+    envelope itself.  A pre-wrapped envelope double-wraps and hides the
+    metadata from ``tool_describe`` / ``tool_search`` (regression: empty
+    description + empty parameters on every ``pkg_*`` tool).  Simulate the
+    registry wrap below and require the metadata to survive at the outer
+    function layer.
+    """
+    plugin = _load_plugin()
+    found = {
+        n: getattr(plugin, n) for n in dir(plugin)
+        if n.startswith("_") and n.endswith("_SCHEMA")
+    }
+    check(len(found) == len(_SCHEMA_TOOL_NAMES), "all 8 schemas defined",
+          f"found {sorted(found)}")
+    for name in _SCHEMA_TOOL_NAMES:
+        s = next((v for v in found.values() if isinstance(v, dict) and v.get("name") == name), None)
+        check(s is not None, f"{name}: schema registered")
+        if s is None:
+            continue
+        check("type" not in s, f"{name}: no 'type' at top level (no envelope)",
+              str(sorted(s.keys())))
+        check(s.get("name") == name, f"{name}: top-level name present")
+        desc = s.get("description")
+        check(isinstance(desc, str) and len(desc.strip()) >= 20,
+              f"{name}: non-empty description", repr(desc))
+        params = s.get("parameters")
+        check(isinstance(params, dict) and params.get("type") == "object",
+              f"{name}: parameters is an object schema", repr(params)[:80])
+        props = params.get("properties") if isinstance(params, dict) else None
+        check(isinstance(props, dict) and len(props) >= 1,
+              f"{name}: parameters have properties", str(sorted(props or {})))
+        check("required" in (params or {}),
+              f"{name}: required present", str((params or {}).get("required")))
+        # simulate the registry wrap (tools/registry.py get_definitions):
+        fn = {**s, "name": name}
+        check(bool(fn.get("description")), f"{name}: description survives wrap")
+        check(bool(fn.get("parameters")), f"{name}: parameters survive wrap")
+
+
 def main():
     only_quick = "--full" not in sys.argv
     print("=== swift-package-inspector assertion tests ===\n")
@@ -517,6 +587,7 @@ def main():
     test_reachability_severity()
     test_test_context_severity_cap()
     test_scan_process_safety()
+    test_tool_schema_shape()
 
     if not only_quick:
         print("  [build/test/clean] running live fixture...")
