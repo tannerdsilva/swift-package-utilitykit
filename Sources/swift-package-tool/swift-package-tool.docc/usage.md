@@ -11,7 +11,9 @@ paths are given, most commands default to the current directory.
 
 ## Output formats
 
-All commands support ``--output-format`` with these values:
+Analysis subcommands support ``--output-format`` with these values (text-output
+commands like ``tree``/``format`` and the host-management installers differ —
+see ``--help``):
 
 - ``json`` — Pretty-printed JSON (human-readable)
 - ``compact`` — Single-line JSON per array (default, LLM-optimized)

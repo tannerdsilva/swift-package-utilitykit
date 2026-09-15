@@ -1,19 +1,82 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-09-15)
+
+### Fixed (release-blockers from the pre-1.0 audit)
+- **Silent fall-through when a subcommand name is misspelled is gone.** An
+  unknown first token was routed to the default `find` subcommand (a typo'd
+  `indexx` returned `[]` with exit 0 — indistinguishable from a successful
+  empty query). `find` is no longer the implicit default; an unknown token is
+  now a hard `Unknown subcommand` error (exit 64), and top-level unknown
+  options show the root usage, not `find`'s.
+- **Non-UTF-8 files are no longer silently dropped from scans.** A `.swift`
+  file that cannot be decoded as UTF-8 (legacy latin-1 / UTF-16 / binary) is
+  now reported to stderr (`warning: skipped non-utf8/unreadable file`) instead
+  of vanishing from `query`/`index`/`api`/`search`/`force-unwraps` and friends
+  with exit 0. Applied across every scan command.
+- **`validate` now signals pass/fail on its exit code.** Syntax errors found →
+  exit 1 (warnings alone stay 0); the JSON diagnostics are still printed first.
+- **`install` can no longer report success when nothing was copied or built.**
+  - `runProcess` failures (mkdir / binary `install`) are now checked by exit
+    status, not whether the process launched — a failed copy is a hard error.
+  - `--no-build` verifies the prebuilt binaries actually exist before copying.
+  - a failed `swift build` aborts the install instead of printing
+    "Build complete".
+  - `repoDir()` walks up from cwd to find the repo root, so `install` from any
+    directory behaves correctly (previously it returned cwd unless the path
+    contained `/.build/`).
+  - build logs are drained through a temp file (deadlock-free).
+- **Inconsistent "no results" signalling unified.** Scanning a path with no
+  Swift files (or filtered to zero by `--exclude`) now returns an empty result
+  with exit 0; a *nonexistent* path stays exit 64 (`path not found`).
+
+### Added
+- `--schema` now exists on every analysis subcommand plus all edit commands,
+  `clean`, `batch`, `format`, and `tree`.
+- `--output-format` added to `clean` (json/compact/csv/short), `format`
+  (json/compact per-file `FormatResult`), all edit commands (json/compact/
+  short/csv/jsonl), `batch`, and `tree` (json/compact structured tree).
+- `--limit` on `force-unwraps`, `docc-check`, `tree`, `references`.
+- `index` output shape fixed: emits the project object (not a wrapping list),
+  `--output-format jsonl` emits one object per file, and the unstable
+  `generated` timestamp is now opt-in via `--include-timestamp` (runs are
+  byte-stable by default for caching/dedup).
+- `query` and `search` now support stdin via `-` (matching `find`/`inspect`/
+  `format`/`diff`).
+- `batch` gained `--schema` and reports malformed plans as readable
+  `invalid batch plan: ...` validation errors instead of a Swift
+  `DecodingError` dump.
+- DocC build works: `swift-docc-plugin` is now a package dependency, so
+  `swift package --disable-sandbox generate-documentation` succeeds.
 
 ### Changed
+- Version is now `1.0.0` everywhere: `swift-package-tool --version`,
+  `normalizer-tool --version`, `hermes-plugin/plugin.yaml`, and pyproject.toml.
+- A bare `query` with no declaration-kind flags prints a stderr note that it is
+  querying functions only (pass `--all` for every kind).
+- `query --json` / `--text` are documented legacy aliases: `--json` is a
+  no-op (JSON is already the default) and `--text` maps to `--output-format
+  short`; an explicit `--output-format` wins so the flags never silently
+  contradict each other.
+- `find --exact` help text clarifies the `--case-sensitive` interaction.
+- README / api-reference / DocC catalog now document the actual 35
+  subcommands and per-command `--schema` / `--output-format` support.
+- `hermes-plugin` dead code removed (`_parse_build_diagnostics` + its 3
+  regexes had zero call sites).
+- `install --force` removed (declared but never read on install).
+- Orphaned `Examples` target removed from `Package.swift` (nothing depended
+  on it).
+
+### Fixes carried forward from the post-0.8.0 development line
 - Install/remove/path-wiring are now native `swift-package-tool` subcommands
   (`install`, `uninstall`, `path-wire`) — the former shell scripts in
-  `scripts/` are gone. The Makefile's `install`, `install-release`,
-  `install-plugin`, `remove`, and `path-wire` targets are thin flag-mapped
-  delegates that build the binary and invoke it with `--no-build` (single
-  source of install logic: Swift).
+  `scripts/` are gone. The Makefile targets are thin flag-mapped delegates
+  that build the binary and invoke it with `--no-build` (single source of
+  install logic: Swift).
 - Install dir is wired into the harness PATH automatically and idempotently
-  (`PATH_UPDATE=1`, opt out with `PATH_UPDATE=0` or `--no-path-update`).
-  `swift-package-tool path-wire` writes a marker-guarded export into
-  `~/.profile` and any existing `~/.bash_profile` / `~/.bashrc` / `~/.zshrc`,
-  and is backward-compatible with blocks written by the old `path-wire.sh`.
+  (`PATH_UPDATE=1`, opt out with `PATH_UPDATE=0` or `--no-path-update`);
+  `path-wire` writes a marker-guarded export into the shell init files, and is
+  backward-compatible with blocks written by the old `path-wire.sh`.
 - Hermes verification during `install` is bounded by a 15s timeout so a slow
   `hermes plugins list` can never hang the installer.
 - Audit builds keep no persistent state and never create a new top-level
@@ -21,86 +84,66 @@
   build`/`swift test` in a fresh ephemeral scratch dir under the package's own
   `.build` (`<pkg>/.build/swift-package-audit/run-*`) that each call deletes
   when it finishes — every audit is a clean-room build of the current source
-  (no incremental reuse), the real `.build` products are untouched, and the
-  only location touched is the standard gitignored `.build`. `pkg_clean`
+  (no incremental reuse), the real `.build` products are untouched. `pkg_clean`
   sweeps `run-*` scratch dirs abandoned by crashed runs (older than 1h, so
   live concurrent audits are kept) plus legacy pre-ephemeral `.build-audit`
-  residue; its payload reports `scratch_root`, `removed_runs`,
-  `removed_legacy_build_audit`.
-
-### Added
-- Regression test suite (`Tests/NormalizerCoreTests/RegressionTests.swift`) covering
-  the bugs found while testing against a large real-world package: `delete --symbol`,
-  `--force` verification gating, minify token separation, LCS diff minimality,
-  `short`-format reflection dumps, bare-invocation path defaults, and the
-  install/uninstall lifecycle.
-- Flexible plugin binary path fallback: `SWIFT_CODE_QUERY_PATH` env override >
-  `PATH` lookup > `~/.local/bin/swift-package-tool` default.
-- `swift-package-tool install` flags: `--debug`, `--no-build`, `--no-plugin`,
-  `--symlink`/`--copy`, `--force`, `--no-path-update`, `--no-interactive`,
-  `--prefix`, `--bin-dir`, `--hermes-plugins`.
-- `swift-package-tool uninstall` and `swift-package-tool path-wire` subcommands.
-- `PLUGIN_MODE` env var honored (validated to `symlink` or `copy`; unset in
-  noninteractive mode defaults to `copy`).
-- `HERMES_PLUGINS` accepted as an alias for `HERMES_PLUGINS_DIR`.
-
-### Fixed
+  residue.
 - **Hermes plugin crash cluster** (`hermes-plugin/swift_package_inspector.py`):
   `_run_swift_code_query` now returns a single unambiguous contract
   (`{"ok": True, "data": ...}` / `{"ok": False, "error": ...}`) instead of
   verbatim JSON, so array-emitting subcommands (`search`, `api`,
-  `force-unwraps`, `build`, `test`) can no longer make the six `.get()` call
-  sites crash with `'list' object has no attribute 'get'`. All five call sites
-  migrated to the new contract; dead `isinstance(..., list)` guards removed.
-- **Double binary path bug**: `build()`, `test()`, and `scan_force_unwraps()`
-  prepended the binary path *and* `_run_swift_code_query` prepended it again,
-  so `pkg_build`/`pkg_test` always failed with `Unknown option '--timeout'`
-  / `--test`. The paths are no longer repeated.
+  `force-unwraps`, `build`, `test`) can no longer make the `.get()` call
+  sites crash with `'list' object has no attribute 'get'`.
+- **Double binary path bug**: binary path is no longer prepended twice, so
+  `pkg_build`/`pkg_test` no longer fail with `Unknown option '--timeout'`.
 - **`lineContent` field mismatch**: the tool emits `lineContent` (camelCase)
-  but scanners read `line_content`, silently returning zero findings for
-  `pkg_scan` categories. Both keys are now set from the real field.
+  but scanners read `line_content` — both keys are now set from the real field.
 - **`list_targets` correctness**: paths and sources from `swift package
-  describe` are relative to the package dir, so `exists` and the line/symbol
-  heatmap were computed against the wrong paths (report: every target
-  `exists: false`). Paths are now anchored to the package dir; per-file symbol
-  counts come from an AST-accurate `swift-package-tool query`; `path_kind`
-  (`default`/`explicit`) restored.
+  describe` are now anchored to the package dir; per-file symbol counts come
+  from an AST-accurate `swift-package-tool query`; `path_kind` restored.
 - **`list_dependencies`**: root package node is no longer listed as a
   dependency of itself.
 - **`scan_force_unwraps` coalescing**: a line carrying both `try!` and a
-  trailing `!` now reports one finding with worst severity/primary instead of
-  two competing entries.
+  trailing `!` now reports one finding with worst severity/primary.
 - **`test()` contract**: `tests_total`/`tests_failed`/`no_tests` parsed from
   the raw log (XCTest and Swift Testing formats); test build isolated in a
-  scratch dir under the package's `.build` via `--extra-args=`
-  (dash-prefixed values need the `=` form).
-- **`install`/`uninstall` verification**: `--no-interactive` flag wired into
-  `install`; `uninstall` gained `--no-interactive`; hermes verification call
-  bounded by a 15s timeout so a slow `hermes plugins list` can never hang the
-  installer.
+  scratch dir under the package's `.build` via `--extra-args=`.
 - **Schema envelope double-wrap** (`hermes-plugin/__init__.py`): tool schemas
-  were declared in the OpenAI full-envelope form
-  (`{"type":"function","function":{...}}`), but the Hermes registry expects a
-  bare function object and wraps it itself — so `description`/`parameters`
-  landed one level too deep and `tool_describe`/`tool_search` saw an empty
-  description and empty parameters for every `pkg_*` tool. All 8 schemas are
-  now bare form (`name`, `description`, `parameters` at top level), so the
-  model-facing metadata survives the registry wrap. Added a structural
-  regression test (`test_tool_schema_shape`) asserting every schema is
-  envelope-free with non-empty description/parameters that survive a simulated
-  registry wrap.
-
-### Fixed (plugin tests)
-- `test_tools.py` fixtures updated for modern SwiftPM: declared targets need
-  their default source dirs (CLI, CoreTests, Custom/Dir); dependency test now
-  uses offline local-path packages instead of unreachable remote URLs; stale
-  `func` kind expectations match the tool's `function`.
-
-### Fixed (install/subcommands)
+  are declared in the bare function form the Hermes registry expects, so
+  `tool_describe`/`tool_search` expose description/parameters (regression
+  test `test_tool_schema_shape`).
+- Regression test suite
+  (`Tests/NormalizerCoreTests/RegressionTests.swift`) covering `delete
+  --symbol`, `--force` verification gating, minify token separation, LCS diff
+  minimality, `short`-format reflection dumps, bare-invocation path defaults,
+  and the install/uninstall lifecycle.
+- Flexible plugin binary path fallback: `SWIFT_CODE_QUERY_PATH` env override >
+  `PATH` lookup > `~/.local/bin/swift-package-tool` default.
+- `swift-package-tool install` flags: `--debug`, `--no-build`, `--no-plugin`,
+  `--symlink`/`--copy`, `--no-path-update`, `--no-interactive`, `--prefix`,
+  `--bin-dir`, `--hermes-plugins`.
+- `swift-package-tool uninstall` and `swift-package-tool path-wire` subcommands.
+- `PLUGIN_MODE` env var honored (validated to `symlink` or `copy`; unset in
+  noninteractive mode defaults to `copy`); `HERMES_PLUGINS` accepted as an
+  alias for `HERMES_PLUGINS_DIR`.
 - `install` no longer spuriously requires `sudo` when the install dir is
-  missing but creatable (e.g. a fresh machine without `~/.local`).
-- `uninstall` deduplicates overlapping install dirs (default
-  `INSTALL_DIR == $HOME/.local/bin`), so each binary is reported once.
+  missing but creatable; `uninstall` deduplicates overlapping install dirs.
+- `test_tools.py` fixtures updated for modern SwiftPM (declared default source
+  dirs, offline local-path dependency test, `function` kind expectations).
+
+## 0.8.0 (2026-08-19)
+
+### Added
+- `batch` subcommand — execute multiple edit operations from one JSON plan
+  file (`--fail-fast`, dry-run, diff, verify-gate).
+- `SwiftPackageToolTests` — black-box integration suite for the editing
+  commands and batch plans.
+- `Package.swift`: dependency on `swift-argument-parser` declared explicitly.
+
+### Fixed
+- Editing commands (`insert`, `replace`, `prepend`/`append`, `add-import`)
+  robustness fixes; multiline content handling in `FileEditor`; integration
+  test count updates.
 
 ## 0.7.0 (2026-08-16)
 

@@ -24,7 +24,7 @@ Both share the same `NormalizerCore` library and produce identical results.
 ### One-command install (recommended)
 
 ```bash
-git clone https://github.com/your-org/swift-package-utilitykit.git
+git clone git@github.com:tannerdsilva/swift-package-utilitykit.git
 cd swift-package-utilitykit
 make install-plugin
 ```
@@ -118,8 +118,10 @@ hermes tool list | grep pkg_
 ### `swift-package-tool`
 
 Query, inspect, search, and index Swift source code.  Designed for agent
-consumption — all subcommands produce JSON by default, with multiple output
-formats optimized for different model sizes.
+consumption — analysis subcommands produce JSON by default (compact), with
+multiple output formats optimized for different model sizes.  `tree` and
+`format` produce text by design (a symbol hierarchy / formatting status);
+edit commands report a JSON `EditResult`.
 
 ```
 swift-package-tool find <symbol> [<paths>...] [--exact] [--pretty-print]
@@ -193,9 +195,11 @@ swift-package-tool wrap <file> --lines <start>-<end> --in <container>
 swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pretty-print]
 ```
 
-**output formats** — every subcommand supports these, selectable with
+**output formats** — analysis subcommands support these, selectable with
 `--output-format`.  **Default is `compact`** (single-line JSON, no whitespace)
 for token efficiency.  Use `--pretty-print` for human-readable JSON.
+(`tree` and `format` are text-output commands; `install`/`uninstall`/`path-wire`
+are host-management commands — check `--help` for what each supports.)
 
 | format | description | best for |
 |---|---|---|
@@ -539,6 +543,32 @@ Content is auto-indented to match the target line.
 - `--type <name> --by name` — sort alphabetically
 - `--type <name> --by kind` — group by declaration kind (properties first, then methods, etc.)
 
+**batch** — execute multiple edit operations from a single JSON plan file,
+applied sequentially.  Operations that fail are reported without aborting the
+rest unless `--fail-fast` is set.
+
+```bash
+swift-package-tool batch plan.json                # apply all operations
+swift-package-tool batch plan.json --dry-run      # preview without writing
+swift-package-tool batch plan.json --fail-fast    # stop on first failure
+```
+
+Plan format (field names mirror the CLI flags, camelCased):
+
+```json
+{
+  "operations": [
+    { "command": "add-import", "file": "Sources/Foo.swift", "module": "Logging" },
+    { "command": "insert", "file": "Sources/Foo.swift", "after": "private let store", "content": "private let logger = Logger(label: \"com.example\")\\n" },
+    { "command": "replace", "file": "Sources/Foo.swift", "old": "print(\"hi\")", "new": "logger.info(\"hi\")" }
+  ]
+}
+```
+
+Supported `command` values: `add-import`, `insert`, `replace`, `append`,
+`prepend`, `delete`, `add-member`, `add-conformance`.  Output is a JSON object
+with a `results` array of `EditResult` (one per operation, in plan order).
+
 **clean** — delete build artifacts without touching dependencies. Runs `swift package clean` under the hood. The dependency cache (`.build/checkouts/`) is **preserved** — the next build recompiles without re-fetching.
 
 To also **destroy** cached dependencies, pass `--purge-all` (or `--destroy-dependencies`). This is a destructive operation: every dependency is deleted from `.build/checkouts/` and must be re-fetched from scratch on the next build. Only use this when you are certain you want to wipe the entire cache.
@@ -758,8 +788,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-package-tool/                        agentic code query/inspect/search/index tool (48 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 34 subcommands)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (40 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 35 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info
@@ -798,9 +828,6 @@ Sources/
     Visitors.swift                         syntax visitors (FunctionNameCollector, etc.)
     Helpers.swift                          collectSwiftFiles, lineColumn, UsageError
     SyntaxUtils.swift                      trivia helpers, declaration kind helpers
-  Examples/                                demo source files for plugin testing
-    Example.swift
-    Messy.swift
   hermes-plugin/                           Hermes Agent plugin (Python)
     __init__.py                            tool schemas + handlers (8 tools)
     swift_package_inspector.py             orchestration layer calling swift-package-tool

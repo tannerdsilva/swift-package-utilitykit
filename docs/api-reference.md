@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-package-tool` is a Swift source code analysis and editing tool with 31 subcommands.
+`swift-package-tool` is a Swift source code analysis and editing tool with 35 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -16,7 +16,9 @@ output.
 
 ## Output formats
 
-Every subcommand supports `--output-format <format>`:
+Analysis subcommands support `--output-format <format>` (text-output commands
+like `tree`/`format` and the host-management `install`/`uninstall`/`path-wire`
+differ — see each command's `--help`):
 
 | Format | Description | Example |
 |---|---|---|
@@ -28,7 +30,7 @@ Every subcommand supports `--output-format <format>`:
 
 ## Subcommands
 
-### `find` (default)
+### `find`
 
 Find a symbol by name across all declaration kinds.
 
@@ -119,8 +121,8 @@ swift-package-tool inspect <symbol> [<paths>...] [--output-format <format>]
 Format or minify Swift source files.
 
 ```
-swift-package-tool format <files>... [--minify] [--preserve-indentation]
-    [--in-place]
+swift-package-tool format <files>... [--minify] [--preserve-comments]
+    [--dry-run] [--output-format json|compact]
 ```
 
 | Argument | Description |
@@ -130,8 +132,9 @@ swift-package-tool format <files>... [--minify] [--preserve-indentation]
 | Flag/Option | Description |
 |---|---|
 | `--minify` | Strip all indentation and blank lines for LLM consumption |
-| `--preserve-indentation` | Keep original indentation (don't convert to tabs) |
-| `--in-place` | Modify files in place instead of printing to stdout |
+| `--preserve-comments` | Keep comments in minified output instead of replacing with a placeholder |
+| `--dry-run` | Report what would change without writing |
+| `--output-format` | `json`/`compact` emit a per-file `FormatResult` summary instead of status lines |
 
 ---
 

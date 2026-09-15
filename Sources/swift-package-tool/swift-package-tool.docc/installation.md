@@ -8,7 +8,7 @@
 ## From source
 
 ```bash
-git clone https://github.com/your-org/swift-package-utilitykit.git
+git clone git@github.com:tannerdsilva/swift-package-utilitykit.git
 cd swift-package-utilitykit
 swift build -c release
 cp .build/release/swift-package-tool ~/.local/bin/
@@ -25,11 +25,18 @@ symlinks the Hermes plugin.  (``~/.local/bin`` is the canonical install
 location — the Hermes plugin resolver falls back to it, so the installer
 and the plugin agree.  Override with ``PREFIX=``/``BIN_DIR=``.)
 
-## Via install script
+## Via install subcommand
+
+The ``swift-package-tool`` binary owns install/remove logic natively
+(``install``, ``uninstall``, ``path-wire``):
 
 ```bash
-./scripts/install.sh
+swift-package-tool install                   # interactive (prompts: symlink/copy)
+swift-package-tool install --copy            # noninteractive copy plugin
+swift-package-tool install --symlink         # noninteractive symlink plugin
+swift-package-tool uninstall                 # remove binaries, plugin, PATH wiring
 ```
 
-Supports interactive and noninteractive modes. Pass ``PLUGIN_MODE=1``
-in noninteractive mode to also install the Hermes plugin.
+``PLUGIN_MODE`` (``symlink`` or ``copy``) and ``PATH_UPDATE``/``NO_INTERACTIVE``
+are honored as environment overrides.  ``install --no-plugin --no-build``
+installs just the binaries from a prebuilt ``.build``.
