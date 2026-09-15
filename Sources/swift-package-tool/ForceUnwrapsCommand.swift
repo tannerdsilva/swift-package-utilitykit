@@ -33,6 +33,9 @@ struct ForceUnwrapsCommand: ParsableCommand {
     @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
+    @Option(name: .long, help: "Maximum number of findings to return.")
+    var limit: Int?
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
 
@@ -48,25 +51,23 @@ struct ForceUnwrapsCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         var items: [ForceUnwrapItem] = []
 
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = ForceUnwrapCollector(filePath: filePath, source: source)
-                collector.walk(tree)
-                items.append(contentsOf: collector.items)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = ForceUnwrapCollector(filePath: filePath, source: source)
+            collector.walk(tree)
+            items.append(contentsOf: collector.items)
         }
 
         items.sort { ($0.file, $0.line) < ($1.file, $1.line) }
+
+        if let limit = limit, items.count > limit {
+            items = Array(items.prefix(limit))
+        }
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(items, format: fmt)

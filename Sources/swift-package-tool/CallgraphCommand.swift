@@ -50,42 +50,32 @@ struct CallgraphCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         // first pass: collect all known function names from all files
         var knownFunctions: Set<String> = []
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let funcCollector = FunctionNameCollector()
-                funcCollector.walk(tree)
-                for name in funcCollector.functions {
-                    knownFunctions.insert(name)
-                }
-            } catch {
-                continue
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let funcCollector = FunctionNameCollector()
+            funcCollector.walk(tree)
+            for name in funcCollector.functions {
+                knownFunctions.insert(name)
             }
         }
 
         // second pass: collect call edges using the complete knownFunctions set
         var allEdges: [CallEdge] = []
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let edgeCollector = CallEdgeCollector(
-                    filePath: filePath, source: source,
-                    knownFunctions: knownFunctions,
-                    includeUnknown: includeUnknown
-                )
-                edgeCollector.walk(tree)
-                allEdges.append(contentsOf: edgeCollector.edges)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let edgeCollector = CallEdgeCollector(
+                filePath: filePath, source: source,
+                knownFunctions: knownFunctions,
+                includeUnknown: includeUnknown
+            )
+            edgeCollector.walk(tree)
+            allEdges.append(contentsOf: edgeCollector.edges)
         }
 
         allEdges.sort { ($0.caller, $0.callee, $0.line) < ($1.caller, $1.callee, $1.line) }

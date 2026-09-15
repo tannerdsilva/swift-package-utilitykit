@@ -21,7 +21,7 @@ struct FindCommand: ParsableCommand {
     @Argument(help: "Files or directories to search.")
     var paths: [String] = ["."]
 
-    @Flag(name: .long, inversion: .prefixedNo, help: "Require exact name match (case-insensitive).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Require exact name match (case-insensitive unless --case-sensitive is also set).")
     var exact = false
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Case-sensitive search.")
@@ -113,10 +113,7 @@ struct FindCommand: ParsableCommand {
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
-
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(filePaths)
 
         // search all declaration kinds
         let allKinds: Set<String> = [
@@ -129,44 +126,39 @@ struct FindCommand: ParsableCommand {
         var results: [FindResult] = []
 
         for filePath in files {
-            do {
-                let url = URL(fileURLWithPath: filePath)
-                let source = try String(contentsOf: url, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = DeclarationCollector(filePath: filePath, source: source, kinds: allKinds)
-                collector.walk(tree)
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = DeclarationCollector(filePath: filePath, source: source, kinds: allKinds)
+            collector.walk(tree)
 
-                for decl in collector.declarations {
-                    let matches: Bool
-                    if exact {
-                        if caseSensitive {
-                            matches = decl.name == symbol
-                        } else {
-                            matches = decl.name.lowercased() == symbol.lowercased()
-                        }
+            for decl in collector.declarations {
+                let matches: Bool
+                if exact {
+                    if caseSensitive {
+                        matches = decl.name == symbol
                     } else {
-                        if caseSensitive {
-                            matches = decl.name.contains(symbol)
-                        } else {
-                            matches = decl.name.localizedCaseInsensitiveContains(symbol)
-                        }
+                        matches = decl.name.lowercased() == symbol.lowercased()
                     }
-
-                    if matches {
-                        results.append(FindResult(
-                            name: decl.name,
-                            kind: decl.kind,
-                            file: decl.file,
-                            line: decl.line,
-                            column: decl.column,
-                            signature: decl.signature,
-                            docComment: decl.docComment,
-                            modifiers: decl.modifiers
-                        ))
+                } else {
+                    if caseSensitive {
+                        matches = decl.name.contains(symbol)
+                    } else {
+                        matches = decl.name.localizedCaseInsensitiveContains(symbol)
                     }
                 }
-            } catch {
-                continue
+
+                if matches {
+                    results.append(FindResult(
+                        name: decl.name,
+                        kind: decl.kind,
+                        file: decl.file,
+                        line: decl.line,
+                        column: decl.column,
+                        signature: decl.signature,
+                        docComment: decl.docComment,
+                        modifiers: decl.modifiers
+                    ))
+                }
             }
         }
 

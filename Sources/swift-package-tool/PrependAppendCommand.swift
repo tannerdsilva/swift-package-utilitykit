@@ -36,7 +36,14 @@ struct PrependCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -55,10 +62,7 @@ struct PrependCommand: ParsableCommand, EditCommand {
             return ""
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(result)
-        print(String(data: data, encoding: .utf8)!)
+        try emitEditResult(result)
     }
 }
 
@@ -93,7 +97,14 @@ struct AppendCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let processedContent = FileEditor.processMultilineContent(content)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -103,9 +114,6 @@ struct AppendCommand: ParsableCommand, EditCommand {
             return ""
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(result)
-        print(String(data: data, encoding: .utf8)!)
+        try emitEditResult(result)
     }
 }

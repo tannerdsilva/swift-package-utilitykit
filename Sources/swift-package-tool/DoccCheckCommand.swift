@@ -35,16 +35,24 @@ struct DoccCheckCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
+    @Option(name: .long, help: "Maximum number of warnings to return.")
+    var limit: Int?
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(DoccWarning.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         // First pass: collect all known declaration names
         var knownSymbols = Set<String>()
@@ -52,24 +60,20 @@ struct DoccCheckCommand: ParsableCommand {
         var fileDoccComments: [(file: String, line: Int, comment: String)] = []
 
         for filePath in files.sorted() {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
 
-                // Collect all declaration names
-                let nameCollector = DeclarationNameCollector()
-                nameCollector.walk(tree)
-                for name in nameCollector.names {
-                    knownSymbols.insert(name)
-                }
-
-                // Collect docc comments from the source file's trivia
-                let doccCollector = DoccCommentCollector(filePath: filePath, source: source)
-                doccCollector.walk(tree)
-                fileDoccComments.append(contentsOf: doccCollector.comments)
-            } catch {
-                continue
+            // Collect all declaration names
+            let nameCollector = DeclarationNameCollector()
+            nameCollector.walk(tree)
+            for name in nameCollector.names {
+                knownSymbols.insert(name)
             }
+
+            // Collect docc comments from the source file's trivia
+            let doccCollector = DoccCommentCollector(filePath: filePath, source: source)
+            doccCollector.walk(tree)
+            fileDoccComments.append(contentsOf: doccCollector.comments)
         }
 
         // Second pass: check each docc comment for invalid symbol references
@@ -93,6 +97,10 @@ struct DoccCheckCommand: ParsableCommand {
 
         warnings.sort { ($0.file, $0.line) < ($1.file, $1.line) }
 
+        if let limit = limit, warnings.count > limit {
+            warnings = Array(warnings.prefix(limit))
+        }
+
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(warnings, format: fmt)
         try writeOutput(outputStr, to: outputPath)
@@ -110,6 +118,23 @@ struct DoccWarning: Codable, Sendable, CustomStringConvertible {
     var description: String {
         return "\(file):\(line):\(column)  [\(severity)]  \(message)"
     }
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "DoccWarning",
+      "type": "object",
+      "properties": {
+        "file":             { "type": "string", "description": "Source file path" },
+        "line":             { "type": "integer", "description": "1-based line number" },
+        "column":           { "type": "integer", "description": "1-based column number" },
+        "severity":         { "type": "string", "description": "warning" },
+        "message":          { "type": "string", "description": "The docc validation message" },
+        "referencedSymbol": { "type": "string", "description": "The backticked symbol reference" }
+      },
+      "required": ["file", "line", "column", "severity", "message", "referencedSymbol"]
+    }
+    """
 }
 
 /// extract symbol references from a docc comment.

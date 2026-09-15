@@ -34,9 +34,6 @@ struct InstallCommand: ParsableCommand {
     @Flag(name: .customLong("copy"), help: "Install the plugin as a copy into the plugins dir (default).")
     var copyMode = false
 
-    @Flag(name: .customLong("force"), help: "Skip removal confirmation (used with the remove flow).")
-    var force = false
-
     @Flag(name: .customLong("no-path-update"), help: "Skip wiring the install dir into the harness PATH.")
     var noPathUpdate = false
 
@@ -123,10 +120,21 @@ struct InstallCommand: ParsableCommand {
         let config = debug ? "debug" : "release"
         if noBuild {
             InstPrinter.info("Using prebuilt \(config) binaries (--no-build)...")
+            // verify the prebuilt binaries actually exist — a stale or missing
+            // build must be a hard error, never a silent no-op install
+            for bin in ["swift-package-tool", "normalizer-tool"] {
+                let src = "\(repoDir())/.build/\(config)/\(bin)"
+                guard FileManager.default.fileExists(atPath: src) else {
+                    throw ValidationError("prebuilt binary not found at \(src) — run `swift build -c \(config)` first, or drop --no-build")
+                }
+            }
         } else {
             InstPrinter.info("Building \(config) binaries...")
-            let buildLog = runCapture("/usr/bin/env", ["sh", "-lc", "swift build -c \(config) 2>&1 | tail -3"], cwd: repoDir()) ?? ""
+            let (buildStatus, buildLog) = runBuildCaptured(config, repo: repoDir())
             print(buildLog)
+            guard buildStatus == 0 else {
+                throw ValidationError("swift build -c \(config) failed; install aborted")
+            }
             InstPrinter.ok("Build complete")
         }
 
@@ -146,7 +154,7 @@ struct InstallCommand: ParsableCommand {
         var mkdirCmd = [String]()
         if let s = needSudo(for: installDir) { mkdirCmd.append(s) }
         mkdirCmd += ["mkdir", "-p", installDir]
-        if runProcess("/usr/bin/env", mkdirCmd) == nil {
+        if runProcess("/usr/bin/env", mkdirCmd) != 0 {
             throw ValidationError("failed to create install dir \(installDir)")
         }
 
@@ -155,8 +163,8 @@ struct InstallCommand: ParsableCommand {
             var icmd = [String]()
             if let s = needSudo(for: installDir) { icmd.append(s) }
             icmd += ["install", "\(buildDir)/\(bin)", "\(installDir)/\(bin)"]
-            if runProcess("/usr/bin/env", icmd) == nil {
-                throw ValidationError("failed to install \(bin)")
+            if runProcess("/usr/bin/env", icmd) != 0 {
+                throw ValidationError("failed to install \(bin) (\(buildDir)/\(bin) -> \(installDir)/\(bin))")
             }
             InstPrinter.ok("  \(installDir)/\(bin)")
         }
@@ -235,18 +243,24 @@ struct InstallCommand: ParsableCommand {
         print("    3. Verify tools:           swift-package-tool --version")
     }
 
-    /// the package repo root: from the plumbing used by the SPM command
-    /// plugin when this binary runs from a build dir, otherwise cwd.
+    /// the package repo root: walk up from cwd until a directory with a
+    /// Package.swift + hermes-plugin is found (an agent may run install from
+    /// anywhere, not just the repo root).  falls back to cwd; downstream
+    /// existence checks then fail loudly instead of silently copying nothing.
     func repoDir() -> String {
-        let cwd = FileManager.default.currentDirectoryPath
-        // running from this repo's own .build/<config>/ — walk up three
-        let probe = URL(fileURLWithPath: cwd)
-        if probe.lastPathComponent.hasPrefix("swift-package-tool"),
-           probe.deletingLastPathComponent().lastPathComponent == ".build"
-            || probe.path.contains("/.build/") {
-            return probe.deletingLastPathComponent().deletingLastPathComponent().path
+        let fm = FileManager.default
+        var dir = URL(fileURLWithPath: fm.currentDirectoryPath)
+        for _ in 0..<8 {
+            let hasManifest = fm.fileExists(atPath: dir.appendingPathComponent("Package.swift").path)
+            let hasPlugin = fm.fileExists(atPath: dir.appendingPathComponent("hermes-plugin").path)
+            if hasManifest && hasPlugin {
+                return dir.path
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent == dir { break }
+            dir = parent
         }
-        return cwd
+        return fm.currentDirectoryPath
     }
 }
 
@@ -293,6 +307,37 @@ func runProcess(_ executable: String, _ args: [String], cwd: String? = nil, env:
     } catch {
         return nil
     }
+}
+
+/// run `swift build -c <config>` and capture the full log via a temp file
+/// (draining pipes concurrently is deadlock-prone when output is large).
+/// returns (exit status, trimmed log).  a failed build surfaces as non-zero —
+/// the installer must never report "build complete" when the build failed.
+func runBuildCaptured(_ config: String, repo: String) -> (Int32, String) {
+    let fm = FileManager.default
+    let logURL = fm.temporaryDirectory
+        .appendingPathComponent("swift-package-tool-build-\(UUID().uuidString).log")
+    defer { try? fm.removeItem(at: logURL) }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["swift", "build", "-c", config]
+    process.currentDirectoryURL = URL(fileURLWithPath: repo)
+    let out = FileHandle(forWritingAtPath: logURL.path) ?? FileHandle.nullDevice
+    process.standardOutput = out
+    process.standardError = out
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return (1, "failed to launch swift build: \(error)")
+    }
+    try? out.close()
+
+    let log = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+    let trimmed = log.split(separator: "\n").suffix(5).joined(separator: "\n")
+    return (process.terminationStatus, trimmed)
 }
 
 /// run a command and return its merged stdout/stderr as a string.

@@ -31,6 +31,9 @@ struct IndexCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
 
+    @Flag(name: .customLong("include-timestamp"), help: "Include a generation timestamp in the output (off by default so runs are byte-stable).")
+    var includeTimestamp = false
+
     mutating func run() throws {
         if schema {
             print(ProjectIndex.jsonSchema)
@@ -42,41 +45,35 @@ struct IndexCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths.isEmpty ? ["."] : paths)
 
         var fileIndex: [FileIndex] = []
 
         for file in files {
-            do {
-                let source = try String(contentsOfFile: file, encoding: .utf8)
-                let tree = Parser.parse(source: source)
+            guard let source = readSwiftSource(file) else { continue }
+            let tree = Parser.parse(source: source)
 
-                // collect declarations
-                let declCollector = DeclarationCollector(filePath: file, source: source)
-                declCollector.walk(tree)
+            // collect declarations
+            let declCollector = DeclarationCollector(filePath: file, source: source)
+            declCollector.walk(tree)
 
-                // collect imports
-                let importCollector = ImportCollector(filePath: file, source: source)
-                importCollector.walk(tree)
+            // collect imports
+            let importCollector = ImportCollector(filePath: file, source: source)
+            importCollector.walk(tree)
 
-                // line count
-                let lineCount = source.components(separatedBy: "\n").count
+            // line count
+            let lineCount = source.components(separatedBy: "\n").count
 
-                fileIndex.append(FileIndex(
-                    file: file,
-                    lineCount: lineCount,
-                    declarations: declCollector.declarations,
-                    imports: importCollector.imports
-                ))
-            } catch {
-                continue
-            }
+            fileIndex.append(FileIndex(
+                file: file,
+                lineCount: lineCount,
+                declarations: declCollector.declarations,
+                imports: importCollector.imports
+            ))
         }
 
         let index = ProjectIndex(
-            generated: ISO8601DateFormatter().string(from: Date()),
+            generated: includeTimestamp ? ISO8601DateFormatter().string(from: Date()) : nil,
             fileCount: fileIndex.count,
             totalDeclarations: fileIndex.reduce(0) { $0 + $1.declarations.count },
             totalImports: fileIndex.reduce(0) { $0 + $1.imports.count },
@@ -84,18 +81,49 @@ struct IndexCommand: ParsableCommand {
         )
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
-        let outputStr = try formatOutput([index], format: fmt)
 
+        if fmt == .jsonl {
+            // jsonl = one index object per line (streaming shape), not a single
+            // minified object — matches every other command's jsonl contract
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            let lines = try index.files.map { file -> String in
+                let row = ProjectIndex(
+                    generated: index.generated,
+                    fileCount: index.fileCount,
+                    totalDeclarations: index.totalDeclarations,
+                    totalImports: index.totalImports,
+                    files: [file]
+                )
+                return String(data: try enc.encode(row), encoding: .utf8) ?? "{}"
+            }
+            let outputStr = lines.joined(separator: "\n")
+            if let outputPath = output {
+                try outputStr.write(toFile: outputPath, atomically: true, encoding: .utf8)
+            } else {
+                print(outputStr)
+            }
+            return
+        }
+
+        // index is a single document object, not an array — encode it directly
+        let encoder = JSONEncoder()
+        if fmt == .json {
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        } else {
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        }
+        let outputStr = String(data: try encoder.encode(index), encoding: .utf8) ?? "{}"
         if let outputPath = output {
             try outputStr.write(toFile: outputPath, atomically: true, encoding: .utf8)
         } else {
-            try writeOutput(outputStr, to: "")
+            print(outputStr)
         }
     }
 }
 
 struct ProjectIndex: Codable, Sendable {
-    let generated: String
+    let generated: String?   // nil unless --include-timestamp
     let fileCount: Int
     let totalDeclarations: Int
     let totalImports: Int
@@ -107,7 +135,7 @@ struct ProjectIndex: Codable, Sendable {
       "title": "ProjectIndex",
       "type": "object",
       "properties": {
-        "generated":          { "type": "string", "description": "ISO 8601 generation timestamp" },
+        "generated":          { "type": ["string", "null"], "description": "ISO 8601 generation timestamp (--include-timestamp)" },
         "fileCount":          { "type": "integer", "description": "Number of source files indexed" },
         "totalDeclarations":  { "type": "integer", "description": "Total declarations across all files" },
         "totalImports":       { "type": "integer", "description": "Total import statements across all files" },
@@ -117,7 +145,7 @@ struct ProjectIndex: Codable, Sendable {
           "description": "Per-file index entries"
         }
       },
-      "required": ["generated", "fileCount", "totalDeclarations", "totalImports", "files"],
+      "required": ["fileCount", "totalDeclarations", "totalImports", "files"],
       "definitions": {
         "FileIndex": {
           "type": "object",

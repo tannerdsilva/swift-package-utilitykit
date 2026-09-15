@@ -49,22 +49,16 @@ struct ComplexityCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         var items: [ComplexityItem] = []
 
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = ComplexityCollector(filePath: filePath, source: source)
-                collector.walk(tree)
-                items.append(contentsOf: collector.items)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = ComplexityCollector(filePath: filePath, source: source)
+            collector.walk(tree)
+            items.append(contentsOf: collector.items)
         }
 
         if let min = minComplexity {

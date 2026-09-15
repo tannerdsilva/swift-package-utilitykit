@@ -19,6 +19,43 @@ protocol EditCommand: ParsableCommand {
     var showDiff: Bool { get set }
     var outputPath: String { get set }
     var force: Bool { get set }
+    var schema: Bool { get set }
+    var outputFormat: OutputFormat? { get set }
+}
+
+extension EditCommand {
+    /// print the EditResult JSON schema and exit when --schema was passed;
+    /// returns true when the schema was printed (the caller should return).
+    func printSchemaIfRequested() -> Bool {
+        if schema {
+            print(EditResult.jsonSchema)
+            return true
+        }
+        return false
+    }
+
+    /// encode a single EditResult honoring --output-format (default: pretty
+    /// JSON, backward compatible with the former hardcoded JSONEncoder).
+    func emitEditResult(_ result: EditResult) throws {
+        let fmt: OutputFormat = outputFormat ?? .json
+        switch fmt {
+        case .json:
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            print(String(data: try enc.encode(result), encoding: .utf8)!)
+        case .compact:
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            print(String(data: try enc.encode(result), encoding: .utf8)!)
+        case .short:
+            let w = result.warning.map { " warning: \($0)" } ?? ""
+            print("\(result.file): modified=\(result.modified) verified=\(result.verified)\(w)")
+        case .csv, .jsonl:
+            // single object — emit as one-element rows/lines
+            let out = try formatOutput([result], format: fmt)
+            print(out)
+        }
+    }
 }
 
 // MARK: - Edit result
@@ -29,6 +66,22 @@ struct EditResult: Codable, Sendable {
     let diff: String?
     let verified: Bool
     let warning: String?
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "EditResult",
+      "type": "object",
+      "properties": {
+        "file":     { "type": "string", "description": "Edited file path" },
+        "modified": { "type": "boolean", "description": "Whether the file changed" },
+        "diff":     { "type": ["string", "null"], "description": "Unified diff when shown" },
+        "verified": { "type": "boolean", "description": "Whether the edit passed syntactic re-validation" },
+        "warning":  { "type": ["string", "null"], "description": "Verification warning when the write was blocked or forced" }
+      },
+      "required": ["file", "modified", "verified"]
+    }
+    """
 }
 
 // MARK: - File editing helpers

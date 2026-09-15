@@ -103,6 +103,23 @@ public struct SearchMatch: Codable, Sendable, CustomStringConvertible {
     public var description: String {
         "\(file):\(line):\(column):  \(lineContent)"
     }
+
+    public static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "SearchMatch",
+      "type": "object",
+      "properties": {
+        "file":          { "type": "string", "description": "Source file path" },
+        "line":          { "type": "integer", "description": "1-based line number" },
+        "column":        { "type": "integer", "description": "1-based column number" },
+        "lineContent":   { "type": "string", "description": "Text of the matching line" },
+        "contextBefore": { "type": "array", "items": { "type": "string" }, "description": "Lines before the match" },
+        "contextAfter":  { "type": "array", "items": { "type": "string" }, "description": "Lines after the match" }
+      },
+      "required": ["file", "line", "column", "lineContent"]
+    }
+    """
 }
 
 /// search a single file for a pattern. returns all matches.
@@ -113,7 +130,8 @@ public func searchFile(
     ignoreCase: Bool,
     context: Int
 ) throws -> [SearchMatch] {
-    let source = try String(contentsOfFile: path, encoding: .utf8)
+    let source: String? = readSwiftSource(path)
+    guard let source else { return [] }
     let lines = source.components(separatedBy: "\n")
     var matches: [SearchMatch] = []
 
@@ -165,6 +183,23 @@ public struct SymbolReference: Codable, Sendable, CustomStringConvertible {
     public var description: String {
         "\(file):\(line):\(column) [\(role)] \(context)"
     }
+
+    public static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "SymbolReference",
+      "type": "object",
+      "properties": {
+        "symbol":  { "type": "string", "description": "Referenced symbol name" },
+        "file":    { "type": "string", "description": "Source file path" },
+        "line":    { "type": "integer", "description": "1-based line number" },
+        "column":  { "type": "integer", "description": "1-based column number" },
+        "context": { "type": "string", "description": "Surrounding source text" },
+        "role":    { "type": "string", "description": "declaration, call, access, or type_ref" }
+      },
+      "required": ["symbol", "file", "line", "column", "role"]
+    }
+    """
 }
 
 /// finds all references to a given symbol name in a syntax tree.

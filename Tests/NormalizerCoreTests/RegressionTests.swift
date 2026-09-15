@@ -238,6 +238,51 @@ struct RegressionTests {
         }
     }
 
+    // MARK: - audit fixes (unknown subcommand, UTF-8 drops, validate exit)
+
+    @Test("unknown subcommand is a hard error, not a silent find fall-through")
+    func unknownSubcommandIsHardError() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("unk-\\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let (output, code) = try runTool(["indexx", "."], cwd: dir.path)
+        #expect(code != 0, "typo'd subcommand must not exit 0")
+        #expect(
+            output.localizedCaseInsensitiveContains("unexpected") || output.localizedCaseInsensitiveContains("unknown"),
+            "should reject the unknown token: \(output)"
+        )
+    }
+
+    @Test("non-utf8 file is skipped with a stderr warning, exit 0")
+    func nonUtf8FileWarns() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("u8-\\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // latin-1 byte sequence not valid utf-8
+        let bad = dir.appendingPathComponent("Latino.swift")
+        var bytes = Array("public func ok() {}\n".utf8)
+        bytes.append(0xE9) // é in latin-1, invalid utf-8 continuation
+        try Data(bytes).write(to: bad)
+
+        let (output, code) = try runTool(["query", dir.path, "--all"])
+        #expect(code == 0)
+        #expect(output.localizedCaseInsensitiveContains("skipped"), "should warn about the dropped file: \\(output)")
+    }
+
+    @Test("validate exits non-zero when syntax errors are found")
+    func validateExitsNonZeroOnErrors() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("val-\\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let broken = dir.appendingPathComponent("Broken.swift")
+        try "struct S { func f( }\n".write(to: broken, atomically: true, encoding: .utf8)
+
+        let (output, code) = try runTool(["validate", broken.path, "--output-format", "compact"])
+        #expect(code != 0, "validate with syntax errors must exit non-zero")
+        #expect(output.contains("expected"))
+    }
+
     // MARK: - bare invocation defaults (bug: paths were required at parse time)
 
     @Test("query/dependencies/index work with no path args")
@@ -283,6 +328,16 @@ struct RegressionTests {
             "PLUGIN_MODE": "copy",
         ]
         try FileManager.default.createDirectory(atPath: pluginDir, withIntermediateDirectories: true)
+
+        // the installer's --no-build path requires both prebuilt binaries to
+        // exist; `swift test` only builds the tool being tested, so build the
+        // normalizer product explicitly first (a missing binary must fail the
+        // install loudly, and this is what the test now exercises)
+        let (prebuild, prebuildCode) = try runTool(
+            ["build", packageDir, "--extra-args=--product normalizer-tool"],
+            cwd: packageDir
+        )
+        #expect(prebuildCode == 0, "prebuild normalizer-tool should succeed: \(prebuild)")
 
         // install: both binaries appear, plugin copy appears
         let (installOut, installCode) = try runTool(

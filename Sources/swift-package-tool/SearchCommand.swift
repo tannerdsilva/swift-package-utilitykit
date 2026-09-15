@@ -41,17 +41,14 @@ struct SearchCommand: ParsableCommand {
     @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
-        let files = collectSwiftFiles(
-            from: paths.isEmpty ? ["."] : paths,
-            include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
-            exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        )
-
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
+        if schema {
+            print(SearchMatch.jsonSchema)
+            return
         }
-
         // validate regex upfront if --regex is set
         if regex {
             let opts: NSRegularExpression.Options = ignoreCase ? [.caseInsensitive] : []
@@ -60,24 +57,49 @@ struct SearchCommand: ParsableCommand {
             }
         }
 
+        // stdin mode: pipe source through `-`
+        if paths.contains(where: isStdinPath) {
+            let source = readSourceFromStdin()
+            let single = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("stdin-\(UUID().uuidString).swift")
+            try? source.write(to: single, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: single) }
+            let matches = try searchFile(
+                single.path,
+                pattern: pattern,
+                isRegex: regex,
+                ignoreCase: ignoreCase,
+                context: context
+            ).map { m -> SearchMatch in
+                SearchMatch(file: "<stdin>", line: m.line, column: m.column, lineContent: m.lineContent, contextBefore: m.contextBefore, contextAfter: m.contextAfter)
+            }
+            let allMatches = limit.map { Array(matches.prefix($0)) } ?? matches
+            let fmt: OutputFormat = prettyPrint ? .json : outputFormat
+            let outputStr = try formatOutput(allMatches, format: fmt)
+            try writeOutput(outputStr, to: outputPath)
+            return
+        }
+
+        let files = collectSwiftFiles(
+            from: paths.isEmpty ? ["."] : paths,
+            include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
+            exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        )
+        try validateInputPathsExist(paths.isEmpty ? ["."] : paths)
+
         var allMatches: [SearchMatch] = []
         for file in files {
-            do {
-                let matches = try searchFile(
-                    file,
-                    pattern: pattern,
-                    isRegex: regex,
-                    ignoreCase: ignoreCase,
-                    context: context
-                )
-                allMatches.append(contentsOf: matches)
-                if let limit = limit, allMatches.count >= limit {
-                    allMatches = Array(allMatches.prefix(limit))
-                    break
-                }
-            } catch {
-                // skip files that can't be read
-                continue
+            let matches = try searchFile(
+                file,
+                pattern: pattern,
+                isRegex: regex,
+                ignoreCase: ignoreCase,
+                context: context
+            )
+            allMatches.append(contentsOf: matches)
+            if let limit = limit, allMatches.count >= limit {
+                allMatches = Array(allMatches.prefix(limit))
+                break
             }
         }
 

@@ -7,7 +7,7 @@ struct SwiftCodeQuery: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "swift-package-tool",
         abstract: "Query, inspect, search, and index Swift source code.",
-        version: "0.1.0",
+        version: "1.0.0",
         subcommands: [
             FindCommand.self,
             QueryCommand.self,
@@ -44,7 +44,9 @@ struct SwiftCodeQuery: ParsableCommand {
             InstallCommand.self,
             UninstallCommand.self,
             PathWireCommand.self,
-        ],
-        defaultSubcommand: FindCommand.self
+        ]
+        // no defaultSubcommand: an unknown first token must be a hard error,
+        // not a silent fall-through to `find` (a typo'd subcommand must not
+        // look like a successful empty query).
     )
 }

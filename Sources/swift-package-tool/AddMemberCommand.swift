@@ -58,7 +58,14 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let modes = [property != nil, method != nil, caseName != nil].filter { $0 }.count
         guard modes == 1 else {
             throw ValidationError("specify exactly one of --property, --method, or --case")
@@ -101,10 +108,7 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
 
         guard let memberBlock = finder.foundMemberBlock else {
             let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found")
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(result)
-            print(String(data: data, encoding: .utf8)!)
+            try emitEditResult(result)
             return
         }
 
@@ -143,20 +147,14 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
 
         if dryRun {
             let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(result)
-            print(String(data: data, encoding: .utf8)!)
+            try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
             let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(result)
-            print(String(data: data, encoding: .utf8)!)
+            try emitEditResult(result)
             return
         }
 
@@ -168,10 +166,7 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
         let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(result)
-        print(String(data: data, encoding: .utf8)!)
+        try emitEditResult(result)
     }
 }
 

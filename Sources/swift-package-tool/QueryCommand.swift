@@ -40,10 +40,10 @@ struct QueryCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Include all declaration kinds.")
     var all = false
 
-    @Flag(name: .long, inversion: .prefixedNo, help: "Output as JSON (default).")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Output format: JSON array (default).")
     var json = false
 
-    @Flag(name: .long, inversion: .prefixedNo, help: "Output as human-readable text.")
+    @Flag(name: .long, inversion: .prefixedNo, help: "Output format: human-readable text.")
     var text = false
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
@@ -107,6 +107,12 @@ struct QueryCommand: ParsableCommand {
                                     "operator", "precedencegroup", "macro", "import"])
                 } else {
                     selected.insert("function") // default
+                    // a bare `query` that silently returns only functions gives
+                    // an LLM a distorted picture of a codebase — surface the
+                    // default so the caller knows to pass --all when needed
+                    FileHandle.standardError.write(Data(
+                        "swift-package-tool: note: no declaration-kind flags given; querying functions only. pass --all for every kind.\n".utf8
+                    ))
                 }
             }
             kinds = selected
@@ -117,30 +123,42 @@ struct QueryCommand: ParsableCommand {
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
+        try validateInputPathsExist(paths.isEmpty ? ["."] : paths)
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
+        // stdin mode: pipe source through `-` (like find/inspect/format)
+        if paths.contains(where: isStdinPath) {
+            let source = readSourceFromStdin()
+            let tree = Parser.parse(source: source)
+            let collector = DeclarationCollector(filePath: "<stdin>", source: source, kinds: kinds)
+            collector.walk(tree)
+            let matches = name.map { n in
+                collector.declarations.filter { $0.name.localizedCaseInsensitiveContains(n) }
+            } ?? collector.declarations
+
+            if count {
+                print(matches.count)
+                return
+            }
+            let fmt: OutputFormat = prettyPrint ? .json : (outputFormat ?? (text ? .short : (json ? .compact : .compact)))
+            let outputStr = try formatOutput(matches, format: fmt)
+            try writeOutput(outputStr, to: outputPath)
+            return
         }
 
         var allDecls: [DeclarationInfo] = []
 
         for filePath in files {
-            do {
-                let url = URL(fileURLWithPath: filePath)
-                let source = try String(contentsOf: url, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = DeclarationCollector(filePath: filePath, source: source, kinds: kinds)
-                collector.walk(tree)
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = DeclarationCollector(filePath: filePath, source: source, kinds: kinds)
+            collector.walk(tree)
 
-                if let nameFilter = name {
-                    allDecls.append(contentsOf: collector.declarations.filter {
-                        $0.name.localizedCaseInsensitiveContains(nameFilter)
-                    })
-                } else {
-                    allDecls.append(contentsOf: collector.declarations)
-                }
-            } catch {
-                continue
+            if let nameFilter = name {
+                allDecls.append(contentsOf: collector.declarations.filter {
+                    $0.name.localizedCaseInsensitiveContains(nameFilter)
+                })
+            } else {
+                allDecls.append(contentsOf: collector.declarations)
             }
         }
 
@@ -166,7 +184,10 @@ struct QueryCommand: ParsableCommand {
             return
         }
 
-        // determine format
+        // determine format: --pretty-print > --output-format > --text > compact.
+        // `--json` is a legacy no-op alias (JSON output is already the default) and
+        // `--text` an alias for `--output-format short`; an explicit --output-format
+        // wins so the flags never silently contradict each other.
         let fmt: OutputFormat
         if prettyPrint {
             fmt = .json

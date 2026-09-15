@@ -89,6 +89,28 @@ public struct SymbolDetail: Codable, Sendable {
         self.sourceText = sourceText
         self.children = children
     }
+
+    public static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "SymbolDetail",
+      "type": "object",
+      "properties": {
+        "name":        { "type": "string", "description": "Symbol name" },
+        "kind":        { "type": "string", "description": "Declaration kind" },
+        "file":        { "type": "string", "description": "Source file path" },
+        "line":        { "type": "integer", "description": "1-based line number" },
+        "column":      { "type": "integer", "description": "1-based column number" },
+        "offset":      { "type": "integer", "description": "UTF-8 byte offset in the source" },
+        "signature":   { "type": "string", "description": "One-line declaration signature" },
+        "docComment":  { "type": "string", "description": "Documentation comment text" },
+        "modifiers":   { "type": "array", "items": { "type": "string" }, "description": "Declaration modifiers" },
+        "sourceText":  { "type": "string", "description": "Full source text of the declaration" },
+        "children":    { "type": "array", "description": "Immediate child members" }
+      },
+      "required": ["name", "kind", "file", "line", "column", "signature"]
+    }
+    """
 }
 
 // MARK: - trivia helpers

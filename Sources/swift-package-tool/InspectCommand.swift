@@ -34,7 +34,14 @@ struct InspectCommand: ParsableCommand {
     @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(SymbolDetail.jsonSchema)
+            return
+        }
         // check for stdin path
         let stdinPaths = paths.filter(isStdinPath)
         let filePaths = paths.filter { !isStdinPath($0) }
@@ -100,65 +107,59 @@ struct InspectCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(filePaths)
 
         // search for the symbol across all files
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let finder = SymbolFinder(targetName: symbol, filePath: filePath, source: source)
-                finder.walk(tree)
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let finder = SymbolFinder(targetName: symbol, filePath: filePath, source: source)
+            finder.walk(tree)
 
-                if let detail = finder.found {
-                    let fmt: OutputFormat
-                    if prettyPrint {
-                        fmt = .json
-                    } else if let f = outputFormat {
-                        fmt = f
-                    } else if text {
-                        fmt = .short
-                    } else {
-                        fmt = .compact
-                    }
-
-                    if fmt == .short || text {
-                        print("symbol: \(detail.name)")
-                        print("kind:   \(detail.kind)")
-                        print("file:   \(detail.file):\(detail.line):\(detail.column)")
-                        if !detail.modifiers.isEmpty {
-                            print("modifiers: \(detail.modifiers.joined(separator: " "))")
-                        }
-                        print("signature: \(detail.signature)")
-                        if !detail.docComment.isEmpty {
-                            print("doc comment:")
-                            print(detail.docComment)
-                        }
-                        print("")
-                        print("--- source ---")
-                        print(detail.sourceText)
-                        if !detail.children.isEmpty {
-                            print("")
-                            print("children (\(detail.children.count)):")
-                            for child in detail.children {
-                                print("  \(child.signature) at \(child.line):\(child.column)")
-                            }
-                        }
-                    } else {
-                        let enc = JSONEncoder()
-                        if fmt == .json {
-                            enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                        }
-                        let data = try enc.encode(detail)
-                        let outputStr = String(data: data, encoding: .utf8)!
-                        try writeOutput(outputStr, to: outputPath)
-                    }
-                    return
+            if let detail = finder.found {
+                let fmt: OutputFormat
+                if prettyPrint {
+                    fmt = .json
+                } else if let f = outputFormat {
+                    fmt = f
+                } else if text {
+                    fmt = .short
+                } else {
+                    fmt = .compact
                 }
-            } catch {
-                continue
+
+                if fmt == .short || text {
+                    print("symbol: \(detail.name)")
+                    print("kind:   \(detail.kind)")
+                    print("file:   \(detail.file):\(detail.line):\(detail.column)")
+                    if !detail.modifiers.isEmpty {
+                        print("modifiers: \(detail.modifiers.joined(separator: " "))")
+                    }
+                    print("signature: \(detail.signature)")
+                    if !detail.docComment.isEmpty {
+                        print("doc comment:")
+                        print(detail.docComment)
+                    }
+                    print("")
+                    print("--- source ---")
+                    print(detail.sourceText)
+                    if !detail.children.isEmpty {
+                        print("")
+                        print("children (\(detail.children.count)):")
+                        for child in detail.children {
+                            print("  \(child.signature) at \(child.line):\(child.column)")
+                        }
+                    }
+                } else {
+                    let enc = JSONEncoder()
+                    if fmt == .json {
+                        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                    }
+                    let data = try enc.encode(detail)
+                    let outputStr = String(data: data, encoding: .utf8)!
+                    try writeOutput(outputStr, to: outputPath)
+                }
+                return
             }
         }
 

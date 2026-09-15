@@ -41,7 +41,14 @@ struct WrapCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let parts = lineRange.split(separator: "-")
         guard parts.count == 2, let startLine = Int(parts[0]), let endLine = Int(parts[1]) else {
             throw ValidationError("invalid line range '\(lineRange)'; use format '10-20'")
@@ -94,9 +101,6 @@ struct WrapCommand: ParsableCommand, EditCommand {
             return ""
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(result)
-        print(String(data: data, encoding: .utf8)!)
+        try emitEditResult(result)
     }
 }

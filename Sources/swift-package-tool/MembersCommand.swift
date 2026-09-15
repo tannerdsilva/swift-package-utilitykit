@@ -49,29 +49,23 @@ struct MembersCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         // search for the type across all files
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let finder = TypeFinder(targetName: type, filePath: filePath, source: source)
-                finder.walk(tree)
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let finder = TypeFinder(targetName: type, filePath: filePath, source: source)
+            finder.walk(tree)
 
-                if let typeNode = finder.found {
-                    // collect direct members from the type's member block
-                    let collector = MemberCollector(filePath: filePath, source: source)
-                    collector.collectMembers(from: typeNode)
-                    let fmt: OutputFormat = prettyPrint ? .json : outputFormat
-                    let outputStr = try formatOutput(collector.members, format: fmt)
-                    try writeOutput(outputStr, to: outputPath)
-                    return
-                }
-            } catch {
-                continue
+            if let typeNode = finder.found {
+                // collect direct members from the type's member block
+                let collector = MemberCollector(filePath: filePath, source: source)
+                collector.collectMembers(from: typeNode)
+                let fmt: OutputFormat = prettyPrint ? .json : outputFormat
+                let outputStr = try formatOutput(collector.members, format: fmt)
+                try writeOutput(outputStr, to: outputPath)
+                return
             }
         }
 

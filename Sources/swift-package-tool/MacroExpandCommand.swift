@@ -39,29 +39,30 @@ struct MacroExpandCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(MacroExpansion.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         var expansions: [MacroExpansion] = []
 
         for filePath in files.sorted() {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = MacroExpansionCollector(filePath: filePath, source: source)
-                collector.walk(tree)
-                expansions.append(contentsOf: collector.expansions)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = MacroExpansionCollector(filePath: filePath, source: source)
+            collector.walk(tree)
+            expansions.append(contentsOf: collector.expansions)
         }
 
         expansions.sort { ($0.file, $0.line) < ($1.file, $1.line) }
@@ -83,6 +84,23 @@ struct MacroExpansion: Codable, Sendable, CustomStringConvertible {
     var description: String {
         return "\(file):\(line):\(column)  [\(kind)]  \(name)(\(arguments))"
     }
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "MacroExpansion",
+      "type": "object",
+      "properties": {
+        "file":      { "type": "string", "description": "Source file path" },
+        "line":      { "type": "integer", "description": "1-based line number" },
+        "column":    { "type": "integer", "description": "1-based column number" },
+        "name":      { "type": "string", "description": "Macro name" },
+        "kind":      { "type": "string", "description": "declaration or expression" },
+        "arguments": { "type": "string", "description": "Macro arguments as written" }
+      },
+      "required": ["file", "line", "column", "name", "kind"]
+    }
+    """
 }
 
 /// walk a syntax tree collecting all macro expansion sites.

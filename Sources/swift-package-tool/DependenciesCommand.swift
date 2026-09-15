@@ -45,21 +45,15 @@ struct DependenciesCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths.isEmpty ? ["."] : paths)
 
         var allImports: [ImportInfo] = []
         for file in files {
-            do {
-                let source = try String(contentsOfFile: file, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = ImportCollector(filePath: file, source: source)
-                collector.walk(tree)
-                allImports.append(contentsOf: collector.imports)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(file) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = ImportCollector(filePath: file, source: source)
+            collector.walk(tree)
+            allImports.append(contentsOf: collector.imports)
         }
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat

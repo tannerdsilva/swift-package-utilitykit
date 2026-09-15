@@ -31,28 +31,36 @@ struct ReferencesCommand: ParsableCommand {
     @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
+    @Option(name: .long, help: "Maximum number of references to return.")
+    var limit: Int?
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(SymbolReference.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths.isEmpty ? ["."] : paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         var allRefs: [SymbolReference] = []
         for file in files {
-            do {
-                let source = try String(contentsOfFile: file, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let finder = ReferenceFinder(targetName: symbol, filePath: file, source: source)
-                finder.walk(tree)
-                allRefs.append(contentsOf: finder.references)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(file) else { continue }
+            let tree = Parser.parse(source: source)
+            let finder = ReferenceFinder(targetName: symbol, filePath: file, source: source)
+            finder.walk(tree)
+            allRefs.append(contentsOf: finder.references)
+        }
+
+        if let limit = limit, allRefs.count > limit {
+            allRefs = Array(allRefs.prefix(limit))
         }
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat

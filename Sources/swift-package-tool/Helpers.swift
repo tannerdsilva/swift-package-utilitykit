@@ -47,6 +47,36 @@ public func collectSwiftFiles(
     return results.sorted()
 }
 
+// MARK: - source reading
+
+/// read a swift source file as utf-8, warning to stderr when the file cannot
+/// be decoded (legacy latin-1 / utf-16 / binary files).  returns nil so a
+/// caller can skip the file — a skipped file is always surfaced, never a
+/// silent drop from a scan.
+public func readSwiftSource(_ path: String) -> String? {
+    do {
+        return try String(contentsOfFile: path, encoding: .utf8)
+    } catch {
+        FileHandle.standardError.write(Data(
+            "swift-package-tool: warning: skipped non-utf8/unreadable file: \(path)\n".utf8
+        ))
+        return nil
+    }
+}
+
+/// throw for an input path that does not exist, so "no results" (rc=0 empty
+/// output) stays distinct from "invalid invocation" (rc=64).  `-` (stdin) is
+/// exempt.
+public func validateInputPathsExist(_ paths: [String]) throws {
+    let filePaths = paths.filter { !isStdinPath($0) && !$0.isEmpty }
+    for path in filePaths {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else {
+            throw ValidationError("path not found: \(path)")
+        }
+    }
+}
+
 // MARK: - location helpers
 
 /// convert a utf-8 offset in source text to 1-based line and column.

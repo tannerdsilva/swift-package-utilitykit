@@ -26,9 +26,20 @@ struct FormatCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Preserve comments in minified output (default: hide with placeholder).")
     var preserveComments = false
 
+    @Option(name: .long, help: "Output format: json, compact. omit for text status lines.")
+    var outputFormat: OutputFormat?
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(FormatResult.jsonSchema)
+            return
+        }
         let useMinify = minify && !pretty
 
+        var results: [FormatResult] = []
         for filePath in files {
             let original: String
             let displayPath: String
@@ -53,23 +64,66 @@ struct FormatCommand: ParsableCommand {
             }
 
             if formatted == original {
-                if !dryRun { print("\(displayPath): unchanged") }
+                results.append(FormatResult(file: displayPath, status: "unchanged", changed: false))
+                if outputFormat == nil && !dryRun { print("\(displayPath): unchanged") }
                 continue
             }
 
             if dryRun {
-                print("\(displayPath): would change")
+                results.append(FormatResult(file: displayPath, status: "would change", changed: true, content: outputFormat == nil ? nil : formatted))
+                if outputFormat == nil { print("\(displayPath): would change") }
             } else if isStdinPath(filePath) {
                 // print to stdout for piping
-                print(formatted)
+                if outputFormat == nil {
+                    print(formatted)
+                } else {
+                    results.append(FormatResult(file: displayPath, status: "formatted", changed: true, content: formatted))
+                }
             } else {
                 try formatted.write(to: url!, atomically: true, encoding: .utf8)
-                print("\(displayPath): formatted")
+                results.append(FormatResult(file: displayPath, status: "formatted", changed: true))
+                if outputFormat == nil { print("\(displayPath): formatted") }
             }
+        }
+
+        // JSON/compact mode emits the per-file summary instead of text lines
+        if let fmt = outputFormat, fmt == .json || fmt == .compact {
+            let outputStr = try formatOutput(results, format: fmt)
+            print(outputStr)
         }
     }
 
-    /// AST-safe minification: strip all leading/trailing trivia from tokens
+    /// per-file status reported by `format` in JSON mode.
+struct FormatResult: Codable, Sendable {
+    let file: String
+    let status: String   // "unchanged", "would change", "formatted"
+    let changed: Bool
+    let content: String?
+
+    init(file: String, status: String, changed: Bool, content: String? = nil) {
+        self.file = file
+        self.status = status
+        self.changed = changed
+        self.content = content
+    }
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "FormatResult",
+      "type": "object",
+      "properties": {
+        "file":    { "type": "string", "description": "Source file path (or <stdin>)" },
+        "status":  { "type": "string", "description": "unchanged, would change, or formatted" },
+        "changed": { "type": "boolean", "description": "Whether the file changed or would change" },
+        "content": { "type": ["string", "null"], "description": "Formatted content for stdin/dry-run JSON mode" }
+      },
+      "required": ["file", "status", "changed"]
+    }
+    """
+}
+
+/// AST-safe minification: strip all leading/trailing trivia from tokens
     /// while preserving required single spaces between tokens on the same line,
     /// and keeping one newline between top-level declarations.
     ///

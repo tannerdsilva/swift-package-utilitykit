@@ -26,34 +26,106 @@ struct TreeCommand: ParsableCommand {
     @Option(name: .customLong("output"), help: "Write output to file instead of stdout.")
     var outputPath: String = ""
 
+    @Option(name: .long, help: "Output format: tree (default), json, compact.")
+    var outputFormat: OutputFormat?
+
+    @Option(name: .long, help: "Maximum number of top-level declarations per file.")
+    var limit: Int?
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(TreeFile.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
-        var output = ""
+        var perFile: [TreeFile] = []
 
-        for (i, filePath) in files.sorted().enumerated() {
-            if i > 0 { output += "\n" }
-            output += "// \(filePath)\n"
-
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let roots = collectTopDeclarations(from: tree, source: source)
-                output += formatTreeNodes(roots, depth: 0)
-            } catch {
-                output += "// (unreadable)\n"
+        for filePath in files.sorted() {
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            var roots = collectTopDeclarations(from: tree, source: source)
+            if let limit = limit, roots.count > limit {
+                roots = Array(roots.prefix(limit))
             }
+            perFile.append(TreeFile(file: filePath, nodes: roots.map { TreeNode(node: $0) }))
         }
 
-        try writeOutput(output, to: outputPath)
+        // text mode is the historical default (indented Swift-like declarations)
+        if outputFormat == nil || outputFormat == .short || outputFormat == .csv {
+            var output = ""
+            for (i, tf) in perFile.enumerated() {
+                if i > 0 { output += "\n" }
+                output += "// \(tf.file)\n"
+                output += formatTreeNodes(perFileNodes(tf), depth: 0)
+            }
+            try writeOutput(output, to: outputPath)
+            return
+        }
+
+        let fmt: OutputFormat = outputFormat ?? .compact
+        let outputStr = try formatOutput(perFile, format: fmt)
+        try writeOutput(outputStr, to: outputPath)
+    }
+
+    /// rebuild the raw node tree (used by the text renderer) from the
+    /// codable mirror — same structure, so both modes stay in lockstep.
+    private func perFileNodes(_ tf: TreeFile) -> [SymbolTreeNode] {
+        func inflate(_ n: TreeNode) -> SymbolTreeNode {
+            let node = SymbolTreeNode(label: n.label)
+            node.children = n.children.map(inflate)
+            return node
+        }
+        return tf.nodes.map(inflate)
+    }
+}
+
+/// a per-file tree, codable so `tree --output-format json` mirrors the text.
+struct TreeFile: Codable, Sendable {
+    let file: String
+    let nodes: [TreeNode]
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "TreeFile",
+      "type": "object",
+      "properties": {
+        "file":  { "type": "string", "description": "Source file path" },
+        "nodes": { "type": "array", "items": { "$ref": "#/definitions/TreeNode" } }
+      },
+      "required": ["file", "nodes"],
+      "definitions": {
+        "TreeNode": {
+          "type": "object",
+          "properties": {
+            "label":    { "type": "string", "description": "Swift-like declaration label" },
+            "children": { "type": "array", "items": { "$ref": "#/definitions/TreeNode" } }
+          },
+          "required": ["label", "children"]
+        }
+      }
+    }
+    """
+}
+
+/// codable mirror of SymbolTreeNode for JSON tree output.
+struct TreeNode: Codable, Sendable {
+    let label: String
+    let children: [TreeNode]
+
+    init(node: SymbolTreeNode) {
+        self.label = node.label
+        self.children = node.children.map(TreeNode.init)
     }
 }
 

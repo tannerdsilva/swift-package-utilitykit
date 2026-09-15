@@ -35,7 +35,14 @@ struct ValidateCommand: ParsableCommand {
     @Option(name: .long, help: "Skip files with these extensions (comma-separated).")
     var exclude: String?
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     mutating func run() throws {
+        if schema {
+            print(ValidateDiagnostic.jsonSchema)
+            return
+        }
         let files = collectSwiftFiles(
             from: paths,
             include: include?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) },
@@ -84,6 +91,12 @@ struct ValidateCommand: ParsableCommand {
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput(allDiagnostics, format: fmt)
         try writeOutput(outputStr, to: outputPath)
+
+        // a validator must signal pass/fail on its exit code; exit non-zero
+        // when any error-severity diagnostic was found (warnings alone stay 0)
+        if allDiagnostics.contains(where: { $0.severity == "error" }) {
+            throw ExitCode(1)
+        }
     }
 }
 
@@ -95,4 +108,22 @@ struct ValidateDiagnostic: Codable, Sendable {
     let message: String
     let diagnosticID: String
     let fixItCount: Int
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "ValidateDiagnostic",
+      "type": "object",
+      "properties": {
+        "file":         { "type": "string", "description": "Source file path" },
+        "line":         { "type": "integer", "description": "1-based line number" },
+        "column":       { "type": "integer", "description": "1-based column number" },
+        "severity":     { "type": "string", "description": "error or warning" },
+        "message":      { "type": "string", "description": "Diagnostic message" },
+        "diagnosticID": { "type": "string", "description": "Parser diagnostic identifier" },
+        "fixItCount":   { "type": "integer", "description": "Number of attached fix-its" }
+      },
+      "required": ["file", "line", "column", "severity", "message"]
+    }
+    """
 }

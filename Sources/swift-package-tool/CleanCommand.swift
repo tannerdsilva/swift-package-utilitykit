@@ -23,6 +23,12 @@ struct CleanCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output.")
     var prettyPrint = false
 
+    @Option(name: .long, help: "Output format: json, compact, csv, short.")
+    var outputFormat: OutputFormat = .json
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
     @Flag(
         name: [.customLong("purge-all"), .customLong("destroy-dependencies")],
         help: """
@@ -35,6 +41,10 @@ struct CleanCommand: ParsableCommand {
     var purgeAll = false
 
     mutating func run() throws {
+        if schema {
+            print(CleanResult.jsonSchema)
+            return
+        }
         let resolvedPath = NSString(string: path).standardizingPath
         guard FileManager.default.fileExists(atPath: resolvedPath + "/Package.swift") else {
             throw ValidationError("no Package.swift found at \(resolvedPath)")
@@ -67,18 +77,34 @@ struct CleanCommand: ParsableCommand {
             output: (stdout + stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
-        let encoder = JSONEncoder()
-        if prettyPrint {
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        }
-        let jsonData = try encoder.encode(result)
-        print(String(data: jsonData, encoding: .utf8)!)
+        let fmt: OutputFormat = prettyPrint ? .json : outputFormat
+        let outputStr = try formatOutput([result], format: fmt)
+        print(outputStr)
     }
 }
 
-struct CleanResult: Codable, Sendable {
+struct CleanResult: Codable, Sendable, CustomStringConvertible {
     let success: Bool
     let mode: String
     let directory: String
     let output: String
+
+    var description: String {
+        "\(directory): \(mode) — success=\(success)"
+    }
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "CleanResult",
+      "type": "object",
+      "properties": {
+        "success":   { "type": "boolean", "description": "Whether the clean command exited 0" },
+        "mode":      { "type": "string", "description": "clean (dependencies preserved) or purge-all (dependencies DESTROYED)" },
+        "directory": { "type": "string", "description": "Package directory cleaned" },
+        "output":    { "type": "string", "description": "Raw clean command output" }
+      },
+      "required": ["success", "mode", "directory"]
+    }
+    """
 }

@@ -46,7 +46,14 @@ struct InsertCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let modes = [after != nil, before != nil, atLine != nil].filter { $0 }.count
         guard modes == 1 else {
             throw ValidationError("specify exactly one of --after, --before, or --at-line")
@@ -84,9 +91,6 @@ struct InsertCommand: ParsableCommand, EditCommand {
             return ""
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(result)
-        print(String(data: data, encoding: .utf8)!)
+        try emitEditResult(result)
     }
 }

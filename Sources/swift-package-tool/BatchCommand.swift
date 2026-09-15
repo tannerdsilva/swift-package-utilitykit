@@ -66,14 +66,30 @@ struct BatchCommand: ParsableCommand, EditCommand {
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
+    var schema = false
+
+    @Option(name: .long, help: "Output format: json, compact, short, csv, jsonl.")
+    var outputFormat: OutputFormat?
+
     @Flag(name: .customLong("fail-fast"), help: "Stop on first operation failure.")
     var failFast = false
 
     mutating func run() throws {
+        if printSchemaIfRequested() { return }
         let resolved = NSString(string: plan).standardizingPath
         let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
-        let planData = try JSONDecoder().decode(BatchPlan.self, from: data)
+        do {
+            let decoded = try JSONDecoder().decode(BatchPlan.self, from: data)
+            try executePlan(decoded)
+        } catch let error as DecodingError {
+            // a malformed plan must be a readable validation error, not a raw
+            // Swift DecodingError dump on stderr
+            throw ValidationError("invalid batch plan: \(batchDecodingMessage(error))")
+        }
+    }
 
+    private func executePlan(_ planData: BatchPlan) throws {
         var results: [EditResult] = []
 
         for (index, op) in planData.operations.enumerated() {
@@ -104,10 +120,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         }
 
         let output = BatchResult(results: results)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let outData = try encoder.encode(output)
-        print(String(data: outData, encoding: .utf8)!)
+        try emitBatchResult(output, format: outputFormat ?? .json)
     }
 
     private func executeOperation(_ op: BatchOperation) throws -> EditResult {
@@ -463,4 +476,62 @@ struct BatchOperation: Codable, Sendable {
 
 struct BatchResult: Codable, Sendable {
     let results: [EditResult]
+
+    static let jsonSchema = """
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "title": "BatchResult",
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": { "$ref": "EditResult" },
+          "description": "Per-operation results in plan order"
+        }
+      },
+      "required": ["results"]
+    }
+    """
+}
+
+/// human-readable summary of a JSON decoding failure in a batch plan.
+func batchDecodingMessage(_ error: DecodingError) -> String {
+    switch error {
+    case .dataCorrupted(let ctx):
+        return "data corrupted: \(ctx.debugDescription)"
+    case .keyNotFound(let key, let ctx):
+        let path = ctx.codingPath.map(\.stringValue).joined(separator: ".")
+        return "missing key '\(key.stringValue)' at \(path.isEmpty ? "root" : path)"
+    case .typeMismatch(let type, let ctx):
+        return "type mismatch (expected \(type)) for key '\(ctx.codingPath.last?.stringValue ?? "?")'"
+    case .valueNotFound(let type, let ctx):
+        return "missing value (expected \(type)) for key '\(ctx.codingPath.last?.stringValue ?? "?")'"
+    @unknown default:
+        return "\(error)"
+    }
+}
+
+/// format-aware emitter for a BatchResult (honors --output-format).
+func emitBatchResult(_ result: BatchResult, format: OutputFormat) throws {
+    switch format {
+    case .json:
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        print(String(data: try enc.encode(result), encoding: .utf8)!)
+    case .compact:
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        print(String(data: try enc.encode(result), encoding: .utf8)!)
+    case .csv, .short:
+        for r in result.results {
+            let w = r.warning.map { " warning: \($0)" } ?? ""
+            print("\(r.file): modified=\(r.modified) verified=\(r.verified)\(w)")
+        }
+    case .jsonl:
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        for r in result.results {
+            print(String(data: try enc.encode(r), encoding: .utf8)!)
+        }
+    }
 }

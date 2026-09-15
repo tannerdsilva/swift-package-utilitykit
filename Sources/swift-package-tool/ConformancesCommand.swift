@@ -51,25 +51,19 @@ struct ConformancesCommand: ParsableCommand {
             exclude: exclude?.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         )
 
-        guard !files.isEmpty else {
-            throw ValidationError("no matching source files found")
-        }
+        try validateInputPathsExist(paths)
 
         var items: [ConformanceItem] = []
 
         for filePath in files {
-            do {
-                let source = try String(contentsOfFile: filePath, encoding: .utf8)
-                let tree = Parser.parse(source: source)
-                let collector = ConformanceCollector(
-                    filePath: filePath, source: source,
-                    includeExtensions: includeExtensions
-                )
-                collector.walk(tree)
-                items.append(contentsOf: collector.items)
-            } catch {
-                continue
-            }
+            guard let source = readSwiftSource(filePath) else { continue }
+            let tree = Parser.parse(source: source)
+            let collector = ConformanceCollector(
+                filePath: filePath, source: source,
+                includeExtensions: includeExtensions
+            )
+            collector.walk(tree)
+            items.append(contentsOf: collector.items)
         }
 
         items.sort { ($0.kind, $0.name) < ($1.kind, $1.name) }
