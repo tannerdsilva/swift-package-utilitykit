@@ -170,33 +170,6 @@ def _iter_swift_files(root: str) -> list[Path]:
 # Tool 1: pkg_build
 # ---------------------------------------------------------------------------
 
-# Patterns for parsing Swift build diagnostics.
-_BUILD_WARNING_RE = re.compile(r"^.*?(?:warning:\s|:\s*warning:\s).*$", re.MULTILINE)
-_BUILD_ERROR_RE = re.compile(r"^.*?(?:error:\s|:\s*error:\s).*$", re.MULTILINE)
-_BUILD_NOTE_RE = re.compile(r"^.*?(?:note:\s|:\s*note:\s).*$", re.MULTILINE)
-
-
-def _parse_build_diagnostics(stdout: str, stderr: str) -> dict:
-    """Parse combined build output for warning/error/note counts and samples."""
-    combined = stdout + "\n" + stderr
-    warnings = _BUILD_WARNING_RE.findall(combined)
-    errors = _BUILD_ERROR_RE.findall(combined)
-    notes = _BUILD_NOTE_RE.findall(combined)
-    warn_unique = list(dict.fromkeys(warnings))[:10]
-    err_unique = list(dict.fromkeys(errors))[:10]
-    note_unique = list(dict.fromkeys(notes))[:10]
-    return {
-        "warning_count": len(warnings),
-        "error_count": len(errors),
-        "note_count": len(notes),
-        "warnings": [w.strip() for w in warn_unique],
-        "errors": [e.strip() for e in err_unique],
-        "notes": [n.strip() for n in note_unique],
-        "has_warnings": len(warnings) > 0,
-        "has_errors": len(errors) > 0,
-    }
-
-
 def build(target: str, build_args: Optional[List[str]] = None,
           build_target: Optional[str] = None) -> dict:
     """Run ``swift build`` via ``swift-package-tool build`` and return structured JSON.

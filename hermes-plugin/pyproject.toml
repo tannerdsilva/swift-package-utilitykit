@@ -4,6 +4,6 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "swift-package-utilitykit"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hermes Agent plugin for Swift package inspection and security audit"
 requires-python = ">=3.11"
