@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **`install` + `build` on Swift 6.4 toolchains.** `swift test` now holds the
+  package's build lock for the entire test invocation, so the install-lifecycle
+  integration test's nested `swift build` deadlocked behind the parent until
+  `build`'s 600s timeout fired. the timed-out build was then reported as
+  success (exit 0), and `install --no-build` failed on binaries that were never
+  built. fixed three ways:
+  - `install` gained `--build-dir` (env `BUILD_DIR`) to point at prebuilt
+    binaries in a scratch build outside the repo's `.build`.
+  - the integration test now builds `normalizer-tool` into a disjoint scratch
+    workspace that escapes the parent's build lock.
+  - `build` now exits non-zero when the build failed or timed out; the
+    structured JSON on stdout still carries the specifics.
+  the full suite drops from a ~600s red run to a ~26s green run.
+
 ## 1.0.0 (2026-09-15)
 
 ### Fixed (release-blockers from the pre-1.0 audit)

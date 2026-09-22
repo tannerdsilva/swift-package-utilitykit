@@ -136,7 +136,7 @@ struct BuildCommand: ParsableCommand {
                 rawLog: ""
             )
             try emit(result)
-            return
+            throw ExitCode(1)
         }
 
         process.waitUntilExit()
@@ -178,6 +178,13 @@ struct BuildCommand: ParsableCommand {
         )
 
         try emit(result)
+
+        // a build that failed or timed out is a tool failure — never report
+        // success through the process exit code. the structured result on
+        // stdout still carries the specifics (summary, diagnostics, exitCode).
+        guard succeeded else {
+            throw ExitCode(1)
+        }
     }
 
     // MARK: - output

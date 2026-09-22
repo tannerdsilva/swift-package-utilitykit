@@ -307,6 +307,23 @@ struct RegressionTests {
         #expect(idxOut.contains("Sample.swift"))
     }
 
+    // MARK: - build exit-code contract
+
+    @Test("build exits non-zero when the build cannot succeed")
+    func buildFailsLoudly() throws {
+        // an empty dir with no Package.swift — `swift build` cannot succeed
+        // here. `build` must signal the failure on its exit code: a failed or
+        // timed-out build used to be reported as exit 0, which nested callers
+        // (the install lifecycle test) mistook for success.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("buildfail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let (out, code) = try runTool(["build", dir.path])
+        #expect(code != 0, "failed build must not exit 0: \(out)")
+        #expect(out.contains("\"succeeded\":false"), "result JSON should mark the build as not succeeded: \(out)")
+    }
+
     // MARK: - install/uninstall lifecycle (new subcommands)
 
     @Test("install then uninstall lands and removes binaries + plugin")
@@ -330,18 +347,33 @@ struct RegressionTests {
         try FileManager.default.createDirectory(atPath: pluginDir, withIntermediateDirectories: true)
 
         // the installer's --no-build path requires both prebuilt binaries to
-        // exist; `swift test` only builds the tool being tested, so build the
-        // normalizer product explicitly first (a missing binary must fail the
-        // install loudly, and this is what the test now exercises)
+        // exist; `swift test` already built the harness binary
+        // (swift-package-tool), but normalizer-tool is not built by a default
+        // build at all (it's consumed as a plugin build tool), so build it
+        // explicitly.
+        //
+        // the build goes into a scratch workspace OUTSIDE the package's
+        // `.build`: SwiftPM 6.x holds the package's build lock for the whole
+        // `swift test` invocation, so a nested `swift build` sharing that
+        // `.build` serializes behind the parent until BuildCommand's timeout
+        // fires. a disjoint scratch workspace escapes the lock entirely.
+        let scratch = sandbox.appendingPathComponent("scratch-build")
+        let scratchBin = "\(scratch.path)/out/Products/Debug"
+        try FileManager.default.createDirectory(atPath: scratchBin, withIntermediateDirectories: true)
         let (prebuild, prebuildCode) = try runTool(
-            ["build", packageDir, "--extra-args=--product normalizer-tool"],
+            ["build", packageDir, "--extra-args=--scratch-path \(scratch.path) --product normalizer-tool"],
             cwd: packageDir
         )
         #expect(prebuildCode == 0, "prebuild normalizer-tool should succeed: \(prebuild)")
+        // stage the already-built harness binary beside it so install --no-build
+        // sees both products where it looks
+        try FileManager.default.copyItem(atPath: binaryPath, toPath: "\(scratchBin)/swift-package-tool")
+        #expect(FileManager.default.fileExists(atPath: "\(scratchBin)/normalizer-tool"), "normalizer-tool should land in the scratch build dir: \(scratchBin)")
+        #expect(FileManager.default.fileExists(atPath: "\(scratchBin)/swift-package-tool"), "staged harness binary should exist: \(scratchBin)/swift-package-tool")
 
         // install: both binaries appear, plugin copy appears
         let (installOut, installCode) = try runTool(
-            ["install", "--no-build", "--debug", "--no-path-update", "--no-interactive"],
+            ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
             cwd: packageDir, env: env
         )
         #expect(installCode == 0, "install should succeed: \(installOut)")

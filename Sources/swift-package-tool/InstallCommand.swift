@@ -46,6 +46,9 @@ struct InstallCommand: ParsableCommand {
     @Option(name: .customLong("bin-dir"), help: "Exact binary install dir (overrides --prefix/bin).")
     var binDir: String?
 
+    @Option(name: .customLong("build-dir"), help: "Directory containing prebuilt binaries (default: <repo>/.build/<config>).")
+    var buildDirOverride: String?
+
     @Option(name: .customLong("hermes-plugins"), help: "Hermes plugins directory (default: ~/.hermes/plugins).")
     var hermesPluginsDir: String?
 
@@ -118,12 +121,24 @@ struct InstallCommand: ParsableCommand {
         // ---- build -----------------------------------------------------------------
 
         let config = debug ? "debug" : "release"
+
+        // where the prebuilt products live. `--build-dir`/BUILD_DIR overrides
+        // the default `<repo>/.build/<config>` — needed when binaries were
+        // built into a scratch workspace (e.g. nested builds that must not
+        // share the package's build lock) rather than the repo's own `.build`.
+        let buildSrcDir: String
+        if let explicit = buildDirOverride ?? env["BUILD_DIR"], !explicit.isEmpty {
+            buildSrcDir = explicit
+        } else {
+            buildSrcDir = "\(repoDir())/.build/\(config)"
+        }
+
         if noBuild {
             InstPrinter.info("Using prebuilt \(config) binaries (--no-build)...")
             // verify the prebuilt binaries actually exist — a stale or missing
             // build must be a hard error, never a silent no-op install
             for bin in ["swift-package-tool", "normalizer-tool"] {
-                let src = "\(repoDir())/.build/\(config)/\(bin)"
+                let src = "\(buildSrcDir)/\(bin)"
                 guard FileManager.default.fileExists(atPath: src) else {
                     throw ValidationError("prebuilt binary not found at \(src) — run `swift build -c \(config)` first, or drop --no-build")
                 }
@@ -158,13 +173,12 @@ struct InstallCommand: ParsableCommand {
             throw ValidationError("failed to create install dir \(installDir)")
         }
 
-        let buildDir = "\(repoDir())/.build/\(config)"
         for bin in ["swift-package-tool", "normalizer-tool"] {
             var icmd = [String]()
             if let s = needSudo(for: installDir) { icmd.append(s) }
-            icmd += ["install", "\(buildDir)/\(bin)", "\(installDir)/\(bin)"]
+            icmd += ["install", "\(buildSrcDir)/\(bin)", "\(installDir)/\(bin)"]
             if runProcess("/usr/bin/env", icmd) != 0 {
-                throw ValidationError("failed to install \(bin) (\(buildDir)/\(bin) -> \(installDir)/\(bin))")
+                throw ValidationError("failed to install \(bin) (\(buildSrcDir)/\(bin) -> \(installDir)/\(bin))")
             }
             InstPrinter.ok("  \(installDir)/\(bin)")
         }
