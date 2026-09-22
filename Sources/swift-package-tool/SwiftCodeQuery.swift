@@ -44,6 +44,7 @@ struct SwiftCodeQuery: ParsableCommand {
             InstallCommand.self,
             UninstallCommand.self,
             PathWireCommand.self,
+            SkillGenerateCommand.self,
         ]
         // no defaultSubcommand: an unknown first token must be a hard error,
         // not a silent fall-through to `find` (a typo'd subcommand must not

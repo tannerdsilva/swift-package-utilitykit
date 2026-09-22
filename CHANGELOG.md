@@ -17,6 +17,19 @@
     structured JSON on stdout still carries the specifics.
   the full suite drops from a ~600s red run to a ~26s green run.
 
+### Added
+- **`skill-generate` — wrap a package's documented API in a Hermes skill.** new
+  subcommand that folds the public surface (source doc comments, via the same
+  collector `api` uses) plus the `.docc` catalog articles into a `SKILL.md`
+  tree an agent can load, with the full digest in `references/api.md` and
+  articles in `references/articles/`. honors the hermes authoring contract
+  (description ≤60 chars, semver `version`, `platforms`, byte-0 `---`
+  frontmatter); `--install` copies the tree into
+  `~/.hermes/skills/<category>/<name>` (env `HERMES_SKILLS_DIR`); output is
+  deterministic — no timestamps, identical inputs produce byte-identical
+  trees. `undocumented` in the summary is data, not failure: it doubles as a
+  docc-coverage signal.
+
 ## 1.0.0 (2026-09-15)
 
 ### Fixed (release-blockers from the pre-1.0 audit)

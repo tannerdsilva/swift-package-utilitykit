@@ -2,7 +2,7 @@
 
 ## Overview
 
-`swift-package-tool` is a Swift source code analysis and editing tool with 35 subcommands.
+`swift-package-tool` is a Swift source code analysis and editing tool with 36 subcommands.
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -747,3 +747,44 @@ swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pret
 | `--pretty-print` | Pretty-print JSON output |
 
 **Output type:** `CleanResult` — `{success, mode, directory, output}` — mode is `"clean (dependencies preserved)"` or `"purge-all (dependencies DESTROYED)"`.
+
+---
+
+### `skill-generate`
+
+Generate a Hermes skill from a package's documented API. Deterministic and
+stateless: the public surface (source doc comments, via the same collector
+`api` uses) plus the `.docc` catalog articles are folded into a `SKILL.md`
+tree an agent can load — frontmatter honors the Hermes authoring contract
+(`description` ≤60 chars, semver `version`, `platforms`), with the full
+digest in `references/api.md` and articles in `references/articles/`. No
+timestamps are emitted, so identical inputs produce byte-identical output.
+
+```
+swift-package-tool skill-generate [<path>] [--output-dir <dir>] [--install]
+    [--category <cat>] [--hermes-skills <dir>] [--name <name>] [--version <v>]
+    [--author <name>] [--include-internal] [--output-format <format>]
+    [--pretty-print] [--output <file>] [--schema]
+```
+
+| Argument | Description |
+|---|---|
+| `path` | Package paths to scan (default: current directory). `-` (stdin) is rejected — a tree generator cannot consume stdin |
+
+| Flag/Option | Description |
+|---|---|
+| `--output-dir <dir>` | Directory for the generated skill tree (default: `<root>/.build/skills/<name>` — derived data, never the repo tree) |
+| `--install` | Also install the skill into the Hermes skills dir |
+| `--category <cat>` | Category for `--install` (default: `swift`) |
+| `--hermes-skills <dir>` | Hermes skills directory for `--install` (default: `~/.hermes/skills`, env `HERMES_SKILLS_DIR`) |
+| `--name <name>` | Override the derived skill name (`<pkg>-api`) |
+| `--version <v>` | Frontmatter version (default: `0.1.0`) |
+| `--author <name>` | Frontmatter author (default: `Hermes Agent`) |
+| `--include-internal` | Include internal declarations (default: public only) |
+| `--reference` | Reserved: thin live-query skill mode (not yet implemented) |
+| `--output-format <format>` | Summary output format |
+| `--pretty-print` | Pretty-print the JSON summary |
+| `--output <file>` | Write the summary to a file instead of stdout |
+| `--schema` | Print JSON Schema for `SkillSummary` and exit |
+
+**Output type:** `SkillSummary` — `{ok, skillName, skillDir, installedTo, description, symbols, documented, undocumented, kinds, articles, files}`. An `undocumented` count greater than zero is data, not failure — it doubles as a docc-coverage signal.
