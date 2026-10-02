@@ -20,23 +20,25 @@ cp .build/release/swift-package-tool ~/.local/bin/
 make install-plugin
 ```
 
-This builds the release binary, installs it to ``~/.local/bin``, and
-symlinks the Hermes plugin.  (``~/.local/bin`` is the canonical install
-location — the Hermes plugin resolver falls back to it, so the installer
-and the plugin agree.  Override with ``PREFIX=``/``BIN_DIR=``.)
+This builds the release binary, installs it to ``~/.local/bin``, and installs
+the Hermes adapter plugin into ``~/.hermes/plugins``.  (``~/.local/bin`` is
+the canonical install location — the Hermes plugin resolver falls back to it,
+so the installer and the plugin agree.  Override with
+``PREFIX=``/``BIN_DIR=``/``PLUGINS_DIR=``.)
 
 ## Via install subcommand
 
 The ``swift-package-tool`` binary owns install/remove logic natively
-(``install``, ``uninstall``, ``path-wire``):
+(``install``, ``uninstall``, ``path-wire``) and is harness-agnostic:
 
 ```bash
-swift-package-tool install                   # interactive (prompts: symlink/copy)
-swift-package-tool install --copy            # noninteractive copy plugin
-swift-package-tool install --symlink         # noninteractive symlink plugin
-swift-package-tool uninstall                 # remove binaries, plugin, PATH wiring
+swift-package-tool install --no-build                    # binaries only (no plugin)
+swift-package-tool install --plugins-dir ~/.hermes/plugins --copy    # + adapter plugin (copy)
+swift-package-tool install --plugins-dir ~/.hermes/plugins --symlink # + adapter plugin (symlink)
+swift-package-tool uninstall --plugins-dir ~/.hermes/plugins         # remove binaries + plugin
 ```
 
 ``PLUGIN_MODE`` (``symlink`` or ``copy``) and ``PATH_UPDATE``/``NO_INTERACTIVE``
-are honored as environment overrides.  ``install --no-plugin --no-build``
-installs just the binaries from a prebuilt ``.build``.
+are honored as environment overrides.  the adapter plugin step runs only when
+a plugins dir is given (``--plugins-dir`` or ``PLUGINS_DIR``); with none, the
+installer manages the binaries and PATH wiring alone.

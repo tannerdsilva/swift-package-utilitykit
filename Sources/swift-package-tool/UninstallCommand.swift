@@ -6,15 +6,15 @@
 import Foundation
 import ArgumentParser
 
-/// remove the binaries, Hermes plugin, and PATH wiring installed by
-/// `swift-package-tool install`.
+/// remove the binaries, the adapter plugin (when its directory is given), and
+/// PATH wiring installed by `swift-package-tool install`.
 ///
 /// port of the former `scripts/install.sh --remove`. dependencies are never
 /// touched — clean/deep-clean is the `swift-package-tool clean` command's job.
 struct UninstallCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "uninstall",
-        abstract: "Remove installed binaries, plugin, and PATH wiring."
+        abstract: "Remove installed binaries, adapter plugin, and PATH wiring."
     )
 
     @Flag(name: .customLong("force"), help: "Skip removal confirmation.")
@@ -32,8 +32,8 @@ struct UninstallCommand: ParsableCommand {
     @Option(name: .customLong("bin-dir"), help: "Exact binary install dir (overrides --prefix/bin).")
     var binDir: String?
 
-    @Option(name: .customLong("hermes-plugins"), help: "Hermes plugins directory (default: ~/.hermes/plugins).")
-    var hermesPluginsDir: String?
+    @Option(name: .customLong("plugins-dir"), help: "Remove the adapter plugin previously installed into this harness's plugins directory (omit to skip).")
+    var pluginsDirOverride: String?
 
     mutating func run() throws {
         let env = ProcessInfo.processInfo.environment
@@ -47,9 +47,14 @@ struct UninstallCommand: ParsableCommand {
             installDir = "\(pfx)/bin"
         }
 
-        let pluginsDir = hermesPluginsDir ?? env["HERMES_PLUGINS_DIR"] ?? env["HERMES_PLUGINS"] ?? "\(home)/.hermes/plugins"
+        // only remove the adapter plugin from an explicitly requested
+        // directory — the CLI assumes no harness layout, so an unset
+        // --plugins-dir/PLUGINS_DIR means "skip the plugin removal".
+        let pluginsDir: String? = [pluginsDirOverride, env["PLUGINS_DIR"]]
+            .compactMap { $0 }
+            .first { !$0.isEmpty }
         let pluginName = "swift-package-utilitykit"
-        let pluginDst = "\(pluginsDir)/\(pluginName)"
+        let pluginDst = pluginsDir.map { "\($0)/\(pluginName)" }
 
         InstPrinter.info("Removing swift-package-utilitykit...")
 
@@ -74,7 +79,7 @@ struct UninstallCommand: ParsableCommand {
         }
 
         var foundPlugin = false
-        if FileManager.default.fileExists(atPath: pluginDst) || isSymlink(pluginDst) {
+        if let pluginDst, FileManager.default.fileExists(atPath: pluginDst) || isSymlink(pluginDst) {
             foundPlugin = true
         }
 
@@ -112,12 +117,14 @@ struct UninstallCommand: ParsableCommand {
 
         // ---- remove plugin -------------------------------------------------------------
 
-        if foundPlugin {
+        if foundPlugin, let pluginDst {
             if runProcess("/bin/rm", ["-rf", pluginDst]) != nil {
                 InstPrinter.ok("Removed \(pluginDst)")
             } else {
                 InstPrinter.warn("Failed to remove \(pluginDst)")
             }
+        } else if pluginsDir == nil {
+            InstPrinter.info("Skipping adapter plugin removal (no --plugins-dir / PLUGINS_DIR given).")
         }
 
         // ---- remove PATH wiring ----------------------------------------------------------

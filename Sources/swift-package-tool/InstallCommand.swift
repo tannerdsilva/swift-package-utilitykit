@@ -6,17 +6,20 @@
 import Foundation
 import ArgumentParser
 
-/// install the package's binaries and Hermes plugin onto the host.
+/// install the package's binaries and (optionally) the adapter plugin onto
+/// the host.
 ///
 /// port of the former `scripts/install.sh`: checks prerequisites, builds the
 /// requested configuration, installs `swift-package-tool` and
 /// `normalizer-tool` into the install dir (with sudo escalation when the dir
-/// isn't writable), installs the Hermes plugin as a copy or symlink, wires
-/// the install dir into the harness PATH, and verifies the result.
+/// isn't writable), installs the repo's adapter plugin as a copy or symlink
+/// when a plugins dir is given, wires the install dir into the harness PATH,
+/// and verifies the result. the CLI itself is harness-agnostic: it assumes,
+/// names, and probes no harness.
 struct InstallCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "install",
-        abstract: "Build and install the binaries and Hermes plugin."
+        abstract: "Build and install the binaries and the adapter plugin."
     )
 
     @Flag(name: .customLong("debug"), help: "Install debug binaries instead of release.")
@@ -25,13 +28,10 @@ struct InstallCommand: ParsableCommand {
     @Flag(name: .customLong("no-build"), help: "Skip the swift build step (use prebuilt binaries).")
     var noBuild = false
 
-    @Flag(name: .customLong("no-plugin"), help: "Skip installing the Hermes plugin.")
-    var noPlugin = false
-
-    @Flag(name: .customLong("symlink"), help: "Install the plugin as a symlink into the plugins dir.")
+    @Flag(name: .customLong("symlink"), help: "Install the adapter plugin as a symlink into --plugins-dir.")
     var symlinkMode = false
 
-    @Flag(name: .customLong("copy"), help: "Install the plugin as a copy into the plugins dir (default).")
+    @Flag(name: .customLong("copy"), help: "Install the adapter plugin as a copy into --plugins-dir (default).")
     var copyMode = false
 
     @Flag(name: .customLong("no-path-update"), help: "Skip wiring the install dir into the harness PATH.")
@@ -49,8 +49,8 @@ struct InstallCommand: ParsableCommand {
     @Option(name: .customLong("build-dir"), help: "Directory containing prebuilt binaries (default: <repo>/.build/<config>).")
     var buildDirOverride: String?
 
-    @Option(name: .customLong("hermes-plugins"), help: "Hermes plugins directory (default: ~/.hermes/plugins).")
-    var hermesPluginsDir: String?
+    @Option(name: .customLong("plugins-dir"), help: "Install the adapter plugin into this harness's plugins directory (omit to skip).")
+    var pluginsDirOverride: String?
 
     mutating func run() throws {
         let env = ProcessInfo.processInfo.environment
@@ -66,14 +66,22 @@ struct InstallCommand: ParsableCommand {
             installDir = "\(pfx)/bin"
         }
 
-        let pluginsDir = hermesPluginsDir ?? env["HERMES_PLUGINS_DIR"] ?? env["HERMES_PLUGINS"] ?? "\(home)/.hermes/plugins"
+        // the adapter plugin installs only into an explicitly requested
+        // directory — the CLI assumes no harness layout, so an unset
+        // --plugins-dir/PLUGINS_DIR means "skip the plugin step".
+        let pluginsDir: String? = [pluginsDirOverride, env["PLUGINS_DIR"]]
+            .compactMap { $0 }
+            .first { !$0.isEmpty }
         let pluginName = "swift-package-utilitykit"
+        // the adapter plugin shipped by this repo (the Hermes adapter today).
         let pluginSrc = "\(repoDir())/hermes-plugin"
-        let pluginDst = "\(pluginsDir)/\(pluginName)"
+        let pluginDst = pluginsDir.map { "\($0)/\(pluginName)" }
 
         let pathUpdate = !noPathUpdate && env["PATH_UPDATE"] != "0"
 
-        // plugin mode: explicit flag > env > interactive prompt > copy default
+        // plugin mode: explicit flag > env > interactive prompt > copy default.
+        // only consulted when a plugins dir was requested — there is nothing
+        // to install (or prompt about) otherwise.
         var interactive = !noInteractive && isInteractive() && env["NO_INTERACTIVE"] != "1"
         var pluginMode = "copy"
         if symlinkMode { pluginMode = "symlink" }
@@ -81,22 +89,20 @@ struct InstallCommand: ParsableCommand {
         if let envMode = env["PLUGIN_MODE"], !envMode.isEmpty {
             pluginMode = envMode
         }
-        if interactive && !symlinkMode && !copyMode && env["PLUGIN_MODE"] == nil {
-            // interactive default is symlink (matches the former installer)
-            print("  Install plugin as [s]ymlink or [c]opy? [S/c] ", terminator: "")
-            if let choice = readLine()?.lowercased() {
-                pluginMode = choice == "c" ? "copy" : "symlink"
-            } else {
-                pluginMode = "symlink"
+        if pluginsDir != nil {
+            if interactive && !symlinkMode && !copyMode && env["PLUGIN_MODE"] == nil {
+                // interactive default is symlink (matches the former installer)
+                print("  Install adapter plugin as [s]ymlink or [c]opy? [S/c] ", terminator: "")
+                if let choice = readLine()?.lowercased() {
+                    pluginMode = choice == "c" ? "copy" : "symlink"
+                } else {
+                    pluginMode = "symlink"
+                }
+                interactive = false
             }
-            interactive = false
-        }
-        guard pluginMode == "symlink" || pluginMode == "copy" else {
-            throw ValidationError("PLUGIN_MODE must be symlink or copy (got '\(pluginMode)').")
-        }
-
-        if noPlugin {
-            pluginMode = "skip"
+            guard pluginMode == "symlink" || pluginMode == "copy" else {
+                throw ValidationError("PLUGIN_MODE must be symlink or copy (got '\(pluginMode)').")
+            }
         }
 
         // ---- prerequisites ---------------------------------------------------------
@@ -109,14 +115,6 @@ struct InstallCommand: ParsableCommand {
         }
         let versionLine = swiftVersion.split(separator: "\n").first.map(String.init) ?? ""
         InstPrinter.ok("\(versionLine)")
-
-        let hermesFound = runCapture("/usr/bin/env", ["sh", "-lc", "command -v hermes"]) != nil
-        if hermesFound {
-            InstPrinter.ok("Hermes Agent found")
-        } else {
-            InstPrinter.warn("Hermes Agent not found in PATH. Install from https://hermes-agent.nousresearch.com/docs")
-            InstPrinter.warn("Plugin will be installed but won't be active until Hermes is available.")
-        }
 
         // ---- build -----------------------------------------------------------------
 
@@ -185,25 +183,41 @@ struct InstallCommand: ParsableCommand {
 
         // ---- install plugin ---------------------------------------------------------
 
-        if pluginMode != "skip" {
-            InstPrinter.info("Installing Hermes plugin...")
+        if let pluginsDir, let pluginDst {
+            InstPrinter.info("Installing adapter plugin...")
+            guard FileManager.default.fileExists(atPath: pluginSrc) else {
+                throw ValidationError("adapter plugin source not found at \(pluginSrc)")
+            }
             try FileManager.default.createDirectory(atPath: pluginsDir, withIntermediateDirectories: true)
 
-            // remove previous installation (symlink or dir)
+            // remove previous installation (symlink or dir) — a failed replace
+            // must be a hard error, never a silent half-install
             if FileManager.default.fileExists(atPath: pluginDst) || isSymlink(pluginDst) {
-                try? FileManager.default.removeItem(atPath: pluginDst)
+                do {
+                    try FileManager.default.removeItem(atPath: pluginDst)
+                } catch {
+                    throw ValidationError("failed to remove previous plugin at \(pluginDst): \(error)")
+                }
                 InstPrinter.ok("  Removed previous plugin at \(pluginDst)")
             }
 
             if pluginMode == "symlink" {
-                try? FileManager.default.createSymbolicLink(atPath: pluginDst, withDestinationPath: pluginSrc)
+                do {
+                    try FileManager.default.createSymbolicLink(atPath: pluginDst, withDestinationPath: pluginSrc)
+                } catch {
+                    throw ValidationError("failed to symlink adapter plugin (\(pluginDst) -> \(pluginSrc)): \(error)")
+                }
                 InstPrinter.ok("  Plugin symlinked: \(pluginDst) -> \(pluginSrc)")
             } else {
-                try? FileManager.default.copyItem(atPath: pluginSrc, toPath: pluginDst)
+                do {
+                    try FileManager.default.copyItem(atPath: pluginSrc, toPath: pluginDst)
+                } catch {
+                    throw ValidationError("failed to copy adapter plugin (\(pluginSrc) -> \(pluginDst)): \(error)")
+                }
                 InstPrinter.ok("  Plugin copied: \(pluginSrc) -> \(pluginDst)")
             }
         } else {
-            InstPrinter.info("Skipping Hermes plugin (--no-plugin)...")
+            InstPrinter.info("Skipping adapter plugin (no --plugins-dir / PLUGINS_DIR given).")
         }
 
         // ---- wire install dir into harness PATH --------------------------------------
@@ -230,44 +244,37 @@ struct InstallCommand: ParsableCommand {
             InstPrinter.warn("  swift-package-tool not found in PATH. Add \(installDir) to your PATH.")
         }
 
-        if pluginMode != "skip", hermesFound {
-            // bound the hermes call — the CLI can be slow to start when a
-            // server is already running, and install should never hang on it.
-            if let pluginList = runCapture("/usr/bin/env", ["hermes", "plugins", "list"], timeout: 15),
-               pluginList.contains(pluginName) {
-                InstPrinter.ok("  Hermes plugin registered")
-            } else {
-                InstPrinter.warn("  Plugin installed but not yet registered. Run: hermes plugins list")
-            }
-        }
-
         print("")
         print("\u{001B}[32m✓ Installation complete!\u{001B}[0m")
         print("")
         print("  Binaries:  \(installDir)/{swift-package-tool,normalizer-tool}")
-        if pluginMode != "skip" {
+        if let pluginDst {
             print("  Plugin:    \(pluginDst) (\(pluginMode))")
         } else {
-            print("  Plugin:    (skipped — --no-plugin)")
+            print("  Plugin:    (skipped — no --plugins-dir)")
         }
         print("")
         print("  Next steps:")
-        print("    1. Restart Hermes or start a new shell so the wired PATH takes effect")
-        print("    2. Restart Hermes or run:  hermes plugins list")
-        print("    3. Verify tools:           swift-package-tool --version")
+        print("    1. Open a new shell (or restart your agent harness) so the wired PATH takes effect")
+        print("    2. Verify binaries:         swift-package-tool --version")
+        if pluginsDir != nil {
+            print("    3. Activate the plugin in your harness (reload its plugin registry)")
+        }
     }
 
     /// the package repo root: walk up from cwd until a directory with a
-    /// Package.swift + hermes-plugin is found (an agent may run install from
-    /// anywhere, not just the repo root).  falls back to cwd; downstream
+    /// Package.swift + this repo's own target dir is found (an agent may run
+    /// install from anywhere, not just the repo root).  the markers are the
+    /// repo's own identity — never an adapter directory, which is free to be
+    /// renamed or joined by siblings.  falls back to cwd; downstream
     /// existence checks then fail loudly instead of silently copying nothing.
     func repoDir() -> String {
         let fm = FileManager.default
         var dir = URL(fileURLWithPath: fm.currentDirectoryPath)
         for _ in 0..<8 {
             let hasManifest = fm.fileExists(atPath: dir.appendingPathComponent("Package.swift").path)
-            let hasPlugin = fm.fileExists(atPath: dir.appendingPathComponent("hermes-plugin").path)
-            if hasManifest && hasPlugin {
+            let hasTool = fm.fileExists(atPath: dir.appendingPathComponent("Sources/swift-package-tool").path)
+            if hasManifest && hasTool {
                 return dir.path
             }
             let parent = dir.deletingLastPathComponent()
@@ -355,9 +362,7 @@ func runBuildCaptured(_ config: String, repo: String) -> (Int32, String) {
 }
 
 /// run a command and return its merged stdout/stderr as a string.
-/// optional `timeout` bounds the wait — a timed-out child returns nil so a
-/// slow external tool (e.g. the hermes CLI) can never hang the installer.
-func runCapture(_ executable: String, _ args: [String], cwd: String? = nil, env: [String: String]? = nil, timeout: TimeInterval? = nil) -> String? {
+func runCapture(_ executable: String, _ args: [String], cwd: String? = nil, env: [String: String]? = nil) -> String? {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = args
@@ -369,18 +374,6 @@ func runCapture(_ executable: String, _ args: [String], cwd: String? = nil, env:
     process.standardError = err
     do {
         try process.run()
-        if let timeout {
-            // wait with an explicit bound; kill + report failure on expiry
-            let deadline = Date().addingTimeInterval(timeout)
-            while process.isRunning && Date() < deadline {
-                usleep(50_000)
-            }
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-                return nil
-            }
-        }
         process.waitUntilExit()
         let outData = out.fileHandleForReading.readDataToEndOfFile()
         let errData = err.fileHandleForReading.readDataToEndOfFile()

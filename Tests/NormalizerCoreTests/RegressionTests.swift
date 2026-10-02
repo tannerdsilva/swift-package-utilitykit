@@ -335,22 +335,25 @@ struct RegressionTests {
         try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: sandbox) }
 
-        // sandbox HOME + env so nothing touches the real host
+        // sandbox HOME + env so nothing touches the real host. PLUGINS_DIR is
+        // explicitly empty here — the skip path must stay deterministic even
+        // when the developer's shell exports it.
         let env: [String: String] = [
             "HOME": sandbox.appendingPathComponent("home").path,
             "BIN_DIR": binDir,
-            "HERMES_PLUGINS": pluginDir,
+            "PLUGINS_DIR": "",
             "PREFIX": prefix,
             "PATH_UPDATE": "0",
             "PLUGIN_MODE": "copy",
         ]
+        var pluginEnv = env
+        pluginEnv["PLUGINS_DIR"] = pluginDir
         try FileManager.default.createDirectory(atPath: pluginDir, withIntermediateDirectories: true)
 
-        // the installer's --no-build path requires both prebuilt binaries to
-        // exist; `swift test` already built the harness binary
-        // (swift-package-tool), but normalizer-tool is not built by a default
-        // build at all (it's consumed as a plugin build tool), so build it
-        // explicitly.
+        // the installer's --no-build path requires both prebuilt binaries in
+        // the dir it is pointed at; the package's own .build holds them, but
+        // the install below reads from a disjoint scratch workspace, so build
+        // normalizer-tool into that scratch explicitly.
         //
         // the build goes into a scratch workspace OUTSIDE the package's
         // `.build`: SwiftPM 6.x holds the package's build lock for the whole
@@ -371,7 +374,7 @@ struct RegressionTests {
         #expect(FileManager.default.fileExists(atPath: "\(scratchBin)/normalizer-tool"), "normalizer-tool should land in the scratch build dir: \(scratchBin)")
         #expect(FileManager.default.fileExists(atPath: "\(scratchBin)/swift-package-tool"), "staged harness binary should exist: \(scratchBin)/swift-package-tool")
 
-        // install: both binaries appear, plugin copy appears
+        // install with no plugins dir: binaries land, the plugin step skips
         let (installOut, installCode) = try runTool(
             ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
             cwd: packageDir, env: env
@@ -380,16 +383,52 @@ struct RegressionTests {
         #expect(FileManager.default.fileExists(atPath: "\(binDir)/swift-package-tool"))
         #expect(FileManager.default.fileExists(atPath: "\(binDir)/normalizer-tool"))
         let pluginManifest = "\(pluginDir)/swift-package-utilitykit/plugin.yaml"
+        #expect(!FileManager.default.fileExists(atPath: pluginManifest), "no plugins dir requested — plugin must be skipped: \(installOut)")
+
+        // install with PLUGINS_DIR: the adapter plugin lands
+        let (pluginInstallOut, pluginInstallCode) = try runTool(
+            ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
+            cwd: packageDir, env: pluginEnv
+        )
+        #expect(pluginInstallCode == 0, "plugin install should succeed: \(pluginInstallOut)")
         #expect(FileManager.default.fileExists(atPath: pluginManifest))
 
         // uninstall: both binaries and the plugin are removed
         let (removeOut, removeCode) = try runTool(
-            ["uninstall", "--force", "--no-path-update", "--bin-dir", binDir, "--hermes-plugins", pluginDir, "--prefix", prefix],
+            ["uninstall", "--force", "--no-path-update", "--bin-dir", binDir, "--plugins-dir", pluginDir, "--prefix", prefix],
             env: env
         )
         #expect(removeCode == 0, "uninstall should succeed: \(removeOut)")
         #expect(!FileManager.default.fileExists(atPath: "\(binDir)/swift-package-tool"))
         #expect(!FileManager.default.fileExists(atPath: "\(binDir)/normalizer-tool"))
         #expect(!FileManager.default.fileExists(atPath: pluginManifest))
+    }
+
+    @Test("uninstall without --plugins-dir leaves the plugin untouched")
+    func uninstallSkipsPluginWithoutDir() throws {
+        let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("uninst-\(UUID().uuidString)")
+        let binDir = sandbox.appendingPathComponent("bin").path
+        let pluginDir = sandbox.appendingPathComponent("plugins").path
+        try FileManager.default.createDirectory(atPath: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(pluginDir)/swift-package-utilitykit", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        // fake installed binaries + plugin manifest so uninstall has real targets
+        try "fake".write(toFile: "\(binDir)/swift-package-tool", atomically: true, encoding: .utf8)
+        try "name: swift-package-utilitykit\n".write(toFile: "\(pluginDir)/swift-package-utilitykit/plugin.yaml", atomically: true, encoding: .utf8)
+
+        let env: [String: String] = [
+            "HOME": sandbox.appendingPathComponent("home").path,
+            "PATH_UPDATE": "0",
+            "PLUGINS_DIR": "",
+        ]
+        let (out, code) = try runTool(
+            ["uninstall", "--force", "--no-path-update", "--bin-dir", binDir, "--prefix", sandbox.appendingPathComponent("prefix").path],
+            env: env
+        )
+        #expect(code == 0, "uninstall should succeed: \(out)")
+        #expect(!FileManager.default.fileExists(atPath: "\(binDir)/swift-package-tool"))
+        #expect(FileManager.default.fileExists(atPath: "\(pluginDir)/swift-package-utilitykit/plugin.yaml"), "plugin must be untouched without --plugins-dir")
+        #expect(out.contains("Skipping adapter plugin removal"), "uninstall should report the skip: \(out)")
     }
 }

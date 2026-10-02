@@ -752,17 +752,17 @@ swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies] [--pret
 
 ### `skill-generate`
 
-Generate a Hermes skill from a package's documented API. Deterministic and
+Generate an agent skill from a package's documented API. Deterministic and
 stateless: the public surface (source doc comments, via the same collector
 `api` uses) plus the `.docc` catalog articles are folded into a `SKILL.md`
-tree an agent can load — frontmatter honors the Hermes authoring contract
-(`description` ≤60 chars, semver `version`, `platforms`), with the full
+tree any harness can load — frontmatter honors the portable agent-skill
+contract (`description` ≤60 chars, semver `version`, `platforms`), with the full
 digest in `references/api.md` and articles in `references/articles/`. No
 timestamps are emitted, so identical inputs produce byte-identical output.
 
 ```
 swift-package-tool skill-generate [<path>] [--output-dir <dir>] [--install]
-    [--category <cat>] [--hermes-skills <dir>] [--name <name>] [--version <v>]
+    [--category <cat>] [--skills-dir <dir>] [--name <name>] [--version <v>]
     [--author <name>] [--include-internal] [--output-format <format>]
     [--pretty-print] [--output <file>] [--schema]
 ```
@@ -774,12 +774,12 @@ swift-package-tool skill-generate [<path>] [--output-dir <dir>] [--install]
 | Flag/Option | Description |
 |---|---|
 | `--output-dir <dir>` | Directory for the generated skill tree (default: `<root>/.build/skills/<name>` — derived data, never the repo tree) |
-| `--install` | Also install the skill into the Hermes skills dir |
+| `--install` | Also install the skill into `--skills-dir` (required) |
 | `--category <cat>` | Category for `--install` (default: `swift`) |
-| `--hermes-skills <dir>` | Hermes skills directory for `--install` (default: `~/.hermes/skills`, env `HERMES_SKILLS_DIR`) |
+| `--skills-dir <dir>` | Skills directory for `--install` (env `SKILLS_DIR`). No default is assumed — the target harness's layout is always explicit |
 | `--name <name>` | Override the derived skill name (`<pkg>-api`) |
 | `--version <v>` | Frontmatter version (default: `0.1.0`) |
-| `--author <name>` | Frontmatter author (default: `Hermes Agent`) |
+| `--author <name>` | Frontmatter author (default: `swift-package-tool`) |
 | `--include-internal` | Include internal declarations (default: public only) |
 | `--reference` | Reserved: thin live-query skill mode (not yet implemented) |
 | `--output-format <format>` | Summary output format |

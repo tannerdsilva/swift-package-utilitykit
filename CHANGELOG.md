@@ -16,19 +16,50 @@
   - `build` now exits non-zero when the build failed or timed out; the
     structured JSON on stdout still carries the specifics.
   the full suite drops from a ~600s red run to a ~26s green run.
+- **`normalizer-tool` is now a declared package product.** it was installed by
+  `install`/the Makefile as a shipped binary but never declared in
+  `Package.swift`, so `swift build -c release` never produced it and every
+  install path failed on a clean tree ("prebuilt binary not found at
+  .build/release/normalizer-tool"). declined as a product, it builds with the
+  default build like `swift-package-tool`.
+- **`install`'s repo-root probe no longer keys off an adapter directory.** it
+  looked for `hermes-plugin/` to identify the repo; a rename or a second
+  adapter would have silently degraded it to cwd and skipped the plugin
+  install. the markers are now `Package.swift` + `Sources/swift-package-tool`.
+  adapter plugin copy/symlink failures are now hard errors instead of being
+  swallowed by `try?` — a failed plugin install can never report success.
 
 ### Added
-- **`skill-generate` — wrap a package's documented API in a Hermes skill.** new
+- **`skill-generate` — wrap a package's documented API in an agent skill.** new
   subcommand that folds the public surface (source doc comments, via the same
   collector `api` uses) plus the `.docc` catalog articles into a `SKILL.md`
-  tree an agent can load, with the full digest in `references/api.md` and
-  articles in `references/articles/`. honors the hermes authoring contract
-  (description ≤60 chars, semver `version`, `platforms`, byte-0 `---`
-  frontmatter); `--install` copies the tree into
-  `~/.hermes/skills/<category>/<name>` (env `HERMES_SKILLS_DIR`); output is
-  deterministic — no timestamps, identical inputs produce byte-identical
-  trees. `undocumented` in the summary is data, not failure: it doubles as a
-  docc-coverage signal.
+  tree any harness can load, with the full digest in `references/api.md` and
+  articles in `references/articles/`. honors the portable agent-skill
+  contract (description ≤60 chars, semver `version`, `platforms`, byte-0 `---`
+  frontmatter); `--install` copies the tree into `<skills-dir>/<category>/<name>`,
+  where `--skills-dir` (env `SKILLS_DIR`) is required — no harness layout is
+  assumed; output is deterministic — no timestamps, identical inputs produce
+  byte-identical trees. `undocumented` in the summary is data, not failure:
+  it doubles as a docc-coverage signal.
+
+### Changed
+- **the CLI is now harness-agnostic end to end.** `install`/`uninstall` take
+  `--plugins-dir` (env `PLUGINS_DIR`) and `skill-generate` takes
+  `--skills-dir` (env `SKILLS_DIR`); the adapter plugin step runs only when a
+  directory is given, so the binaries assume, name, and probe no harness. the
+  generated `SKILL.md` no longer carries a `metadata.hermes` block or a
+  harness-specific `--author` default, and its consult instructions name no
+  harness tool. the `Hermes Agent` prerequisite probe and the
+  `hermes plugins list` post-install verification were removed from the
+  binary — a harness verifies its own plugin registry. harness conventions
+  now live at the edges: the Makefile (`PLUGINS_DIR`), adapter directories,
+  and docs.
+
+### Removed
+- `install --no-plugin` (an absent `--plugins-dir` is the skip), the
+  `--hermes-plugins` / `--hermes-skills` flags, and the
+  `HERMES_PLUGINS` / `HERMES_PLUGINS_DIR` / `HERMES_SKILLS_DIR` environment
+  variables.
 
 ## 1.0.0 (2026-09-15)
 

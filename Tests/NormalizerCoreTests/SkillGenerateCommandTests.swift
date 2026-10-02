@@ -2,7 +2,7 @@ import Testing
 import Foundation
 
 /// end-to-end tests for `skill-generate`, driving the built binary as a
-/// subprocess against a fixture package. asserts the hermes skill contract
+/// subprocess against a fixture package. asserts the portable skill contract
 /// (frontmatter invariants, ≤60-char description, byte-determinism) plus the
 /// digest/article/digest-install behavior.
 @Suite("swift-package-tool skill-generate tests")
@@ -179,10 +179,11 @@ struct SkillGenerateCommandTests {
         #expect(skill.hasPrefix("---\n"))
         #expect(skill.contains("name: skillfixture-api"))
         #expect(skill.contains("version: 0.1.0"))
-        #expect(skill.contains("author: Hermes Agent"))
+        #expect(skill.contains("author: swift-package-tool"))
         #expect(skill.contains("license: MIT"))
         #expect(skill.contains("platforms: [macos, linux]"))
-        #expect(skill.contains("related_skills: []"))
+        #expect(skill.contains("generator: swift-package-tool"))
+        #expect(skill.contains("tags: [swift, skillfixture, api, reference]"))
         #expect(skill.contains("## When to Use"))
         #expect(skill.contains("## Verification"))
         // callout folded into pitfalls
@@ -253,12 +254,12 @@ struct SkillGenerateCommandTests {
 
     // MARK: - install
 
-    @Test("skill-generate --install lands in the hermes skills dir")
+    @Test("skill-generate --install lands in the given skills dir")
     func installLands() throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         let skillsDir = "\(base)/skills"
-        let env = ["HERMES_SKILLS_DIR": skillsDir]
+        let env = ["SKILLS_DIR": skillsDir]
         let (output, code) = try runTool(
             ["skill-generate", pkg, "--output-dir", "\(base)/out", "--install"],
             env: env
@@ -276,6 +277,27 @@ struct SkillGenerateCommandTests {
         )
         #expect(code2 == 0, "exit 0: \(output2)")
         #expect(FileManager.default.fileExists(atPath: "\(skillsDir)/software-development/skillfixture-api/SKILL.md"))
+
+        // the explicit flag form works too (and wins over the env var)
+        let (output3, code3) = try runTool(
+            ["skill-generate", pkg, "--output-dir", "\(base)/out", "--install", "--skills-dir", "\(base)/skills-flag"],
+            env: env
+        )
+        #expect(code3 == 0, "exit 0: \(output3)")
+        #expect(FileManager.default.fileExists(atPath: "\(base)/skills-flag/swift/skillfixture-api/SKILL.md"))
+    }
+
+    @Test("skill-generate --install without a skills dir is a hard error")
+    func installRequiresExplicitDir() throws {
+        let pkg = try makeFixture()
+        let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
+        // an empty env value means unset — no skills directory is ever assumed
+        let (output, code) = try runTool(
+            ["skill-generate", pkg, "--output-dir", "\(base)/out-nodir", "--install"],
+            env: ["SKILLS_DIR": ""]
+        )
+        #expect(code != 0, "install without a dir must fail: \(output)")
+        #expect(output.contains("--skills-dir"), "error should name the flag: \(output)")
     }
 
     // MARK: - determinism & contract guards

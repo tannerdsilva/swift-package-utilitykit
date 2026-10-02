@@ -3,8 +3,8 @@ import ArgumentParser
 import SwiftSyntax
 import SwiftParser
 
-/// generate a hermes skill that packages a swift package's documented public
-/// api surface into a `SKILL.md` tree an agent can load.
+/// generate an agent skill that packages a swift package's documented public
+/// api surface into a `SKILL.md` tree any agent harness can load.
 ///
 /// everything is derived from the package source at call time — public
 /// declarations and their docc comments (via the same collector `api` uses),
@@ -15,7 +15,7 @@ import SwiftParser
 struct SkillGenerateCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "skill-generate",
-        abstract: "Generate a Hermes skill from a package's documented API."
+        abstract: "Generate an agent skill (SKILL.md tree) from a package's documented API."
     )
 
     @Argument(help: "Package paths to scan (directory or .swift file).")
@@ -24,14 +24,14 @@ struct SkillGenerateCommand: ParsableCommand {
     @Option(name: .customLong("output-dir"), help: "Directory for the generated skill tree (default: <root>/.build/skills/<name>).")
     var outputDirOverride: String?
 
-    @Flag(name: .customLong("install"), help: "Install the skill into the hermes skills dir.")
+    @Flag(name: .customLong("install"), help: "Install the generated skill into --skills-dir (or SKILLS_DIR).")
     var install = false
 
     @Option(name: .customLong("category"), help: "Category for --install (default: swift).")
     var category: String = "swift"
 
-    @Option(name: .customLong("hermes-skills"), help: "Hermes skills directory for --install (default: ~/.hermes/skills).")
-    var hermesSkillsDirOverride: String?
+    @Option(name: .customLong("skills-dir"), help: "Skills directory for --install, explicit per harness (no default is assumed).")
+    var skillsDirOverride: String?
 
     @Option(name: .customLong("name"), help: "Override the derived skill name.")
     var nameOverride: String?
@@ -39,8 +39,8 @@ struct SkillGenerateCommand: ParsableCommand {
     @Option(name: .customLong("version"), help: "Frontmatter version (default: 0.1.0).")
     var skillVersion: String = "0.1.0"
 
-    @Option(name: .customLong("author"), help: "Frontmatter author (default: Hermes Agent).")
-    var author: String = "Hermes Agent"
+    @Option(name: .customLong("author"), help: "Frontmatter author (default: swift-package-tool).")
+    var author: String = "swift-package-tool"
 
     @Flag(name: .customLong("include-internal"), inversion: .prefixedNo, help: "Include internal declarations (default: public only).")
     var includeInternal = false
@@ -152,12 +152,16 @@ struct SkillGenerateCommand: ParsableCommand {
             try article.markdown.write(toFile: "\(skillDir)/\(rel)", atomically: true, encoding: .utf8)
         }
 
-        // 4. optional install into the hermes skills tree.
+        // 4. optional install into an explicit skills tree. the destination is
+        //    never assumed — a harness's layout is not this tool's knowledge.
         var installedTo = ""
         if install {
-            let skillsDir = hermesSkillsDirOverride
-                ?? ProcessInfo.processInfo.environment["HERMES_SKILLS_DIR"]
-                ?? "\(PathWirer.homeDir())/.hermes/skills"
+            let skillsDir: String? = [skillsDirOverride, ProcessInfo.processInfo.environment["SKILLS_DIR"]]
+                .compactMap { $0 }
+                .first { !$0.isEmpty }
+            guard let skillsDir else {
+                throw ValidationError("--install requires --skills-dir (or the SKILLS_DIR environment variable); no default skills directory is assumed")
+            }
             let dest = "\(skillsDir)/\(category)/\(skillName)"
             if (dest as NSString).standardizingPath != (skillDir as NSString).standardizingPath {
                 if FileManager.default.fileExists(atPath: dest) {
@@ -462,7 +466,7 @@ func pluralizeKind(_ kind: String) -> String {
 
 // MARK: - SKILL.md renderer
 
-/// the hermes skill document. frontmatter honors the authoring contract:
+/// the skill document. frontmatter honors the portable agent-skill contract:
 /// `name` lowercase-hyphen ≤64, `description` ≤60 chars ending in a period,
 /// semver `version`, `platforms` audited to what the content actually needs.
 func renderSkillMarkdown(
@@ -492,9 +496,8 @@ func renderSkillMarkdown(
     out += "license: MIT\n"
     out += "platforms: [macos, linux]\n"
     out += "metadata:\n"
-    out += "  hermes:\n"
-    out += "    tags: [swift, \(slugify(packageName)), api, reference]\n"
-    out += "    related_skills: []\n"
+    out += "  generator: swift-package-tool\n"
+    out += "  tags: [swift, \(slugify(packageName)), api, reference]\n"
     out += "---\n\n"
     out += "# \(packageName) API Skill\n\n"
     out += "a packaged, deterministic reference to the \(packageName) public API, generated from the package's own source doc comments and `.docc` catalog. consult this skill when writing code against \(packageName) or answering questions about its public surface — signatures, contracts, and conformances. it carries no implementation detail and no private API.\n\n"
@@ -509,8 +512,8 @@ func renderSkillMarkdown(
     out += "- none for reading — the full digest ships inside this skill\n\n"
 
     out += "## How to Consult\n"
-    out += "- full digest: read_file `references/api.md`\n"
-    out += "- symbol lookup: search_files pattern `<Symbol>` in `references/api.md`\n"
+    out += "- full digest: `references/api.md`\n"
+    out += "- symbol lookup: search `references/api.md` for `<Symbol>`\n"
     out += "- catalog articles (below) carry the package's own prose\n\n"
 
     out += "## Procedure\n"
@@ -599,7 +602,7 @@ func resolveSkillName(_ packageName: String, override nameOverride: String?) thr
     return sanitizeSkillName(packageName + "-api")
 }
 
-/// description must fit hermes' 60-char hard cap and end with a period.
+/// description must fit the portable contract's 60-char hard cap and end with a period.
 /// deterministic: try the package-specific candidate, fall back to a fixed
 /// always-safe line.
 func skillDescription(packageName: String) -> String {

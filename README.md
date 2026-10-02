@@ -12,14 +12,23 @@ Two delivery mechanisms serve different use cases:
 
 | mechanism | what | who uses it |
 |---|---|---|
-| **Standalone binaries** | `swift-package-tool`, `normalizer-tool` installed in `$PREFIX/bin` | Agentic harness (Hermes, Claude Code, etc.) calling tools directly |
+| **Standalone binaries** | `swift-package-tool`, `normalizer-tool` installed in `$PREFIX/bin` | Any agentic harness (Hermes, arc, Claude Code, …) calling tools directly |
 | **SPM command plugin** | `swift package normalize-syntax` | Interactive development, CI pipelines that already use SPM |
 
 Both share the same `NormalizerCore` library and produce identical results.
 
+**The binaries are harness-agnostic.** Every analysis subcommand speaks
+compact JSON by default and all of them exec as a plain process, so any
+harness that can run a binary can drive the whole surface. Harness
+**adapters** are optional wiring layered on top — this repo currently ships
+one, the `hermes-plugin/` Hermes adapter — and the CLI itself assumes, names,
+and probes no harness. Adapter installs are always directed at an explicit
+directory (`--plugins-dir`), never guessed.
+
 ## quick start
 
-**Prerequisites:** Swift 6.0+ toolchain, Hermes Agent (for the plugin).
+**Prerequisites:** Swift 6.0+ toolchain. (Hermes Agent is needed only for the
+optional Hermes adapter plugin.)
 
 ### One-command install (recommended)
 
@@ -30,7 +39,7 @@ make install-plugin
 ```
 
 This builds release binaries, installs them to `~/.local/bin` (user-local,
-no `sudo` needed by default), and installs the Hermes plugin into
+no `sudo` needed by default), and installs the Hermes adapter plugin into
 `~/.hermes/plugins/`.  In interactive mode (default), you'll be prompted
 whether to **symlink** or **copy** the plugin.  Symlinks are lighter and
 auto-update with `git pull`; copies are self-contained and survive the
@@ -45,7 +54,10 @@ make install-plugin INSTALL_INTERACTIVE=0 PLUGIN_MODE=copy      # copy
 ```
 
 Either way, `swift-package-tool install` validates `PLUGIN_MODE` to
-`symlink`/`copy` and fails with a diagnostic on anything else.
+`symlink`/`copy` and fails with a diagnostic on anything else. The plugin is
+installed only into an explicitly given directory (`PLUGINS_DIR` defaults to
+`~/.hermes/plugins` — the Hermes adapter's dir — in the Makefile); a bare
+`swift-package-tool install` installs the binaries only.
 
 ### Removal
 
@@ -63,17 +75,18 @@ Install/remove logic lives natively in the `swift-package-tool` binary
 `install-release`, `install-plugin`, `remove`, `path-wire`).
 
 ```bash
-# interactive install (prompts for symlink vs copy)
+# binaries only — no plugins dir, so no adapter plugin step
 swift-package-tool install
 
-# noninteractive variants
-swift-package-tool install --copy              # copy plugin (self-contained)
-swift-package-tool install --symlink           # symlink plugin
-swift-package-tool install --debug --no-plugin # debug binaries only, no plugin
+# adapter plugin variants (the target dir is always explicit)
+swift-package-tool install --plugins-dir ~/.hermes/plugins --copy    # copy (self-contained)
+swift-package-tool install --plugins-dir ~/.hermes/plugins --symlink # symlink (auto-updates)
+swift-package-tool install --debug                                   # debug binaries only
 
-# removal
+# removal (add --plugins-dir to also remove the adapter plugin)
 swift-package-tool uninstall                   # interactive removal
 swift-package-tool uninstall --force           # noninteractive removal
+swift-package-tool uninstall --force --plugins-dir ~/.hermes/plugins
 ```
 
 Or with custom paths:
@@ -304,10 +317,11 @@ The index includes file count, total declarations, total imports, and per-file
 breakdowns — ideal for giving a small model a complete picture of a codebase
 in a single tool call.
 
-## Hermes Agent plugin
+## Harness adapters — the Hermes plugin
 
-The ``hermes-plugin/`` directory contains a Hermes Agent plugin (Python) that
-provides 8 package-inspection tools (``pkg_build``, ``pkg_scan``,
+The ``hermes-plugin/`` directory is the repo's shipped harness adapter: a
+Hermes Agent plugin (Python) that provides 8 package-inspection tools
+(``pkg_build``, ``pkg_scan``,
 ``pkg_list_dependencies``, ``pkg_list_targets``, ``pkg_test``, ``pkg_clean``,
 ``pkg_docc_check``, ``pkg_inspector``).
 
