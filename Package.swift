@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .plugin(name: "NormalizeSyntax", targets: ["NormalizeSyntaxPlugin"]),
         .executable(name: "swift-package-tool", targets: ["swift-package-tool"]),
+        .executable(name: "normalizer-tool", targets: ["normalizer-tool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
