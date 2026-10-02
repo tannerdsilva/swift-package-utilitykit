@@ -3,7 +3,7 @@ import ArgumentParser
 /// a toolset for querying, inspecting, and formatting Swift source code,
 /// optimized for agentic consumption.
 @main
-struct SwiftCodeQuery: ParsableCommand {
+struct SwiftCodeQuery: AsyncParsableCommand {
 
     /// the package version — one constant so `--version` and the emitted
     /// plugin manifest can never disagree.

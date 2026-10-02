@@ -27,11 +27,15 @@ Adapter installs are always directed at an explicit directory
 (`--plugins-dir`), never guessed.
 
 The `plugin` subcommand is the native bridge behind those adapters: it reads
-`{"tool": "<name>", "args": {...}}` on stdin, runs the mapped subcommand, and
-writes `{"result": "<string>"}` on stdout — so a harness can drive the binary
-with no interpreter shim in between. `plugin --manifest` renders the arc
-plugin manifest (tools + schemas) straight from the tool table compiled into
-the binary, so the manifest can never drift from the CLI.
+a newline-terminated `{"tool": "<name>", "args": {...}}` frame on stdin, runs
+the mapped subcommand, and writes a newline-terminated
+`{"result": "<string>"}` on stdout — so a harness can drive the binary
+with no interpreter shim in between. The tool declarations, schemas, the
+stdin/stdout envelope, and the manifest come from
+[swift-mcp](https://github.com/tannerdsilva/swift-mcp)'s one-shot stdin tool
+facade (`@MCPApplication(interface: .oneShot)`); `plugin --mcp-manifest arc`
+renders the arc plugin manifest from the compiled surface, so it can never
+drift from the tools.
 
 ## quick start
 
