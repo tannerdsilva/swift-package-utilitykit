@@ -98,8 +98,12 @@ docs = await call_tool("pkg_docc_check", {"target": "/path/to/project", "uncover
 
 ```bash
 make install-plugin                    # from repo root
-# or, directly against the built binary:
+# or, directly against the built binary (this harness's plugin dir is explicit):
 swift build -c release
-.build/release/swift-package-tool install --copy    # copy plugin
-.build/release/swift-package-tool install --symlink # symlink plugin
+.build/release/swift-package-tool install --plugins-dir ~/.hermes/plugins --copy    # copy plugin
+.build/release/swift-package-tool install --plugins-dir ~/.hermes/plugins --symlink # symlink plugin
 ```
+
+The repo's CLI is harness-agnostic: `--plugins-dir` (env `PLUGINS_DIR`) names the
+target harness's plugins directory, and without it the installer manages the
+binaries only.  This directory is the Hermes adapter plugin that gets installed.
