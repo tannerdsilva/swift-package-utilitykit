@@ -20,10 +20,18 @@ Both share the same `NormalizerCore` library and produce identical results.
 **The binaries are harness-agnostic.** Every analysis subcommand speaks
 compact JSON by default and all of them exec as a plain process, so any
 harness that can run a binary can drive the whole surface. Harness
-**adapters** are optional wiring layered on top — this repo currently ships
-one, the `hermes-plugin/` Hermes adapter — and the CLI itself assumes, names,
-and probes no harness. Adapter installs are always directed at an explicit
-directory (`--plugins-dir`), never guessed.
+**adapters** are optional wiring layered on top — this repo ships two: the
+`hermes-plugin/` Hermes adapter, and a generated JSON manifest for arc
+(`--adapter arc`) — and the CLI itself assumes, names, and probes no harness.
+Adapter installs are always directed at an explicit directory
+(`--plugins-dir`), never guessed.
+
+The `plugin` subcommand is the native bridge behind those adapters: it reads
+`{"tool": "<name>", "args": {...}}` on stdin, runs the mapped subcommand, and
+writes `{"result": "<string>"}` on stdout — so a harness can drive the binary
+with no interpreter shim in between. `plugin --manifest` renders the arc
+plugin manifest (tools + schemas) straight from the tool table compiled into
+the binary, so the manifest can never drift from the CLI.
 
 ## quick start
 
@@ -81,6 +89,7 @@ swift-package-tool install
 # adapter plugin variants (the target dir is always explicit)
 swift-package-tool install --plugins-dir ~/.hermes/plugins --copy    # copy (self-contained)
 swift-package-tool install --plugins-dir ~/.hermes/plugins --symlink # symlink (auto-updates)
+swift-package-tool install --plugins-dir ~/.arc/plugins --adapter arc # arc manifest (generated)
 swift-package-tool install --debug                                   # debug binaries only
 
 # removal (add --plugins-dir to also remove the adapter plugin)

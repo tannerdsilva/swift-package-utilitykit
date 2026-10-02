@@ -20,15 +20,17 @@
 # Target -> swift-package-tool delegation:
 #   install          .build/debug/swift-package-tool install --debug
 #   install-release  .build/release/swift-package-tool install
-#   install-plugin   .build/release/swift-package-tool install --plugins-dir $(PLUGINS_DIR)
+#   install-plugin   .build/release/swift-package-tool install --plugins-dir $(PLUGINS_DIR) [--adapter $(ADAPTER)]
 #   remove           .build/release/swift-package-tool uninstall
 #   path-wire        swift-package-tool path-wire <dir>
 #
 # Install knobs (env or command line, passed through to swift-package-tool):
 #   PREFIX=~/.local            parent dir; binaries go to PREFIX/bin
 #   BIN_DIR=/opt/bin           exact binary dir (overrides PREFIX/bin)
-#   PLUGINS_DIR=...            adapter plugin dir (default: the Hermes
-#                              adapter's ~/.hermes/plugins; empty = skip)
+#   PLUGINS_DIR=...            adapter plugin dir — ~/.hermes/plugins (default),
+#                              or ~/.arc/plugins for the arc adapter; empty = skip
+#   ADAPTER=hermes|arc         adapter kind for install-plugin (default: hermes);
+#                              arc writes a generated JSON manifest
 #   PLUGIN_MODE=symlink|copy   plugin mode for install-plugin (required
 #                              noninteractive; defaults to copy)
 #   PATH_UPDATE=0              skip harness PATH wiring
@@ -38,12 +40,14 @@
 # Examples:
 #   make install-plugin                                  # full install (copy)
 #   make install-plugin PLUGIN_MODE=symlink
+#   make install-plugin PLUGINS_DIR=~/.arc/plugins ADAPTER=arc   # arc manifest
 #   make install-release PREFIX=/usr/local               # system-wide (uses sudo)
 
 PREFIX              ?= $(HOME)/.local
 BIN_DIR             ?=
 SWIFT               ?= swift
 PLUGINS_DIR         ?= $(HOME)/.hermes/plugins
+ADAPTER             ?=
 PLUGIN_MODE         ?=
 INSTALL_INTERACTIVE ?= 1
 PATH_UPDATE         ?= 1
@@ -67,6 +71,8 @@ COMMON_INSTALL_FLAGS = \
 	--prefix $(PREFIX)
 
 PLUGIN_DIR_FLAG = $(if $(PLUGINS_DIR),--plugins-dir $(PLUGINS_DIR))
+
+ADAPTER_FLAG = $(if $(ADAPTER),--adapter $(ADAPTER))
 
 PLUGIN_MODE_FLAG = $(if $(PLUGIN_MODE),$(if $(filter symlink copy,$(PLUGIN_MODE)),--$(PLUGIN_MODE),$(error PLUGIN_MODE must be symlink or copy (got '$(PLUGIN_MODE)'))))
 
@@ -98,7 +104,7 @@ install-release: release
 	$(RELEASE_TOOL) install $(COMMON_INSTALL_FLAGS)
 
 install-plugin: release
-	$(RELEASE_TOOL) install $(COMMON_INSTALL_FLAGS) $(PLUGIN_DIR_FLAG) $(PLUGIN_MODE_FLAG)
+	$(RELEASE_TOOL) install $(COMMON_INSTALL_FLAGS) $(PLUGIN_DIR_FLAG) $(PLUGIN_MODE_FLAG) $(ADAPTER_FLAG)
 
 remove: release
 	$(RELEASE_TOOL) uninstall $(UNINSTALL_FLAGS) $(PLUGIN_DIR_FLAG)

@@ -4,10 +4,15 @@ import ArgumentParser
 /// optimized for agentic consumption.
 @main
 struct SwiftCodeQuery: ParsableCommand {
+
+    /// the package version — one constant so `--version` and the emitted
+    /// plugin manifest can never disagree.
+    static let packageVersion = "1.0.0"
+
     static let configuration = CommandConfiguration(
         commandName: "swift-package-tool",
         abstract: "Query, inspect, search, and index Swift source code.",
-        version: "1.0.0",
+        version: packageVersion,
         subcommands: [
             FindCommand.self,
             QueryCommand.self,
@@ -45,6 +50,7 @@ struct SwiftCodeQuery: ParsableCommand {
             UninstallCommand.self,
             PathWireCommand.self,
             SkillGenerateCommand.self,
+            PluginCommand.self,
         ]
         // no defaultSubcommand: an unknown first token must be a hard error,
         // not a silent fall-through to `find` (a typo'd subcommand must not
