@@ -95,6 +95,11 @@ struct NormalizerTool {
 			}
 		}
 		print("summary \(changed) changed, \(failures) failed, of \(files.count) files")
+		// file-level failures must reach the exit status: the SPM plugin and
+		// any CI caller only see success/failure through the process code
+		if failures > 0 {
+			exit(1)
+		}
 	}
 }
 

@@ -80,6 +80,12 @@ struct CleanCommand: ParsableCommand {
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
         let outputStr = try formatOutput([result], format: fmt)
         print(outputStr)
+
+        // a clean that failed is a tool failure — the exit code must say so,
+        // not only the JSON payload (nested callers treat 0 as success)
+        if !result.success {
+            throw ExitCode(1)
+        }
     }
 }
 

@@ -26,7 +26,7 @@ struct FormatCommand: ParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Preserve comments in minified output (default: hide with placeholder).")
     var preserveComments = false
 
-    @Option(name: .long, help: "Output format: json, compact. omit for text status lines.")
+    @Option(name: .long, help: "Output format: json, compact, csv, short, jsonl. omit for text status lines.")
     var outputFormat: OutputFormat?
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
@@ -86,15 +86,15 @@ struct FormatCommand: ParsableCommand {
             }
         }
 
-        // JSON/compact mode emits the per-file summary instead of text lines
-        if let fmt = outputFormat, fmt == .json || fmt == .compact {
-            let outputStr = try formatOutput(results, format: fmt)
-            print(outputStr)
+        // an explicit format emits the per-file summary in that format instead
+        // of text status lines
+        if let fmt = outputFormat {
+            print(try formatOutput(results, format: fmt))
         }
     }
 
     /// per-file status reported by `format` in JSON mode.
-struct FormatResult: Codable, Sendable {
+struct FormatResult: Codable, Sendable, CustomStringConvertible {
     let file: String
     let status: String   // "unchanged", "would change", "formatted"
     let changed: Bool
@@ -105,6 +105,10 @@ struct FormatResult: Codable, Sendable {
         self.status = status
         self.changed = changed
         self.content = content
+    }
+
+    var description: String {
+        "\(file): \(status)"
     }
 
     static let jsonSchema = """

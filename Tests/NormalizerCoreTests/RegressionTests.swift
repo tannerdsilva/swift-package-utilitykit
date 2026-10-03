@@ -746,4 +746,64 @@ struct RegressionTests {
         let results = parsedJSON(out)["results"] as? [[String: Any]] ?? []
         #expect(results.first?["warning"] as? String == "no line containing 'NOPE' found", "\(out)")
     }
+
+    // MARK: - CLI contract (bugs: format silently ignored most output formats,
+    //           a failed clean exited 0, and normalizer-tool swallowed
+    //           file-level failures)
+
+    @Test("format emits csv and short output when asked")
+    func formatHonorsAllOutputFormats() throws {
+        let path = try makeTempFile("let x = 1\n", "format-csv.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (shortOut, shortCode) = try runTool(["format", path, "--output-format", "short"])
+        #expect(shortCode == 0, "\(shortOut)")
+        #expect(shortOut.contains("\(path): unchanged"), "short must be human text: \(shortOut)")
+        #expect(!shortOut.contains("FormatResult("), "short must not dump reflection: \(shortOut)")
+
+        let (csvOut, csvCode) = try runTool(["format", path, "--output-format", "csv"])
+        #expect(csvCode == 0, "\(csvOut)")
+        #expect(!csvOut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "csv must emit output: \(csvOut)")
+        #expect(csvOut.contains("unchanged"), "\(csvOut)")
+    }
+
+    @Test("a failed clean exits non-zero")
+    func failedCleanExitsNonZero() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cleanfail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "// swift-tools-version:6.0\nimport PackageDescription\nlet package = Package(name: \"CleanFail\")\n"
+            .write(to: dir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        // an empty PATH makes the spawned `swift package clean` unrunnable — a
+        // deterministic clean failure for the exit-code contract
+        let (out, code) = try runTool(["clean", dir.path], env: ["PATH": "/nonexistent"])
+        #expect(code != 0, "a failed clean must not exit 0: \(out)")
+        let payload = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
+        #expect(payload.first?["success"] as? Bool == false, "the payload must report the failure: \(out)")
+
+        // a clean that succeeds stays exit 0
+        let (okOut, okCode) = try runTool(["clean", dir.path])
+        #expect(okCode == 0, "a successful clean must stay exit 0: \(okOut)")
+    }
+
+    @Test("normalizer-tool exits non-zero when a file cannot be normalized")
+    func normalizerFailsLoudly() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("norm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bad = dir.appendingPathComponent("Bad.swift")
+        var bytes = Array("let ok = 1\n".utf8)
+        bytes.append(0xE9)   // latin-1 é: not valid utf-8
+        try Data(bytes).write(to: bad)
+
+        let (out, code) = try runTool(["--file", bad.path], binary: normalizerPath)
+        #expect(code != 0, "a failed file must fail the run: \(out)")
+        #expect(out.contains("1 failed"), "the summary must report it: \(out)")
+
+        let good = dir.appendingPathComponent("Good.swift")
+        try "let ok = 1\n".write(to: good, atomically: true, encoding: .utf8)
+        let (okOut, okCode) = try runTool(["--file", good.path], binary: normalizerPath)
+        #expect(okCode == 0, "a clean run stays exit 0: \(okOut)")
+    }
 }
