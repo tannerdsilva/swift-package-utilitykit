@@ -161,7 +161,7 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath

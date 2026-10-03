@@ -69,17 +69,19 @@ struct InsertCommand: ParsableCommand, EditCommand {
             var newLines = lines
 
             if let pattern = after {
-                if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
-                    let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                    newLines.insert(contentsOf: [indented], at: idx + 1)
+                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                    return FileEditor.noLineContaining(pattern)
                 }
+                let indent = FileEditor.detectIndent(lines[idx])
+                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                newLines.insert(contentsOf: [indented], at: idx + 1)
             } else if let pattern = before {
-                if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
-                    let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                    newLines.insert(contentsOf: [indented], at: idx)
+                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                    return FileEditor.noLineContaining(pattern)
                 }
+                let indent = FileEditor.detectIndent(lines[idx])
+                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                newLines.insert(contentsOf: [indented], at: idx)
             } else if let line = atLine {
                 let idx = max(0, min(line - 1, lines.count))
                 let indent = idx > 0 ? FileEditor.detectIndent(lines[idx - 1]) : ""

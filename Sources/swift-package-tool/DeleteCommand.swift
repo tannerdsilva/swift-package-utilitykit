@@ -71,12 +71,15 @@ struct DeleteCommand: ParsableCommand, EditCommand {
 
             if let range = self.lines {
                 let parts = range.split(separator: "-")
-                guard parts.count == 2, let start = Int(parts[0]), let end = Int(parts[1]) else {
-                    return ""
+                guard parts.count == 2, let start = Int(parts[0]), let end = Int(parts[1]),
+                      start >= 1, end >= start else {
+                    throw ValidationError("invalid line range '\(range)'; use format '10-20'")
                 }
-                let startIdx = max(0, start - 1)
+                let startIdx = start - 1
                 let endIdx = min(lines.count, end)
-                guard startIdx < endIdx else { return "" }
+                guard startIdx < endIdx else {
+                    return FileEditor.rangeSelectsNoLines(range)
+                }
                 var newLines = lines
                 newLines.removeSubrange(startIdx..<endIdx)
                 source = newLines.joined(separator: "\n")
@@ -84,7 +87,11 @@ struct DeleteCommand: ParsableCommand, EditCommand {
             }
 
             if let pattern = self.matching {
-                source = lines.filter { !$0.contains(pattern) }.joined(separator: "\n")
+                let kept = lines.filter { !$0.contains(pattern) }
+                guard kept.count != lines.count else {
+                    return FileEditor.noLineContaining(pattern)
+                }
+                source = kept.joined(separator: "\n")
                 return ""
             }
 
@@ -140,7 +147,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath

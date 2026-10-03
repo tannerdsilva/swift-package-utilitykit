@@ -94,7 +94,7 @@ struct SortCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath
@@ -119,32 +119,32 @@ class MemberSortRewriter: SyntaxRewriter {
     }
 
     override func visit(_ node: StructDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         notFound = false
         return DeclSyntax(sortMembers(of: node))
     }
 
     override func visit(_ node: ClassDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         notFound = false
         return DeclSyntax(sortMembers(of: node))
     }
 
     override func visit(_ node: EnumDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         notFound = false
         return DeclSyntax(sortMembers(of: node))
     }
 
     override func visit(_ node: ProtocolDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         notFound = false
         return DeclSyntax(sortMembers(of: node))
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> DeclSyntax {
         let extName = node.extendedType.description.trimmingCharacters(in: .whitespaces)
-        guard extName == targetName else { return DeclSyntax(node) }
+        guard extName == targetName else { return super.visit(node) }
         notFound = false
         return DeclSyntax(sortMembers(of: node))
     }

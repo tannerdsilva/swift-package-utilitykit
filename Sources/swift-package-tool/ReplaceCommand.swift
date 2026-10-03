@@ -85,6 +85,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
+            guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
             source = source.replacingOccurrences(of: old, with: processedNew)
             return ""
         }
@@ -138,7 +139,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath

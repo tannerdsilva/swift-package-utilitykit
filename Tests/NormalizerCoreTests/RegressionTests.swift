@@ -625,4 +625,125 @@ struct RegressionTests {
         #expect(warnings.first?["line"] as? Int == 2, "reference is on the second comment line: \(out)")
         #expect(warnings.first?["column"] as? Int == 29, "\(out)")
     }
+
+    // MARK: - nested types (bug: rewriters returned non-matching nodes without
+    //           visiting children, so a nested target was never found)
+
+    @Test("add-conformance finds a nested type")
+    func addConformanceFindsNestedType() throws {
+        let source = "struct Outer {\n    struct Inner {}\n}\n"
+        let path = try makeTempFile(source, "nested-conformance.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["add-conformance", path, "--type", "Inner", "--protocol", "Sendable"])
+        #expect(code == 0, "\(out)")
+        let json = parsedJSON(out)
+        #expect(json["modified"] as? Bool == true, "nested type must be found: \(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content.contains("struct Inner : Sendable {}"), "\(content)")
+    }
+
+    @Test("sort finds a nested type")
+    func sortFindsNestedType() throws {
+        let source = "struct Outer {\n    struct Inner {\n        var b = 2\n        var a = 1\n    }\n}\n"
+        let path = try makeTempFile(source, "nested-sort.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["sort", path, "--type", "Inner"])
+        #expect(code == 0, "\(out)")
+        let json = parsedJSON(out)
+        #expect(json["modified"] as? Bool == true, "nested type must be found: \(out)")
+
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        let lines = content.split(separator: "\n").map(String.init)
+        let aIndex = lines.firstIndex { $0.contains("var a") } ?? -1
+        let bIndex = lines.firstIndex { $0.contains("var b") } ?? -1
+        #expect(aIndex >= 0 && bIndex >= 0, "both members must survive: \(content)")
+        #expect(aIndex < bIndex, "members must sort inside the nested type: \(content)")
+    }
+
+    // MARK: - backup reuse (bug: a stale .bak made the second edit fail)
+
+    @Test("--backup works twice on the same file")
+    func backupReplacesStaleBackup() throws {
+        let path = try makeTempFile("let a = 1\n", "backup-twice.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out1, code1) = try runTool(["insert", path, "--content", "let first = 1", "--after", "let a = 1", "--backup"])
+        #expect(code1 == 0, "\(out1)")
+        let (out2, code2) = try runTool(["insert", path, "--content", "let second = 2", "--after", "let first = 1", "--backup"])
+        #expect(code2 == 0, "second run must not fail on the stale backup: \(out2)")
+        #expect(parsedJSON(out2)["modified"] as? Bool == true, "\(out2)")
+
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content.contains("let first = 1"), "\(content)")
+        #expect(content.contains("let second = 2"), "\(content)")
+
+        let backup = try String(contentsOfFile: path + ".bak", encoding: .utf8)
+        #expect(backup.contains("let first = 1"), "backup holds the state before the second edit: \(backup)")
+        #expect(!backup.contains("let second = 2"), "backup must be refreshed, not stale: \(backup)")
+    }
+
+    // MARK: - edit diagnostics (bug: a transform's note was discarded, so a
+    //           no-op edit and a malformed range were both silent)
+
+    @Test("an insert anchor miss reports why nothing changed")
+    func insertAnchorMissReportsNote() throws {
+        let path = try makeTempFile("let a = 1\n", "anchor-miss.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["insert", path, "--content", "let x = 1", "--after", "NOT-THERE"])
+        #expect(code == 0, "\(out)")
+        let json = parsedJSON(out)
+        #expect(json["modified"] as? Bool == false, "\(out)")
+        #expect(json["warning"] as? String == "no line containing 'NOT-THERE' found", "\(out)")
+    }
+
+    @Test("a delete range beyond the file reports why nothing changed")
+    func deleteRangeBeyondEOFReportsNote() throws {
+        let path = try makeTempFile("let a = 1\nlet b = 2\n", "range-miss.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["delete", path, "--lines", "100-200"])
+        #expect(code == 0, "\(out)")
+        let json = parsedJSON(out)
+        #expect(json["modified"] as? Bool == false, "\(out)")
+        #expect(json["warning"] as? String == "line range '100-200' selects no lines", "\(out)")
+    }
+
+    @Test("a malformed --lines range is a usage error, not a silent no-op")
+    func malformedLineRangeIsUsageError() throws {
+        let path = try makeTempFile("let a = 1\n", "range-bad.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["delete", path, "--lines", "garbage"])
+        #expect(code != 0, "malformed range must not exit 0: \(out)")
+        #expect(out.contains("invalid line range"), "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == "let a = 1\n", "file must be untouched: \(content)")
+    }
+
+    @Test("a replace that matches nothing reports why nothing changed")
+    func replaceMissReportsNote() throws {
+        let path = try makeTempFile("let a = 1\n", "replace-miss.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["replace", path, "--old", "NOT-THERE", "--new", "x"])
+        #expect(code == 0, "\(out)")
+        #expect(parsedJSON(out)["warning"] as? String == "no occurrence of 'NOT-THERE' found", "\(out)")
+    }
+
+    @Test("batch reports the same diagnostic for an anchor miss")
+    func batchAnchorMissReportsNote() throws {
+        let target = try makeTempFile("let a = 1\n", "batch-miss.swift")
+        defer { try? FileManager.default.removeItem(atPath: target) }
+        let plan = "{\"operations\":[{\"command\":\"insert\",\"file\":\"\(target)\",\"content\":\"x\",\"after\":\"NOPE\"}]}"
+        let planPath = try makeTempFile(plan, "plan.json")
+        defer { try? FileManager.default.removeItem(atPath: planPath) }
+
+        let (out, code) = try runTool(["batch", planPath])
+        #expect(code == 0, "\(out)")
+        let results = parsedJSON(out)["results"] as? [[String: Any]] ?? []
+        #expect(results.first?["warning"] as? String == "no line containing 'NOPE' found", "\(out)")
+    }
 }

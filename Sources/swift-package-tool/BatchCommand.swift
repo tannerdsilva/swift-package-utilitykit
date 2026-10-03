@@ -157,7 +157,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             let importLine = "import \(module)"
 
             if lines.contains(where: { $0 == importLine || $0.hasPrefix(importLine + " ") }) {
-                return ""
+                return FileEditor.alreadyImported(module)
             }
 
             let importLines = lines.enumerated().filter { $0.element.hasPrefix("import ") }
@@ -208,17 +208,19 @@ struct BatchCommand: ParsableCommand, EditCommand {
             var newLines = lines
 
             if let pattern = op.after {
-                if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
-                    let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                    newLines.insert(contentsOf: [indented], at: idx + 1)
+                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                    return FileEditor.noLineContaining(pattern)
                 }
+                let indent = FileEditor.detectIndent(lines[idx])
+                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                newLines.insert(contentsOf: [indented], at: idx + 1)
             } else if let pattern = op.before {
-                if let idx = lines.firstIndex(where: { $0.contains(pattern) }) {
-                    let indent = FileEditor.detectIndent(lines[idx])
-                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                    newLines.insert(contentsOf: [indented], at: idx)
+                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                    return FileEditor.noLineContaining(pattern)
                 }
+                let indent = FileEditor.detectIndent(lines[idx])
+                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                newLines.insert(contentsOf: [indented], at: idx)
             } else if let line = op.atLine {
                 let idx = max(0, min(line - 1, lines.count))
                 let indent = idx > 0 ? FileEditor.detectIndent(lines[idx - 1]) : ""
@@ -240,6 +242,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
+            guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
             source = source.replacingOccurrences(of: old, with: processedNew)
             return ""
         }
@@ -293,13 +296,18 @@ struct BatchCommand: ParsableCommand, EditCommand {
             var newLines = lines
 
             if let pattern = op.pattern {
-                newLines.removeAll { $0.contains(pattern) }
+                let kept = newLines.filter { !$0.contains(pattern) }
+                guard kept.count != newLines.count else {
+                    return FileEditor.noLineContaining(pattern)
+                }
+                newLines = kept
             } else if let startLine = op.startLine, let endLine = op.endLine {
                 let start = max(0, startLine - 1)
                 let end = min(lines.count, endLine)
-                if start < end {
-                    newLines.removeSubrange(start..<end)
+                guard start < end else {
+                    return FileEditor.rangeSelectsNoLines("\(startLine)-\(endLine)")
                 }
+                newLines.removeSubrange(start..<end)
             } else if let symbol = op.symbol {
                 // Simple line-based removal by symbol name
                 newLines.removeAll { $0.contains(symbol) && !$0.hasPrefix("//") }
@@ -418,7 +426,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath

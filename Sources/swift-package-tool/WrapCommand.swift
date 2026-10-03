@@ -69,7 +69,7 @@ struct WrapCommand: ParsableCommand, EditCommand {
             let startIdx = max(0, startLine - 1)
             let endIdx = min(lines.count, endLine)
 
-            guard startIdx < endIdx else { return source }
+            guard startIdx < endIdx else { return FileEditor.rangeSelectsNoLines(lineRange) }
 
             let wrappedLines = Array(lines[startIdx..<endIdx])
             let baseIndent = FileEditor.detectIndent(lines[startIdx])

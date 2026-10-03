@@ -77,7 +77,7 @@ struct EditResult: Codable, Sendable {
         "modified": { "type": "boolean", "description": "Whether the file changed" },
         "diff":     { "type": ["string", "null"], "description": "Unified diff when shown" },
         "verified": { "type": "boolean", "description": "Whether the edit passed syntactic re-validation" },
-        "warning":  { "type": ["string", "null"], "description": "Verification warning when the write was blocked or forced" }
+        "warning":  { "type": ["string", "null"], "description": "Diagnostic note: why an edit selected nothing, or the verification warning when the write was blocked or forced" }
       },
       "required": ["file", "modified", "verified"]
     }
@@ -98,7 +98,7 @@ enum FileEditor {
         showDiff: Bool,
         outputPath: String,
         force: Bool,
-        transform: (inout String) -> String
+        transform: (inout String) throws -> String
     ) throws -> EditResult {
         let resolved = NSString(string: file).standardizingPath
         guard FileManager.default.fileExists(atPath: resolved) else {
@@ -107,10 +107,16 @@ enum FileEditor {
 
         let original = try String(contentsOfFile: resolved, encoding: .utf8)
         var modified = original
-        let warning = transform(&modified)
+        let transformNote = try transform(&modified)
 
         guard modified != original else {
-            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: nil)
+            // a transform that changed nothing may still have something to say
+            // — an anchor that did not match, a range that selected no lines.
+            // surface it instead of reporting a silent no-op.
+            return EditResult(
+                file: resolved, modified: false, diff: nil, verified: true,
+                warning: transformNote.isEmpty ? nil : transformNote
+            )
         }
 
         // Verify syntactic validity if requested
@@ -145,7 +151,7 @@ enum FileEditor {
 
         // Backup
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try backupFile(resolved)
         }
 
         // Write
@@ -154,6 +160,23 @@ enum FileEditor {
 
         return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: verifyWarning)
     }
+
+    /// copy `path` to `<path>.bak`, replacing any previous backup. a stale
+    /// backup must never block an edit.
+    static func backupFile(_ path: String) throws {
+        let backupPath = path + ".bak"
+        if FileManager.default.fileExists(atPath: backupPath) {
+            try FileManager.default.removeItem(atPath: backupPath)
+        }
+        try FileManager.default.copyItem(atPath: path, toPath: backupPath)
+    }
+
+    // notes a transform returns when it selected nothing. they are surfaced as
+    // the result's `warning` so a no-op edit is never silent.
+    static func noLineContaining(_ pattern: String) -> String { "no line containing '\(pattern)' found" }
+    static func noOccurrenceOf(_ text: String) -> String { "no occurrence of '\(text)' found" }
+    static func alreadyImported(_ module: String) -> String { "module '\(module)' already imported" }
+    static func rangeSelectsNoLines(_ range: String) -> String { "line range '\(range)' selects no lines" }
 
     /// Generate a simple unified diff between two strings.
     static func makeDiff(original: String, modified: String) -> String {

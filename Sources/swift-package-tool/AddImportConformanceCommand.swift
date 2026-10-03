@@ -50,9 +50,9 @@ struct AddImportCommand: ParsableCommand, EditCommand {
             let lines = source.components(separatedBy: "\n")
             let importLine = "import \(module)"
 
-            // Skip if already present
+            // Skip if already present — report it instead of a silent no-op
             if lines.contains(where: { $0 == importLine || $0.hasPrefix(importLine + " ") }) {
-                return ""
+                return FileEditor.alreadyImported(module)
             }
 
             // Find existing imports
@@ -187,7 +187,7 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
         }
 
         if backup {
-            try FileManager.default.copyItem(atPath: resolved, toPath: resolved + ".bak")
+            try FileEditor.backupFile(resolved)
         }
 
         let target = outputPath.isEmpty ? resolved : outputPath
@@ -212,28 +212,28 @@ class AddConformanceRewriter: SyntaxRewriter {
     }
 
     override func visit(_ node: StructDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         return DeclSyntax(addConformance(to: node))
     }
 
     override func visit(_ node: ClassDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         return DeclSyntax(addConformance(to: node))
     }
 
     override func visit(_ node: EnumDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         return DeclSyntax(addConformance(to: node))
     }
 
     override func visit(_ node: ProtocolDeclSyntax) -> DeclSyntax {
-        guard node.name.text == targetName else { return DeclSyntax(node) }
+        guard node.name.text == targetName else { return super.visit(node) }
         return DeclSyntax(addConformance(to: node))
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> DeclSyntax {
         let extName = node.extendedType.description.trimmingCharacters(in: .whitespaces)
-        guard extName == targetName else { return DeclSyntax(node) }
+        guard extName == targetName else { return super.visit(node) }
         return DeclSyntax(addConformance(to: node))
     }
 
