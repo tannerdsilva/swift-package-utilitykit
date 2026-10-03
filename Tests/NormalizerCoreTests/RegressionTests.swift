@@ -507,4 +507,48 @@ struct RegressionTests {
         #expect(minified.contains("first\n\n\nafter"), "blank lines inside the literal collapsed: \(minified)")
     }
 
+    // MARK: - utf-8 byte offsets in edits (bug: byte offsets were used as
+    //           character indices — a trap, or a silently misplaced edit)
+
+    @Test("add-member does not trap on files with multi-byte characters")
+    func addMemberWithMultibyteCharacters() throws {
+        let source = "// éééé\nstruct Foo {\n    let a = 1\n}\n"
+        let path = try makeTempFile(source, "add-member-unicode.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
+        #expect(code == 0, "must not trap: \(out)")
+        let json = parsedJSON(out)
+        #expect(json["modified"] as? Bool == true)
+        #expect(json["verified"] as? Bool == true)
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == "// éééé\nstruct Foo {\n    let a = 1\n\n    var b: Int\n}\n")
+    }
+
+    @Test("add-member keeps the member inside the type when bytes shift the offset")
+    func addMemberStaysInsideTheType() throws {
+        // 17 two-byte characters shift the closing brace 17 characters; the
+        // old math landed inside the next declaration and wrote there
+        let source = "// " + String(repeating: "é", count: 17) + "\n"
+            + "struct Foo {\n    let a = 1\n}\nstruct Bar {}\nstruct Baz {}\n"
+        let path = try makeTempFile(source, "add-member-shift.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
+        #expect(code == 0, "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content.contains("    let a = 1\n\n    var b: Int\n}"), "member must land inside Foo: \(content)")
+        #expect(content.contains("}\nstruct Bar {}\nstruct Baz {}\n"), "other declarations must stay intact: \(content)")
+    }
+
+    @Test("force-unwraps does not trap on files with multi-byte characters")
+    func forceUnwrapsWithMultibyteCharacters() throws {
+        let source = "// " + String(repeating: "é", count: 60) + "\nlet x = maybe()!\n"
+        let path = try makeTempFile(source, "force-unwrap-unicode.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["force-unwraps", path, "--output-format", "json"])
+        #expect(code == 0, "must not trap: \(out)")
+        #expect(out.contains("maybe()!"), "context snippet must include the finding: \(out)")
+    }
 }

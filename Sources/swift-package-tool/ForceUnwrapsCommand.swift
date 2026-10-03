@@ -168,10 +168,12 @@ class ForceUnwrapCollector: SyntaxVisitor {
         return .visitChildren
     }
 
-    /// extract a 120-char snippet of source text around the given offset.
-    private func extractSnippet(at offset: Int) -> String {
-        let start = source.index(source.startIndex, offsetBy: max(0, offset - 20))
-        let end = source.index(source.startIndex, offsetBy: min(source.count, offset + 100))
+    /// extract a snippet of source text around the given byte offset. the
+    /// window clamps to the string and rounds down to character boundaries,
+    /// so multi-byte text near either edge is safe.
+    private func extractSnippet(at byteOffset: Int) -> String {
+        let start = utf8Index(byteOffset - 20, in: source)
+        let end = utf8Index(byteOffset + 100, in: source)
         return String(source[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

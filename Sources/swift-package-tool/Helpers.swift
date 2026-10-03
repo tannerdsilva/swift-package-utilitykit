@@ -92,6 +92,22 @@ public func lineColumn(at offset: Int, in source: String) -> (line: Int, column:
     return (line, col)
 }
 
+/// convert a utf-8 byte offset (the unit swift-syntax positions use) into a
+/// `String.Index`. offsets past the end clamp to `endIndex`; an offset that
+/// splits a multi-byte character rounds down to the nearest boundary.
+///
+/// character-based `index(_:offsetBy:)` must never be used with a byte offset:
+/// it misplaces the edit — or traps with "String index is out of bounds" — as
+/// soon as the text contains a multi-byte character.
+func utf8Index(_ offset: Int, in source: String) -> String.Index {
+    let clamped = min(max(offset, 0), source.utf8.count)
+    var idx = source.utf8.index(source.utf8.startIndex, offsetBy: clamped)
+    while idx > source.startIndex, idx.samePosition(in: source) == nil {
+        idx = source.utf8.index(before: idx)
+    }
+    return idx
+}
+
 // MARK: - output helpers
 
 /// write a string to a file path, or print to stdout if path is empty.

@@ -112,9 +112,11 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
             return
         }
 
-        // Find the closing brace position
-        let blockEndOffset = memberBlock.rightBrace.position.utf8Offset
-        let blockEndIdx = source.index(source.startIndex, offsetBy: blockEndOffset)
+        // find the closing brace position. syntax positions are utf-8 byte
+        // offsets; character-based indexing would misplace the insert — or
+        // trap — on any file with multi-byte characters.
+        let blockEndOffset = memberBlock.rightBrace.positionAfterSkippingLeadingTrivia.utf8Offset
+        let blockEndIdx = utf8Index(blockEndOffset, in: source)
 
         // Find the indentation of existing members
         let lines = source.components(separatedBy: "\n")
