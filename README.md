@@ -366,6 +366,32 @@ swift run git-metadata-tool --print --repo .
 | no git, no repo | not an error: the tool renders `nil` fields and `--version` falls back to the plain version |
 | as a dependency | the plugin is published as a product, so another package can attach it to any target and read `GitProvenance` (this repo's consumer is `Sources/swift-package-tool/AppVersion.swift`) |
 
+a consumer attaches it the same way this package does — and the metadata then
+describes the **consumer's** checkout, not this one:
+
+```swift
+// Package.swift — a consumer (verified from an external path dependency)
+import PackageDescription
+
+let package = Package(
+    name: "App",
+    platforms: [.macOS(.v15)],   // required: the plugin product inherits this package's minimum
+    dependencies: [
+        .package(url: "https://github.com/tannerdsilva/swift-package-utilitykit", from: "1.0.0"),
+    ],
+    targets: [
+        .executableTarget(
+            name: "App",
+            plugins: [.plugin(name: "GitMetadataPlugin", package: "swift-package-utilitykit")]
+        ),
+    ]
+)
+```
+
+`GitProvenance.shortCommitHash`, `.isDirty`, `.branch`, and friends are then in
+scope inside that target, and the plugin re-runs when the *consumer's*
+repository changes.
+
 ## Harness adapters — the Hermes plugin
 
 The ``hermes-plugin/`` directory is the repo's shipped harness adapter: a
