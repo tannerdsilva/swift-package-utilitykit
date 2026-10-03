@@ -132,6 +132,35 @@ struct FormatResult: Codable, Sendable {
     private func minifySource(_ source: String, filePath: String, preserveComments: Bool) throws -> String {
         let tree = Parser.parse(source: source)
         var result = ""
+        var length = 0
+        // character ranges the whitespace cleanup must leave alone: the
+        // interior of a multi-line string literal is part of its value, not
+        // formatting.
+        var verbatimRanges: [Range<Int>] = []
+
+        // append text, tracking the character offset needed to record the
+        // verbatim ranges below
+        func emit(_ text: String) {
+            result += text
+            length += text.count
+        }
+
+        // append text the whitespace cleanup must not touch
+        func emitVerbatim(_ text: String) {
+            verbatimRanges.append(length..<(length + text.count))
+            emit(text)
+        }
+
+        // true for tokens whose text must survive the whitespace cleanup
+        // verbatim: string-literal segments carry the literal's content
+        // (including its final line, which has no trailing newline), and any
+        // other token that spans lines does too.
+        func hasWhitespaceSignificantText(_ token: TokenSyntax) -> Bool {
+            switch token.tokenKind {
+            case .stringSegment: return true
+            default: return token.text.contains("\n")
+            }
+        }
 
         var lastToken: TokenSyntax? = nil
         for token in tree.statements.tokens(viewMode: .sourceAccurate) {
@@ -199,45 +228,51 @@ struct FormatResult: Codable, Sendable {
             }
 
             if !commentPrefix.isEmpty {
-                result += commentPrefix
+                emit(commentPrefix)
             }
 
             // add separator
             if needsNewline {
-                result += "\n"
+                emit("\n")
             } else if needsSpace && !result.isEmpty && !result.hasSuffix("\n") {
-                result += " "
+                emit(" ")
             }
 
-            // append the token text
-            result += token.text
+            // append the token text. string-literal content is emitted
+            // verbatim and protected from the whitespace cleanup below — its
+            // whitespace is part of the value, not formatting.
+            if hasWhitespaceSignificantText(token) {
+                emitVerbatim(token.text)
+            } else {
+                emit(token.text)
+            }
 
             // handle comments from trailing trivia
             for piece in trailingTrivia {
                 switch piece {
                 case .docLineComment(let text):
                     if preserveComments {
-                        result += " " + text + "\n"
+                        emit(" " + text + "\n")
                     } else {
-                        result += " /// comment invisible\n"
+                        emit(" /// comment invisible\n")
                     }
                 case .docBlockComment(let text):
                     if preserveComments {
-                        result += " " + text + "\n"
+                        emit(" " + text + "\n")
                     } else {
-                        result += " /// comment invisible\n"
+                        emit(" /// comment invisible\n")
                     }
                 case .lineComment(let text):
                     if preserveComments {
-                        result += " " + text + "\n"
+                        emit(" " + text + "\n")
                     } else {
-                        result += " // comment invisible\n"
+                        emit(" // comment invisible\n")
                     }
                 case .blockComment(let text):
                     if preserveComments {
-                        result += " " + text + "\n"
+                        emit(" " + text + "\n")
                     } else {
-                        result += " /* comment invisible */\n"
+                        emit(" /* comment invisible */\n")
                     }
                 default:
                     break
@@ -247,17 +282,9 @@ struct FormatResult: Codable, Sendable {
             lastToken = token
         }
 
-        // clean up: collapse runs of newlines to at most one
-        var cleaned = result
-        // remove leading/trailing whitespace per line
-        cleaned = cleaned.split(separator: "\n", omittingEmptySubsequences: false).map { line in
-            line.trimmingCharacters(in: .whitespaces)
-        }.joined(separator: "\n")
-
-        // collapse 3+ newlines to 2 (one blank line between top-level decls)
-        while cleaned.contains("\n\n\n") {
-            cleaned = cleaned.replacingOccurrences(of: "\n\n\n", with: "\n\n")
-        }
+        // clean up: strip per-line whitespace and collapse blank-line runs,
+        // leaving the protected (verbatim) ranges untouched
+        var cleaned = cleanWhitespace(result, keepingVerbatim: verbatimRanges)
 
         // ensure exactly one trailing newline
         if !cleaned.hasSuffix("\n") {
@@ -265,5 +292,61 @@ struct FormatResult: Codable, Sendable {
         }
 
         return cleaned
+    }
+
+    /// strips leading/trailing whitespace from every output line and collapses
+    /// runs of three or more newlines to two, leaving `ranges` untouched.
+    ///
+    /// the ranges protect text whose whitespace is semantic — the interior
+    /// lines of multi-line string literals — so minification can never change
+    /// a string's value.
+    private func cleanWhitespace(_ text: String, keepingVerbatim ranges: [Range<Int>]) -> String {
+        var out = ""
+        var offset = 0
+        var nextRange = ranges.startIndex
+        var atLineStart = true
+        var pendingWhitespace = ""
+        var newlineRun = 0
+
+        func flushPending() {
+            out += pendingWhitespace
+            pendingWhitespace = ""
+        }
+
+        for ch in text {
+            while nextRange < ranges.endIndex, offset >= ranges[nextRange].upperBound {
+                nextRange += 1
+            }
+            let isVerbatim = nextRange < ranges.endIndex && ranges[nextRange].contains(offset)
+
+            if isVerbatim {
+                flushPending()
+                out.append(ch)
+                atLineStart = ch == "\n"
+                newlineRun = ch == "\n" ? newlineRun + 1 : 0
+            } else if ch == "\n" {
+                // trailing whitespace before a newline is dropped
+                pendingWhitespace = ""
+                if newlineRun < 2 {
+                    out.append(ch)
+                    newlineRun += 1
+                }
+                atLineStart = true
+            } else if ch == " " || ch == "\t" {
+                // leading whitespace is dropped; interior whitespace is held
+                // until we know the line continues
+                if !atLineStart {
+                    pendingWhitespace.append(ch)
+                }
+            } else {
+                flushPending()
+                out.append(ch)
+                atLineStart = false
+                newlineRun = 0
+            }
+            offset += 1
+        }
+
+        return out
     }
 }

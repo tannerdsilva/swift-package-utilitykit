@@ -475,4 +475,36 @@ struct RegressionTests {
         #expect(content == "/* comment invisible */ let x = 1\n")
     }
 
+    // MARK: - format --minify string-literal safety (bug: the whole-string
+    //           cleanup ran inside multi-line literals, changing values)
+
+    @Test("format --minify preserves whitespace inside multi-line string literals")
+    func formatMinifyPreservesMultilineString() throws {
+        let source = "let s = \"\"\"\n    line1\n        indented\n        deepLast\n    keep   \n    \"\"\"\nprint(s)\n"
+        let path = try makeTempFile(source, "minify-string.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["format", path, "--minify"])
+        #expect(code == 0, "\(out)")
+        let minified = try String(contentsOfFile: path, encoding: .utf8)
+        // the closing delimiter is dedented to column 0, so preserved interior
+        // whitespace is exactly the literal's value: relative indentation on a
+        // middle line, on the last content line, and trailing spaces.
+        #expect(minified.contains("\n    indented\n"), "interior indentation lost: \(minified)")
+        #expect(minified.contains("\n    deepLast\n"), "last content line indentation lost: \(minified)")
+        #expect(minified.contains("keep   \n"), "trailing spaces inside the literal lost: \(minified)")
+    }
+
+    @Test("format --minify preserves blank lines inside multi-line string literals")
+    func formatMinifyPreservesStringBlankLines() throws {
+        let source = "let a = \"\"\"\n    first\n\n\n    after\n    \"\"\"\n"
+        let path = try makeTempFile(source, "minify-string-blanks.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["format", path, "--minify"])
+        #expect(code == 0, "\(out)")
+        let minified = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(minified.contains("first\n\n\nafter"), "blank lines inside the literal collapsed: \(minified)")
+    }
+
 }
