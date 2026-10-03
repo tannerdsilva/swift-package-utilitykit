@@ -227,4 +227,43 @@ struct NormalizerTests {
 		let out = Normalizer.hideComments(in: "   ")
 		#expect(out == "   ")
 	}
+
+	// MARK: - hide-comments safety (bug: any line containing /* was rewritten)
+
+	@Test("hideComments leaves code containing a block-comment opener unchanged")
+	func hideCommentsLeavesCodeWithOpener() {
+		let line = "    let glob = \"Sources/*.swift\""
+		#expect(Normalizer.hideComments(in: line) == line)
+	}
+
+	@Test("hideComments leaves code containing a block-comment closer unchanged")
+	func hideCommentsLeavesCodeWithCloser() {
+		let line = "    let pattern = \"a*/b\""
+		#expect(Normalizer.hideComments(in: line) == line)
+	}
+
+	@Test("hideComments keeps code after a same-line block comment")
+	func hideCommentsKeepsCodeAfterBlockComment() {
+		let out = Normalizer.hideComments(in: "/* note */ let x = 1")
+		#expect(out == "/* comment invisible */ let x = 1")
+	}
+
+	@Test("hideComments hides the interior of a multi-line block comment")
+	func hideCommentsHidesBlockInterior() {
+		var inBlock = false
+		let out = ["/* first", "   second", "   third */", "let y = 2"]
+			.map { Normalizer.hideComments(in: $0, inBlock: &inBlock) }
+		#expect(out == [
+			"/* comment invisible",
+			"   * comment invisible",
+			"   comment invisible */",
+			"let y = 2",
+		])
+	}
+
+	@Test("minified normalize hides multi-line block comment interiors")
+	func minifiedHidesMultilineBlockComment() {
+		let out = Normalizer.normalize("/* first\n   second\n   third */\nlet y = 2\n", options: .minified)
+		#expect(out == "/* comment invisible\n* comment invisible\ncomment invisible */\nlet y = 2\n")
+	}
 }

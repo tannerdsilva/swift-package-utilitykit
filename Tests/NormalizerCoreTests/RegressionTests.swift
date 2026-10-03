@@ -8,6 +8,7 @@ import Foundation
 struct RegressionTests {
 
     let binaryPath: String
+    let normalizerPath: String
     let packageDir: String
 
     init() throws {
@@ -17,6 +18,8 @@ struct RegressionTests {
             .deletingLastPathComponent()
         binaryPath = pkgDir
             .appendingPathComponent(".build/debug/swift-package-tool").path
+        normalizerPath = pkgDir
+            .appendingPathComponent(".build/debug/normalizer-tool").path
         packageDir = pkgDir.path
     }
 
@@ -25,12 +28,13 @@ struct RegressionTests {
     /// run the binary; returns (stdout+stderr, exit code).
     private func runTool(
         _ args: [String],
+        binary: String? = nil,
         cwd: String? = nil,
         env: [String: String]? = nil,
         stdin: String? = nil
     ) throws -> (output: String, exitCode: Int32) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.executableURL = URL(fileURLWithPath: binary ?? binaryPath)
         process.arguments = args
         if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         var mergedEnv = ProcessInfo.processInfo.environment
@@ -431,4 +435,44 @@ struct RegressionTests {
         #expect(FileManager.default.fileExists(atPath: "\(pluginDir)/swift-package-utilitykit/plugin.yaml"), "plugin must be untouched without --plugins-dir")
         #expect(out.contains("Skipping adapter plugin removal"), "uninstall should report the skip: \(out)")
     }
+
+    // MARK: - hide-comments safety (bug: any code line containing /* was
+    //           rewritten — a glob string could lose its whole declaration)
+
+    @Test("normalizer --minify keeps code lines containing /* inside strings")
+    func minifyKeepsGlobStrings() throws {
+        let source = "let glob = \"Sources/*.swift\"\nlet x = 1\n"
+        let path = try makeTempFile(source, "hide-code.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        #expect(code == 0, "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == source, "minify must not touch code lines: \(content)")
+    }
+
+    @Test("normalizer --minify hides multi-line block comment interiors")
+    func minifyHidesBlockCommentInterior() throws {
+        let source = "/* secret one\n   secret two\n   secret three */\nlet y = 2\n"
+        let path = try makeTempFile(source, "hide-block.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        #expect(code == 0, "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == "/* comment invisible\n* comment invisible\ncomment invisible */\nlet y = 2\n", "interior comment content must be hidden: \(content)")
+    }
+
+    @Test("normalizer --minify keeps code after a same-line block comment")
+    func minifyKeepsCodeAfterBlockComment() throws {
+        let source = "/* note */ let x = 1\n"
+        let path = try makeTempFile(source, "hide-mixed.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        #expect(code == 0, "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == "/* comment invisible */ let x = 1\n")
+    }
+
 }

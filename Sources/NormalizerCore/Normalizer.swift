@@ -20,9 +20,11 @@ public enum Normalizer {
             lines = collapseBlankLines(lines)
         }
 
-        // apply comment mode
+        // apply comment mode. block-comment state is carried across lines so
+        // the interior lines of a multi-line `/* ... */` are hidden too.
         if options.commentMode == .hide {
-            lines = lines.map { hideComments(in: $0) }
+            var inBlock = false
+            lines = lines.map { hideComments(in: $0, inBlock: &inBlock) }
         }
 
         if lines.isEmpty {
@@ -140,48 +142,55 @@ public enum Normalizer {
     /// handles three comment kinds:
     ///   - docc comments (`///`)
     ///   - line comments (`//`)
-    ///   - block comments (`/* ... */`)
+    ///   - block comments (`/* ... */`), including multi-line blocks whose
+    ///     interior lines carry no markers of their own
     ///
-    /// a simple line-based heuristic is used: lines that start with `//`,
-    /// `///`, or contain `/*` are treated as comments. this is not
-    /// AST-perfect (it can't distinguish `//` inside a string literal),
-    /// but it is safe — it never removes content, only replaces it with
-    /// a placeholder.
-    static func hideComments(in line: String) -> String {
+    /// only a line whose first non-whitespace characters open a comment is
+    /// treated as one: a `/*` appearing later on a line (a glob or url inside
+    /// a string literal) never triggers hiding, and code that follows a
+    /// comment on the same line survives verbatim. `inBlock` carries the
+    /// multi-line block state across lines, so callers must thread it through
+    /// their line loop (see `normalize`).
+    static func hideComments(in line: String, inBlock: inout Bool) -> String {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return line }
+        let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
 
-        // detect comment lines
+        if inBlock {
+            guard let closeRange = trimmed.range(of: "*/") else {
+                return indent + "* comment invisible"
+            }
+            inBlock = false
+            return indent + "comment invisible */" + String(trimmed[closeRange.upperBound...])
+        }
+
         if trimmed.hasPrefix("///") {
-            // docc comment — preserve indentation, replace content
-            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
             return indent + "/// comment invisible"
         }
 
         if trimmed.hasPrefix("//") {
-            // line comment — preserve indentation, replace content
-            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
             return indent + "// comment invisible"
         }
 
-        // block comments: detect lines that are part of a /* */ block.
-        // a line containing /* or */ or entirely inside a block comment.
-        if trimmed.hasPrefix("/*") || trimmed.hasSuffix("*/") || trimmed.contains("/*") || trimmed.contains("*/") {
-            let indent = String(line.prefix(line.count - line.drop(while: { $0 == " " || $0 == "\t" }).count))
-            // check if this is a single-line block comment
-            if trimmed.hasPrefix("/*") && trimmed.hasSuffix("*/") {
-                return indent + "/* comment invisible */"
-            }
-            if trimmed.hasPrefix("/*") {
+        if trimmed.hasPrefix("/*") {
+            let body = trimmed.dropFirst(2)
+            guard let closeRange = body.range(of: "*/") else {
+                inBlock = true
                 return indent + "/* comment invisible"
             }
-            if trimmed.hasSuffix("*/") {
-                return indent + "comment invisible */"
-            }
-            return indent + "* comment invisible"
+            // single-line block comment: keep whatever follows it on the line
+            return indent + "/* comment invisible */" + String(body[closeRange.upperBound...])
         }
 
         return line
+    }
+
+    /// state-free convenience for a single line. a block comment that spans
+    /// multiple lines needs the stateful variant, which `normalize` threads
+    /// through its line loop.
+    static func hideComments(in line: String) -> String {
+        var inBlock = false
+        return hideComments(in: line, inBlock: &inBlock)
     }
 
     // MARK: - blank-line collapse
