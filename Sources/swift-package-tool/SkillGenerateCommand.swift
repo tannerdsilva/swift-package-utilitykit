@@ -282,7 +282,7 @@ final class EnclosingContextCollector: SyntaxVisitor {
     }
 
     private func record(_ node: some DeclSyntaxProtocol) {
-        let (line, _) = lineColumn(at: node.position.utf8Offset, in: source)
+        let (line, _) = lineColumn(at: node.positionAfterSkippingLeadingTrivia.utf8Offset, in: source)
         contexts[line] = stack
     }
 

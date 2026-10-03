@@ -200,7 +200,7 @@ class ComplexityCollector: SyntaxVisitor {
         else if currentScore <= 20 { rating = "complex" }
         else { rating = "very_complex" }
 
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         items.append(ComplexityItem(
             name: currentName, file: filePath, line: line, column: col,
@@ -217,7 +217,7 @@ class ComplexityCollector: SyntaxVisitor {
         else if currentScore <= 20 { rating = "complex" }
         else { rating = "very_complex" }
 
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         items.append(ComplexityItem(
             name: currentName, file: filePath, line: line, column: col,

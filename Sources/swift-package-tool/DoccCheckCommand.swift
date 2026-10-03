@@ -54,13 +54,15 @@ struct DoccCheckCommand: ParsableCommand {
 
         try validateInputPathsExist(paths)
 
-        // First pass: collect all known declaration names
+        // first pass: collect all known declaration names, every file's source
+        // (needed to locate references), and the docc comments themselves
         var knownSymbols = Set<String>()
-        // Also collect file-level docc comments (not attached to a specific decl)
-        var fileDoccComments: [(file: String, line: Int, comment: String)] = []
+        var sourcesByFile: [String: String] = [:]
+        var fileDoccComments: [(file: String, utf8Offset: Int, comment: String)] = []
 
         for filePath in files.sorted() {
             guard let source = readSwiftSource(filePath) else { continue }
+            sourcesByFile[filePath] = source
             let tree = Parser.parse(source: source)
 
             // Collect all declaration names
@@ -71,27 +73,29 @@ struct DoccCheckCommand: ParsableCommand {
             }
 
             // Collect docc comments from the source file's trivia
-            let doccCollector = DoccCommentCollector(filePath: filePath, source: source)
+            let doccCollector = DoccCommentCollector(filePath: filePath)
             doccCollector.walk(tree)
             fileDoccComments.append(contentsOf: doccCollector.comments)
         }
 
-        // Second pass: check each docc comment for invalid symbol references
+        // second pass: check each docc comment for invalid symbol references.
+        // the warning points at the reference itself — its own line and column
+        // — not at the declaration the comment is attached to.
         var warnings: [DoccWarning] = []
 
-        for (file, line, comment) in fileDoccComments {
-            let refs = extractSymbolReferences(from: comment)
-            for ref in refs {
-                if !knownSymbols.contains(ref) {
-                    warnings.append(DoccWarning(
-                        file: file,
-                        line: line,
-                        column: comment.distance(from: comment.startIndex, to: comment.range(of: ref)?.lowerBound ?? comment.startIndex) + 1,
-                        severity: "warning",
-                        message: "Invalid docc symbol reference '\(ref)' — no matching declaration found in project",
-                        referencedSymbol: ref
-                    ))
-                }
+        for (file, pieceOffset, comment) in fileDoccComments {
+            guard let source = sourcesByFile[file] else { continue }
+            for ref in extractSymbolReferences(from: comment) {
+                if knownSymbols.contains(ref) { continue }
+                let (line, column) = lineColumn(at: pieceOffset + utf8Offset(of: ref, in: comment), in: source)
+                warnings.append(DoccWarning(
+                    file: file,
+                    line: line,
+                    column: column,
+                    severity: "warning",
+                    message: "Invalid docc symbol reference '\(ref)' — no matching declaration found in project",
+                    referencedSymbol: ref
+                ))
             }
         }
 
@@ -266,31 +270,37 @@ class DeclarationNameCollector: SyntaxVisitor {
     }
 }
 
-/// collect docc comments from a syntax tree, tracking their file and line.
+/// collect docc comments from a syntax tree. each entry carries the byte
+/// offset where its piece starts: a token's `position` includes leading
+/// trivia, so the first piece starts exactly there and every following piece
+/// advances by its own source length.
 class DoccCommentCollector: SyntaxVisitor {
     let filePath: String
-    let source: String
-    var comments: [(file: String, line: Int, comment: String)] = []
+    var comments: [(file: String, utf8Offset: Int, comment: String)] = []
 
-    init(filePath: String, source: String) {
+    init(filePath: String) {
         self.filePath = filePath
-        self.source = source
         super.init(viewMode: .sourceAccurate)
     }
 
     override func visit(_ node: TokenSyntax) -> SyntaxVisitorContinueKind {
-        let trivia = node.leadingTrivia
-        for piece in trivia {
+        var cursor = node.position.utf8Offset
+        for piece in node.leadingTrivia {
             switch piece {
             case .docLineComment(let text),
                  .docBlockComment(let text):
-                let pos = node.position.utf8Offset
-                let (line, _) = lineColumn(at: pos, in: source)
-                comments.append((file: filePath, line: line, comment: text))
+                comments.append((file: filePath, utf8Offset: cursor, comment: text))
             default:
                 break
             }
+            cursor += piece.sourceLength.utf8Length
         }
         return .visitChildren
     }
+}
+
+/// byte offset of the first occurrence of `ref` inside `comment`.
+private func utf8Offset(of ref: String, in comment: String) -> Int {
+    guard let range = comment.range(of: ref) else { return 0 }
+    return comment.utf8.distance(from: comment.startIndex, to: range.lowerBound)
 }

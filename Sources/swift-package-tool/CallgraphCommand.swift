@@ -198,7 +198,7 @@ class CallEdgeCollector: SyntaxVisitor {
                 if !calleeName.isEmpty {
                     let resolved = knownFunctions.contains(calleeName)
                     if resolved || includeUnknown {
-                        let pos = call.position.utf8Offset
+                        let pos = call.positionAfterSkippingLeadingTrivia.utf8Offset
                         let (line, col) = lineColumn(at: pos, in: source)
                         edges.append(CallEdge(
                             caller: currentFunction,

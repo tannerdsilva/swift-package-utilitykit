@@ -119,7 +119,7 @@ class ForceUnwrapCollector: SyntaxVisitor {
 
     /// forced unwrap: `x!`
     override func visit(_ node: ForceUnwrapExprSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let snippet = extractSnippet(at: pos)
         items.append(ForceUnwrapItem(
@@ -132,7 +132,7 @@ class ForceUnwrapCollector: SyntaxVisitor {
     /// forced try: `try! expr`
     override func visit(_ node: TryExprSyntax) -> SyntaxVisitorContinueKind {
         guard node.questionOrExclamationMark?.text == "!" else { return .visitChildren }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let snippet = extractSnippet(at: pos)
         items.append(ForceUnwrapItem(
@@ -145,7 +145,7 @@ class ForceUnwrapCollector: SyntaxVisitor {
     /// forced cast: `expr as! Type`
     override func visit(_ node: AsExprSyntax) -> SyntaxVisitorContinueKind {
         guard node.questionOrExclamationMark?.text == "!" else { return .visitChildren }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let snippet = extractSnippet(at: pos)
         items.append(ForceUnwrapItem(
@@ -158,7 +158,7 @@ class ForceUnwrapCollector: SyntaxVisitor {
     /// forced cast via unresolved as-expression (initial parse form)
     override func visit(_ node: UnresolvedAsExprSyntax) -> SyntaxVisitorContinueKind {
         guard node.questionOrExclamationMark?.text == "!" else { return .visitChildren }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let snippet = extractSnippet(at: pos)
         items.append(ForceUnwrapItem(

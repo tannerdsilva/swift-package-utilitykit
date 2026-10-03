@@ -132,7 +132,7 @@ class ConformanceCollector: SyntaxVisitor {
     public override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         let inherits = extractConformances(from: node)
         if !inherits.isEmpty {
-            let pos = node.position.utf8Offset
+            let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
             let (line, _) = lineColumn(at: pos, in: source)
             add(name: node.name.text, kind: "struct", line: line, inherits: inherits, source: "declaration")
         }
@@ -142,7 +142,7 @@ class ConformanceCollector: SyntaxVisitor {
     public override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         let inherits = extractConformances(from: node)
         if !inherits.isEmpty {
-            let pos = node.position.utf8Offset
+            let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
             let (line, _) = lineColumn(at: pos, in: source)
             add(name: node.name.text, kind: "class", line: line, inherits: inherits, source: "declaration")
         }
@@ -152,7 +152,7 @@ class ConformanceCollector: SyntaxVisitor {
     public override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
         let inherits = extractConformances(from: node)
         if !inherits.isEmpty {
-            let pos = node.position.utf8Offset
+            let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
             let (line, _) = lineColumn(at: pos, in: source)
             add(name: node.name.text, kind: "enum", line: line, inherits: inherits, source: "declaration")
         }
@@ -162,7 +162,7 @@ class ConformanceCollector: SyntaxVisitor {
     public override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
         let inherits = extractConformances(from: node)
         if !inherits.isEmpty {
-            let pos = node.position.utf8Offset
+            let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
             let (line, _) = lineColumn(at: pos, in: source)
             add(name: node.name.text, kind: "protocol", line: line, inherits: inherits, source: "declaration")
         }
@@ -173,7 +173,7 @@ class ConformanceCollector: SyntaxVisitor {
         guard includeExtensions else { return .visitChildren }
         let inherits = extractConformances(from: node)
         if !inherits.isEmpty {
-            let pos = node.position.utf8Offset
+            let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
             let (line, _) = lineColumn(at: pos, in: source)
             let name = node.extendedType.description.trimmingCharacters(in: CharacterSet.whitespaces)
             add(name: name, kind: "extension", line: line, inherits: inherits, source: "extension")

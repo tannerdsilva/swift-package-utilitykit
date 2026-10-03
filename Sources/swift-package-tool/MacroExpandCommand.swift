@@ -116,7 +116,7 @@ class MacroExpansionCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: MacroExpansionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let args = node.arguments.map { arg in
             let label = arg.label?.text ?? ""
@@ -133,7 +133,7 @@ class MacroExpansionCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let args = node.arguments.map { arg in
             let label = arg.label?.text ?? ""

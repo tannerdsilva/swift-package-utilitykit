@@ -79,17 +79,25 @@ public func validateInputPathsExist(_ paths: [String]) throws {
 
 // MARK: - location helpers
 
-/// convert a utf-8 offset in source text to 1-based line and column.
+/// convert a utf-8 byte offset (the unit swift-syntax positions use) into a
+/// 1-based line and column. the column counts characters, not bytes, so it
+/// matches what an editor (or an agent reading the line) counts.
 public func lineColumn(at offset: Int, in source: String) -> (line: Int, column: Int) {
-    guard offset >= 0, offset <= source.utf8.count else { return (1, 1) }
+    let clamped = min(max(offset, 0), source.utf8.count)
     var line = 1
-    var col = 1
-    for (i, byte) in source.utf8.enumerated() {
-        if i == offset { break }
-        if byte == UInt8(ascii: "\n") { line += 1; col = 1 }
-        else { col += 1 }
+    var column = 1
+    var cursor = 0
+    for character in source {
+        if cursor >= clamped { break }
+        if character == "\n" {
+            line += 1
+            column = 1
+        } else {
+            column += 1
+        }
+        cursor += character.utf8.count
     }
-    return (line, col)
+    return (line, column)
 }
 
 /// convert a utf-8 byte offset (the unit swift-syntax positions use) into a

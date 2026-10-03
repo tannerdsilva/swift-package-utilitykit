@@ -258,9 +258,9 @@ Output is a JSON array of `DeclarationInfo` objects:
   "name": "normalize",
   "kind": "function",
   "file": "Sources/NormalizerCore/Normalizer.swift",
-  "line": 4,
-  "column": 25,
-  "offset": 102,
+  "line": 10,
+  "column": 5,
+  "offset": 305,
   "signature": "func normalize(_ input: String, options: NormalizationOptions) -> String",
   "docComment": "/// normalizes `input` according to `options`.",
   "modifiers": ["public", "static"]

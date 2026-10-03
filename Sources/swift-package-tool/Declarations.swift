@@ -133,7 +133,7 @@ public class SymbolFinder: SyntaxVisitor {
     private func check(_ node: some DeclSyntaxProtocol) {
         guard let name = declarationName(from: node), name == targetName else { return }
         let kind = kindString(for: node)
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let sig = signatureString(for: node)
         let doc = extractDocComment(from: node.leadingTrivia)

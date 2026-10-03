@@ -217,7 +217,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -230,7 +230,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -243,7 +243,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -256,7 +256,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -269,7 +269,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -282,7 +282,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -295,7 +295,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         for binding in node.bindings {
             let name = binding.pattern.description
@@ -312,7 +312,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -327,7 +327,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     // MARK: - missing declaration types (init, deinit, subscript, extension, macro, operator, precedencegroup)
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         let sig = node.signature.parameterClause.description.trimmingCharacters(in: .whitespaces)
         declarations.append(DiffDeclaration(
@@ -341,7 +341,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: "deinit",
@@ -354,7 +354,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         let sig = node.parameterClause.description.trimmingCharacters(in: .whitespaces)
         declarations.append(DiffDeclaration(
@@ -368,7 +368,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         let name = "extension \(node.extendedType.description.trimmingCharacters(in: .whitespaces))"
         declarations.append(DiffDeclaration(
@@ -382,7 +382,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: MacroDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -395,7 +395,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: OperatorDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,
@@ -408,7 +408,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: PrecedenceGroupDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position
+        let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(
             name: node.name.text,

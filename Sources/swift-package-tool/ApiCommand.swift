@@ -131,7 +131,7 @@ class ApiCollector: SyntaxVisitor {
         if access == "private" || access == "fileprivate" { return }
         if access == "internal" && !includeInternal { return }
         guard let name = declarationName(from: node) else { return }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let sig = signatureString(for: node)
         let doc = extractDocComment(from: node.leadingTrivia)

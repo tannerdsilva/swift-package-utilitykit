@@ -23,7 +23,7 @@ public class DeclarationCollector: SyntaxVisitor {
         let kind = kindString(for: node)
         if let filter = kinds, !filter.contains(kind) { return }
         guard let name = declarationName(from: node) else { return }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let sig = signatureString(for: node)
         let doc = extractDocComment(from: node.leadingTrivia)
@@ -217,7 +217,7 @@ public class ReferenceFinder: SyntaxVisitor {
     }
 
     private func addRef(_ node: some SyntaxProtocol, role: String) {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let ctx = sourceText(for: node, in: source).prefix(80).trimmingCharacters(in: CharacterSet.whitespaces)
         references.append(SymbolReference(
@@ -326,7 +326,7 @@ public class ImportCollector: SyntaxVisitor {
     }
 
     public override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let path = node.path.map { $0.name.text }.joined(separator: ".")
         let kind: String

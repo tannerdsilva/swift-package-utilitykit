@@ -171,7 +171,7 @@ class MemberCollector {
 
     private func add(_ node: some DeclSyntaxProtocol, kind: String) {
         guard let name = declarationName(from: node) else { return }
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let sig = signatureString(for: node)
         let mods = modifierNames(from: node)
@@ -183,7 +183,7 @@ class MemberCollector {
     }
 
     private func addCase(_ node: EnumCaseElementSyntax) {
-        let pos = node.position.utf8Offset
+        let pos = node.positionAfterSkippingLeadingTrivia.utf8Offset
         let (line, col) = lineColumn(at: pos, in: source)
         let sig = node.parameterClause.map { "(\($0.parameters.map { "\($0.firstName?.text ?? ""): \($0.type)" }.joined(separator: ", ")))" } ?? ""
         members.append(MemberItem(

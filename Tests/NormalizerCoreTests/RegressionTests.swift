@@ -551,4 +551,78 @@ struct RegressionTests {
         #expect(code == 0, "must not trap: \(out)")
         #expect(out.contains("maybe()!"), "context snippet must include the finding: \(out)")
     }
+
+    // MARK: - location reporting (bug: positions included leading trivia, so a
+    //           declaration's line pointed at the previous token; columns
+    //           counted bytes instead of characters)
+
+    @Test("query reports each declaration's own line, not its leading trivia")
+    func queryReportsDeclarationLines() throws {
+        let source = "import Foundation\n\n/// doc for alpha\nfunc alpha() {}\n\n// note\nfunc beta() {}\n"
+        let path = try makeTempFile(source, "locations.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["query", path, "--all", "--output-format", "json"])
+        #expect(code == 0, "\(out)")
+        let decls = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
+        var lines: [String: Int] = [:]
+        for decl in decls {
+            if let name = decl["name"] as? String, let line = decl["line"] as? Int { lines[name] = line }
+        }
+        #expect(lines["alpha"] == 4, "alpha must report its own line: \(out)")
+        #expect(lines["beta"] == 7, "beta must report its own line: \(out)")
+    }
+
+    @Test("inspect reports the symbol's own line")
+    func inspectReportsDeclarationLine() throws {
+        let path = try makeTempFile("/// doc\nfunc alpha() {}\n", "inspect-loc.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["inspect", path, "--symbol", "alpha", "--output-format", "json"])
+        #expect(code == 0, "\(out)")
+        let json = parsedJSON(out)
+        #expect(json["line"] as? Int == 2, "\(out)")
+        #expect(json["column"] as? Int == 1, "\(out)")
+    }
+
+    @Test("columns count characters, not bytes")
+    func columnsCountCharacters() throws {
+        // `struct` starts at character column 10; the two é are two bytes each
+        let path = try makeTempFile("/* éé */ struct Foo {}\n", "unicode-column.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["query", path, "--all", "--output-format", "json"])
+        #expect(code == 0, "\(out)")
+        let decls = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
+        let foo = decls.first { $0["name"] as? String == "Foo" }
+        #expect(foo?["line"] as? Int == 1, "\(out)")
+        #expect(foo?["column"] as? Int == 10, "column must count characters: \(out)")
+    }
+
+    @Test("docc-check points at the reference, not the declaration")
+    func doccCheckReportsReferenceLocation() throws {
+        let source = "struct S {\n    /// bad `Missing` ref here\n    func gamma() {}\n}\n"
+        let path = try makeTempFile(source, "docc-loc.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["docc-check", path, "--output-format", "json"])
+        #expect(code == 0, "\(out)")
+        let warnings = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
+        #expect(warnings.first?["referencedSymbol"] as? String == "Missing", "\(out)")
+        #expect(warnings.first?["line"] as? Int == 2, "\(out)")
+        #expect(warnings.first?["column"] as? Int == 14, "\(out)")
+    }
+
+    @Test("docc-check locates a reference in a later doc-comment line")
+    func doccCheckReportsMultiLineCommentLocation() throws {
+        let source = "/// first line is fine\n/// second line references `AlsoMissing`\nfunc beta() {}\n"
+        let path = try makeTempFile(source, "docc-loc2.swift")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let (out, code) = try runTool(["docc-check", path, "--output-format", "json"])
+        #expect(code == 0, "\(out)")
+        let warnings = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
+        #expect(warnings.first?["line"] as? Int == 2, "reference is on the second comment line: \(out)")
+        #expect(warnings.first?["column"] as? Int == 29, "\(out)")
+    }
 }
