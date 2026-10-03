@@ -11,7 +11,7 @@ output.
 
 | Flag | Description |
 |---|---|
-| `--version` | Print version and exit |
+| `--version` | Print version and exit (semantic version plus git build metadata, e.g. `1.0.0+f8aedbd`) |
 | `--help` | Print help and exit |
 
 ## Output formats

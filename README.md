@@ -1,21 +1,24 @@
 # swift-package-utilitykit
 
 A growing collection of Swift package tooling — a syntax normalizer (with an SPM
-command plugin), an agentic code-query tool, and a shared normalization library.
+command plugin), a git-provenance build tool plugin, an agentic code-query
+tool, and a shared normalization library.
 All binaries are designed to be **installed on the host or container** where an
 agentic harness runs, so agents invoke them directly via PATH rather than
 through `swift run`.
 
 ## delivery model
 
-Two delivery mechanisms serve different use cases:
+Three delivery mechanisms serve different use cases:
 
 | mechanism | what | who uses it |
 |---|---|---|
 | **Standalone binaries** | `swift-package-tool`, `normalizer-tool` installed in `$PREFIX/bin` | Any agentic harness (Hermes, arc, Claude Code, …) calling tools directly |
 | **SPM command plugin** | `swift package normalize-syntax` | Interactive development, CI pipelines that already use SPM |
+| **SPM build tool plugin** | `GitMetadataPlugin` — generates `GitProvenance.swift` during a build | Packages whose `--version` (or diagnostics) should name the commit they were built from |
 
-Both share the same `NormalizerCore` library and produce identical results.
+The two normalizer mechanisms share the same `NormalizerCore` library and
+produce identical results.
 
 **The binaries are harness-agnostic.** Every analysis subcommand speaks
 compact JSON by default and all of them exec as a plain process, so any
@@ -135,7 +138,7 @@ rm -rf ~/.hermes/plugins/swift-package-utilitykit
 ### Verify
 
 ```bash
-swift-package-tool --version
+swift-package-tool --version        # e.g. 1.0.0+f8aedbd.dirty — see "build provenance" below
 hermes tool list | grep pkg_
 ```
 
@@ -329,6 +332,39 @@ swift-package-tool index Sources/ --output-format compact
 The index includes file count, total declarations, total imports, and per-file
 breakdowns — ideal for giving a small model a complete picture of a codebase
 in a single tool call.
+
+## build provenance — the git metadata plugin
+
+`GitMetadataPlugin` is a **build tool plugin**: every build of this package runs
+it for the `swift-package-tool` target, and it renders the checkout's git state
+into a generated `GitProvenance.swift` that `--version` reports as semver build
+metadata.
+
+```bash
+swift-package-tool --version
+# 1.0.0                 — source tarball, or no git on the machine
+# 1.0.0+f8aedbd         — clean checkout at f8aedbd
+# 1.0.0+f8aedbd.dirty   — the working tree had local changes at build time
+```
+
+The plugin is a thin adapter. The probe, the renderer, and the
+write-if-changed rule live in the `GitMetadataCore` library (unit-tested), and
+the plugin invokes the `git-metadata-tool` executable — which is also usable by
+hand to see exactly what a build would record. It is a build-time tool:
+SwiftPM builds it on demand for the plugin, and the installer does not put it
+on `PATH`.
+
+```bash
+swift run git-metadata-tool --print --repo .
+```
+
+| property | behavior |
+|---|---|
+| generated | `GitProvenance.swift` in the plugin's work directory: one `static let` per field (`commitHash`, `shortCommitHash`, `branch`, `tag`, `describe`, `commitDate`, `commitCount`, `isDirty`) and no logic — the consuming code stays hand-written |
+| cache key | `.git/HEAD`, the checked-out branch ref, `packed-refs`, `index`, `logs/HEAD`, plus the target's own sources — a commit or a local edit both re-run the command |
+| no-op builds | with no input changes the command does not run at all; a re-run with unchanged metadata does not rewrite the file, so the consuming target is not recompiled |
+| no git, no repo | not an error: the tool renders `nil` fields and `--version` falls back to the plain version |
+| as a dependency | the plugin is published as a product, so another package can attach it to any target and read `GitProvenance` (this repo's consumer is `Sources/swift-package-tool/AppVersion.swift`) |
 
 ## Harness adapters — the Hermes plugin
 

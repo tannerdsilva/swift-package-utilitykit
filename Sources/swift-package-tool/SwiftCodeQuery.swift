@@ -5,14 +5,15 @@ import ArgumentParser
 @main
 struct SwiftCodeQuery: AsyncParsableCommand {
 
-    /// the package version — one constant so `--version` and the emitted
-    /// plugin manifest can never disagree.
-    static let packageVersion = "1.0.0"
+    /// the semantic package version. protocol metadata (the MCP manifest) stays
+    /// plain semver; `--version` additionally reports build provenance through
+    /// `AppVersion.display`, so the two can never disagree about the number.
+    static let packageVersion = AppVersion.semantic
 
     static let configuration = CommandConfiguration(
         commandName: "swift-package-tool",
         abstract: "Query, inspect, search, and index Swift source code.",
-        version: packageVersion,
+        version: AppVersion.display,
         subcommands: [
             FindCommand.self,
             QueryCommand.self,

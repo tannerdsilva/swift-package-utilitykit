@@ -51,6 +51,30 @@
   install. the markers are now `Package.swift` + `Sources/swift-package-tool`.
   adapter plugin copy/symlink failures are now hard errors instead of being
   swallowed by `try?` — a failed plugin install can never report success.
+- **audit fixes: source corruption, traps, and silent no-ops.**
+  - minification no longer changes code or string values: the hide-comments
+    pass rewrites only lines that open a comment (a `"Sources/*.swift"` glob
+    line keeps its declaration, multi-line block-comment interiors are now
+    hidden), and `format --minify` emits multi-line string literals verbatim,
+    so relative indentation, trailing spaces, and blank lines inside a literal
+    survive the round trip.
+  - byte offsets are no longer used as character indices: `add-member` and
+    `force-unwraps` no longer trap with "String index is out of bounds" — or
+    silently insert into the next declaration — on files with non-ASCII text.
+  - declared locations are the declaration's own: `query`, `find`, `members`,
+    `inspect`, `api`, `conformances`, `callgraph`, `complexity`, `diff`,
+    `macro-expand`, `force-unwraps`, and `skill-generate` report `line` and
+    `column` after leading trivia (a function behind a doc comment is no longer
+    reported at the previous token's line), columns count characters, and
+    `docc-check` points at the offending reference, not at the declaration the
+    comment is attached to.
+  - edit-path robustness: `add-conformance` and `sort` find nested types;
+    `--backup` replaces a stale `.bak` instead of failing the edit; an anchor
+    or range that selects nothing reports why through `warning` instead of
+    returning a silent no-op, and a malformed `--lines` range is a usage error.
+  - CLI contract: `format` emits every `--output-format` (csv, short, and jsonl
+    were silently ignored); `clean` exits non-zero when `swift package clean`
+    fails; `normalizer-tool` exits non-zero when a file cannot be normalized.
 
 ### Added
 - **`skill-generate` — wrap a package's documented API in an agent skill.** new
@@ -64,6 +88,17 @@
   assumed; output is deterministic — no timestamps, identical inputs produce
   byte-identical trees. `undocumented` in the summary is data, not failure:
   it doubles as a docc-coverage signal.
+- **`GitMetadataPlugin` — a build tool plugin that records git provenance.**
+  the `swift-package-tool` target attaches it, so `--version` reports the
+  commit a binary was built from as semver build metadata (`1.0.0+f8aedbd`,
+  plus `.dirty` when the working tree had local changes). the probe, renderer,
+  and write-if-changed rule live in the new `GitMetadataCore` library
+  (unit-tested); the plugin is a thin adapter over the new `git-metadata-tool`
+  executable, which is also usable by hand (`git-metadata-tool --print
+  --repo .`) and is published as a plugin product for other packages to attach
+  to any target. a tarball checkout or a machine without git is not an error:
+  the generated `GitProvenance.swift` carries `nil` fields and the version
+  falls back to the plain semver number.
 
 ### Changed
 - **the CLI is now harness-agnostic end to end.** `install`/`uninstall` take

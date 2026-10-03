@@ -806,4 +806,36 @@ struct RegressionTests {
         let (okOut, okCode) = try runTool(["--file", good.path], binary: normalizerPath)
         #expect(okCode == 0, "a clean run stays exit 0: \(okOut)")
     }
+
+    // MARK: - git provenance (build tool plugin)
+
+    @Test("git-metadata-tool reports the checkout's commit")
+    func gitMetadataToolReportsCommit() throws {
+        let tool = packageDir + "/.build/debug/git-metadata-tool"
+        guard FileManager.default.isExecutableFile(atPath: tool) else {
+            Issue.record("build git-metadata-tool first (swift build) — \(tool) is missing")
+            return
+        }
+        let (headOut, headCode) = try runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
+        #expect(headCode == 0, "\(headOut)")
+        let short = headOut.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let (out, code) = try runTool(["--print", "--repo", packageDir], binary: tool)
+        #expect(code == 0, "\(out)")
+        #expect(out.contains("shortCommitHash: \(short)"), "\(out)")
+        #expect(out.contains("branch: "), "\(out)")
+    }
+
+    @Test("--version names the commit the binary was built from")
+    func versionReportsGitMetadata() throws {
+        let (headOut, headCode) = try runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
+        let short = headOut.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let (out, code) = try runTool(["--version"])
+        #expect(code == 0, "\(out)")
+        #expect(out.contains("1.0.0"), "the semantic version leads: \(out)")
+        if headCode == 0, !short.isEmpty {
+            #expect(out.contains("+\(short)"), "the version must name the commit it was built from: \(out)")
+        }
+    }
 }

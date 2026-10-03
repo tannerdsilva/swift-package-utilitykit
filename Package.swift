@@ -6,8 +6,10 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .plugin(name: "NormalizeSyntax", targets: ["NormalizeSyntaxPlugin"]),
+        .plugin(name: "GitMetadataPlugin", targets: ["GitMetadataPlugin"]),
         .executable(name: "swift-package-tool", targets: ["swift-package-tool"]),
         .executable(name: "normalizer-tool", targets: ["normalizer-tool"]),
+        .executable(name: "git-metadata-tool", targets: ["git-metadata-tool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -41,6 +43,22 @@ let package = Package(
             ),
             dependencies: ["normalizer-tool"]
         ),
+        // git provenance: a library with the probe/renderer logic, a thin tool
+        // the plugin invokes, and the build tool plugin that wires them into a
+        // target's build. see Plugins/GitMetadataPlugin for the design notes.
+        .target(name: "GitMetadataCore"),
+        .executableTarget(
+            name: "git-metadata-tool",
+            dependencies: [
+                "GitMetadataCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
+        .plugin(
+            name: "GitMetadataPlugin",
+            capability: .buildTool(),
+            dependencies: ["git-metadata-tool"]
+        ),
         .executableTarget(
             name: "swift-package-tool",
             dependencies: [
@@ -51,7 +69,10 @@ let package = Package(
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
                 .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
                 "NormalizerCore",
-            ]
+            ],
+            // generates GitProvenance.swift, which AppVersion reads so
+            // `--version` reports the commit the binary was built from
+            plugins: [.plugin(name: "GitMetadataPlugin")]
         ),
         .testTarget(
             name: "NormalizerCoreTests",
@@ -60,6 +81,10 @@ let package = Package(
         .testTarget(
             name: "SwiftPackageToolTests",
             dependencies: []
+        ),
+        .testTarget(
+            name: "GitMetadataCoreTests",
+            dependencies: ["GitMetadataCore"]
         ),
     ]
 )
