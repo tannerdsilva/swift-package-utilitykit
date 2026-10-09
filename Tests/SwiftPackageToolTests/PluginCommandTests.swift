@@ -83,8 +83,9 @@ struct PluginCommandTests {
 
         let tools = manifest["tools"] as? [[String: Any]] ?? []
         let names = tools.compactMap { $0["name"] as? String }
-        #expect(names == ["pkg_api", "pkg_build", "pkg_test", "pkg_clean",
-                          "pkg_docc_check", "pkg_force_unwraps", "pkg_validate"])
+        #expect(names == ["pkg_build", "pkg_scan", "pkg_list_dependencies", "pkg_list_targets",
+                          "pkg_test", "pkg_clean", "pkg_docc_check", "pkg_inspector",
+                          "pkg_api", "pkg_force_unwraps", "pkg_validate"])
 
         for tool in tools {
             let name = tool["name"] as? String ?? "?"

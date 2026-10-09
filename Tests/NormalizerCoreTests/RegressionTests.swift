@@ -332,7 +332,6 @@ struct RegressionTests {
             "PLUGINS_DIR": "",
             "PREFIX": prefix,
             "PATH_UPDATE": "0",
-            "PLUGIN_MODE": "copy",
         ]
         var pluginEnv = env
         pluginEnv["PLUGINS_DIR"] = pluginDir
@@ -370,15 +369,15 @@ struct RegressionTests {
         #expect(installCode == 0, "install should succeed: \(installOut)")
         #expect(FileManager.default.fileExists(atPath: "\(binDir)/swift-package-tool"))
         #expect(FileManager.default.fileExists(atPath: "\(binDir)/normalizer-tool"))
-        let pluginManifest = "\(pluginDir)/swift-package-utilitykit/plugin.yaml"
-        #expect(!FileManager.default.fileExists(atPath: pluginManifest), "no plugins dir requested — plugin must be skipped: \(installOut)")
+        let pluginManifest = "\(pluginDir)/swift-package-utilitykit/manifest.json"
+        #expect(!FileManager.default.fileExists(atPath: pluginManifest), "no plugins dir requested — adapter must be skipped: \(installOut)")
 
-        // install with PLUGINS_DIR: the adapter plugin lands
+        // install with PLUGINS_DIR: the adapter manifest lands
         let (pluginInstallOut, pluginInstallCode) = try await runTool(
             ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
             cwd: packageDir, env: pluginEnv
         )
-        #expect(pluginInstallCode == 0, "plugin install should succeed: \(pluginInstallOut)")
+        #expect(pluginInstallCode == 0, "adapter install should succeed: \(pluginInstallOut)")
         #expect(FileManager.default.fileExists(atPath: pluginManifest))
 
         // uninstall: both binaries and the plugin are removed
@@ -401,9 +400,9 @@ struct RegressionTests {
         try FileManager.default.createDirectory(atPath: "\(pluginDir)/swift-package-utilitykit", withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: sandbox) }
 
-        // fake installed binaries + plugin manifest so uninstall has real targets
+        // fake installed binaries + adapter manifest so uninstall has real targets
         try "fake".write(toFile: "\(binDir)/swift-package-tool", atomically: true, encoding: .utf8)
-        try "name: swift-package-utilitykit\n".write(toFile: "\(pluginDir)/swift-package-utilitykit/plugin.yaml", atomically: true, encoding: .utf8)
+        try "{}\n".write(toFile: "\(pluginDir)/swift-package-utilitykit/manifest.json", atomically: true, encoding: .utf8)
 
         let env: [String: String] = [
             "HOME": sandbox.appendingPathComponent("home").path,
@@ -416,7 +415,7 @@ struct RegressionTests {
         )
         #expect(code == 0, "uninstall should succeed: \(out)")
         #expect(!FileManager.default.fileExists(atPath: "\(binDir)/swift-package-tool"))
-        #expect(FileManager.default.fileExists(atPath: "\(pluginDir)/swift-package-utilitykit/plugin.yaml"), "plugin must be untouched without --plugins-dir")
+        #expect(FileManager.default.fileExists(atPath: "\(pluginDir)/swift-package-utilitykit/manifest.json"), "adapter must be untouched without --plugins-dir")
         #expect(out.contains("Skipping adapter plugin removal"), "uninstall should report the skip: \(out)")
     }
 
