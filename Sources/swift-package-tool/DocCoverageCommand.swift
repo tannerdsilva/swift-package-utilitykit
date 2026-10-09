@@ -160,7 +160,7 @@ struct DocCoverageCommand: ParsableCommand {
                 }
             }
         }
-        return DoccManifest(hasDoccPlugin: hasPlugin ?? false, documentationTargets: targets)
+        return DoccManifest(hasDoccPlugin: hasPlugin, documentationTargets: targets)
     }
 
     // MARK: - coverage
@@ -394,7 +394,7 @@ struct DocCoverageReport: Codable, Sendable {
     """
 }
 
-struct DocCoverageFailureReport: Codable, Sendable {
+struct DocCoverageFailureReport: Encodable, Sendable {
     let ok: Bool
     let target: String
     let error: String

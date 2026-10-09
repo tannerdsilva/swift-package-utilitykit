@@ -225,7 +225,7 @@ struct PackageDependenciesCompactReport: Codable, Sendable {
     }
 }
 
-struct PackageDependenciesFailureReport: Codable, Sendable {
+struct PackageDependenciesFailureReport: Encodable, Sendable {
     let ok: Bool
     let target: String
     let error: String

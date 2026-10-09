@@ -349,7 +349,7 @@ struct TargetsCompactReport: Codable, Sendable {
     }
 }
 
-struct TargetsFailureReport: Codable, Sendable {
+struct TargetsFailureReport: Encodable, Sendable {
     let ok: Bool
     let target: String
     let error: String
