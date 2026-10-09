@@ -1,5 +1,6 @@
 import Foundation
 import ArgumentParser
+import SubprocessCore
 
 /// run `swift package clean` as a subprocess and return structured JSON.
 ///
@@ -11,7 +12,7 @@ import ArgumentParser
 /// destructive operation: every dependency is deleted and must be re-fetched
 /// from scratch on the next build. only use this when you are certain you
 /// want to wipe the entire cache.
-struct CleanCommand: ParsableCommand {
+struct CleanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "clean",
         abstract: "Delete build artifacts. Dependencies are preserved unless --purge-all is passed."
@@ -40,7 +41,7 @@ struct CleanCommand: ParsableCommand {
     )
     var purgeAll = false
 
-    mutating func run() throws {
+    func run() async throws {
         if schema {
             print(CleanResult.jsonSchema)
             return
@@ -51,30 +52,18 @@ struct CleanCommand: ParsableCommand {
         }
 
         let command = purgeAll ? "swift package reset" : "swift package clean"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: resolvedPath)
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let outcome = try await Subprocess.capture(
+            "/bin/bash",
+            ["-c", command],
+            workingDirectory: resolvedPath
+        )
 
         let modeLabel = purgeAll ? "purge-all (dependencies DESTROYED)" : "clean (dependencies preserved)"
         let result = CleanResult(
-            success: process.terminationStatus == 0,
+            success: outcome.exitCode == 0,
             mode: modeLabel,
             directory: resolvedPath,
-            output: (stdout + stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+            output: (outcome.stdout + outcome.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat

@@ -1,11 +1,15 @@
 import Testing
 import Foundation
+import SubprocessCore
 
 /// integration tests for swift-package-tool commands.
 ///
 /// these tests run the built binary as a subprocess and verify its output.
 /// they serve as smoke tests for the CLI interface and output formats.
-@Suite("swift-package-tool integration tests")
+/// a subprocess-heavy suite: serialized per the house rule (see `Plugin mode`)
+/// — each spawned child runs a ServiceGroup whose signal watchers race
+/// startup/shutdown under parallel spawns.
+@Suite("swift-package-tool integration tests", .serialized)
 struct SwiftCodeQueryIntegrationTests {
 
     let binaryPath: String
@@ -29,64 +33,64 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("find command returns results for known symbol")
-    func findKnownSymbol() throws {
-        let output = try runCommand(["find", "Normalizer", testSourcesDir, "--exact"])
+    func findKnownSymbol() async throws {
+        let output = try await runCommand(["find", "Normalizer", testSourcesDir, "--exact"])
         #expect(output.contains("Normalizer"))
         #expect(output.contains("enum"))
     }
 
     @Test("find command returns empty for nonexistent symbol")
-    func findNonexistentSymbol() throws {
-        let output = try runCommand(["find", "XYZZY_NONEXISTENT", testSourcesDir])
+    func findNonexistentSymbol() async throws {
+        let output = try await runCommand(["find", "XYZZY_NONEXISTENT", testSourcesDir])
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(trimmed == "[]")
     }
 
     @Test("find command supports --pretty-print")
-    func findPrettyPrint() throws {
-        let output = try runCommand(["find", "Normalizer", testSourcesDir, "--exact", "--pretty-print"])
+    func findPrettyPrint() async throws {
+        let output = try await runCommand(["find", "Normalizer", testSourcesDir, "--exact", "--pretty-print"])
         #expect(output.contains("\"name\""))
         #expect(output.contains("\"kind\""))
     }
 
     @Test("find command supports --output-format short")
-    func findShortFormat() throws {
-        let output = try runCommand(["find", "Normalizer", testSourcesDir, "--exact", "--output-format", "short"])
+    func findShortFormat() async throws {
+        let output = try await runCommand(["find", "Normalizer", testSourcesDir, "--exact", "--output-format", "short"])
         #expect(output.contains("[enum]"))
     }
 
     @Test("complexity command returns results")
-    func complexityReturnsResults() throws {
-        let output = try runCommand(["complexity", testSourcesDir, "--output-format", "short"])
+    func complexityReturnsResults() async throws {
+        let output = try await runCommand(["complexity", testSourcesDir, "--output-format", "short"])
         #expect(output.contains("[complexity"))
         #expect(output.contains("(complex)") || output.contains("(moderate)") || output.contains("(simple)"))
     }
 
     @Test("complexity command supports --min-complexity filter")
-    func complexityMinFilter() throws {
-        let output = try runCommand(["complexity", testSourcesDir, "--min-complexity", "10", "--output-format", "short"])
+    func complexityMinFilter() async throws {
+        let output = try await runCommand(["complexity", testSourcesDir, "--min-complexity", "10", "--output-format", "short"])
         // may be empty if no function has complexity >= 10
         // just verify it doesn't crash
         _ = output
     }
 
     @Test("complexity command supports --limit")
-    func complexityLimit() throws {
-        let output = try runCommand(["complexity", testSourcesDir, "--limit", "1", "--output-format", "short"])
+    func complexityLimit() async throws {
+        let output = try await runCommand(["complexity", testSourcesDir, "--limit", "1", "--output-format", "short"])
         let lines = output.split(separator: "\n").filter { !$0.isEmpty }
         #expect(lines.count <= 1)
     }
 
     @Test("diff command shows no changes for identical files")
-    func diffIdenticalFiles() throws {
+    func diffIdenticalFiles() async throws {
         let file1 = "\(testSourcesDir)/Normalizer.swift"
-        let output = try runCommand(["diff", file1, file1, "--output-format", "short"])
+        let output = try await runCommand(["diff", file1, file1, "--output-format", "short"])
         // short format renders the summary as "+0 -0 ~0" for an empty diff
         #expect(output.contains("+0 -0 ~0"))
     }
 
     @Test("diff command detects added declarations")
-    func diffDetectsAdditions() throws {
+    func diffDetectsAdditions() async throws {
         // create two temp files: one empty, one with a struct
         let tmpDir = FileManager.default.temporaryDirectory
         let emptyFile = tmpDir.appendingPathComponent("diff_test_empty_\(UUID().uuidString).swift")
@@ -100,12 +104,12 @@ struct SwiftCodeQueryIntegrationTests {
             try? FileManager.default.removeItem(at: structFile)
         }
 
-        let output = try runCommand(["diff", emptyFile.path, structFile.path, "--output-format", "short"])
+        let output = try await runCommand(["diff", emptyFile.path, structFile.path, "--output-format", "short"])
         #expect(output.contains("+1 -0"))
     }
 
     @Test("diff command supports stdin with -")
-    func diffStdin() throws {
+    func diffStdin() async throws {
         let tmpDir = FileManager.default.temporaryDirectory
         let file1 = tmpDir.appendingPathComponent("diff_stdin_a_\(UUID().uuidString).swift")
         let file2 = tmpDir.appendingPathComponent("diff_stdin_b_\(UUID().uuidString).swift")
@@ -118,96 +122,96 @@ struct SwiftCodeQueryIntegrationTests {
             try? FileManager.default.removeItem(at: file2)
         }
 
-        let output = try runCommand(["diff", file1.path, file2.path, "--output-format", "short"])
+        let output = try await runCommand(["diff", file1.path, file2.path, "--output-format", "short"])
         #expect(output.contains("+1 -1"))
         #expect(output.contains("newFunc"))
         #expect(output.contains("oldFunc"))
     }
 
     @Test("members command lists type members")
-    func membersListsMembers() throws {
-        let output = try runCommand(["members", "\(testSourcesDir)/Normalizer.swift", "--type", "Normalizer", "--output-format", "short"])
+    func membersListsMembers() async throws {
+        let output = try await runCommand(["members", "\(testSourcesDir)/Normalizer.swift", "--type", "Normalizer", "--output-format", "short"])
         #expect(output.contains("normalize"))
         #expect(output.contains("normalizeLine"))
     }
 
     @Test("members command errors on nonexistent type")
-    func membersNonexistentType() throws {
-        let output = try runCommand(["members", "\(testSourcesDir)/Normalizer.swift", "--type", "NonExistentType"])
+    func membersNonexistentType() async throws {
+        let output = try await runCommand(["members", "\(testSourcesDir)/Normalizer.swift", "--type", "NonExistentType"])
         // should error, not crash
         let lower = output.lowercased()
         #expect(lower.contains("not found") || lower.contains("error"))
     }
 
     @Test("all commands support --schema")
-    func schemaFlag() throws {
+    func schemaFlag() async throws {
         for cmd in ["complexity", "api", "conformances", "callgraph", "query", "dependencies", "index", "members", "find"] {
-            let output = try runCommand([cmd, "--schema"])
+            let output = try await runCommand([cmd, "--schema"])
             #expect(output.contains("\"$schema\""), "\(cmd) --schema should return valid JSON Schema")
         }
     }
 
     @Test("--version flag works")
-    func versionFlag() throws {
-        let output = try runCommand(["--version"])
+    func versionFlag() async throws {
+        let output = try await runCommand(["--version"])
         #expect(output.contains("1.0.0"))
     }
 
     // MARK: - comment handling
 
     @Test("format with --minify hides docc comments")
-    func minifyHidesDocComments() throws {
+    func minifyHidesDocComments() async throws {
         let tmp = "/tmp/test-format-docc.swift"
         try """
         /// important documentation
         func foo() {}
         """.write(toFile: tmp, atomically: true, encoding: .utf8)
-        _ = try runCommand(["format", tmp, "--minify"])
+        _ = try await runCommand(["format", tmp, "--minify"])
         let content = try String(contentsOfFile: tmp, encoding: .utf8)
         #expect(!content.contains("important documentation"))
         #expect(content.contains("/// comment invisible"))
     }
 
     @Test("format with --minify hides line comments")
-    func minifyHidesLineComments() throws {
+    func minifyHidesLineComments() async throws {
         let tmp = "/tmp/test-format-line.swift"
         try """
         // this is a note
         let x = 1
         """.write(toFile: tmp, atomically: true, encoding: .utf8)
-        _ = try runCommand(["format", tmp, "--minify"])
+        _ = try await runCommand(["format", tmp, "--minify"])
         let content = try String(contentsOfFile: tmp, encoding: .utf8)
         #expect(!content.contains("this is a note"))
         #expect(content.contains("// comment invisible"))
     }
 
     @Test("format with --minify hides block comments")
-    func minifyHidesBlockComments() throws {
+    func minifyHidesBlockComments() async throws {
         let tmp = "/tmp/test-format-block.swift"
         try """
         /* block comment */
         let x = 1
         """.write(toFile: tmp, atomically: true, encoding: .utf8)
-        _ = try runCommand(["format", tmp, "--minify"])
+        _ = try await runCommand(["format", tmp, "--minify"])
         let content = try String(contentsOfFile: tmp, encoding: .utf8)
         #expect(!content.contains("block comment"))
         #expect(content.contains("/* comment invisible */"))
     }
 
     @Test("format with --minify --preserve-comments keeps comments")
-    func minifyPreserveComments() throws {
+    func minifyPreserveComments() async throws {
         let tmp = "/tmp/test-format-preserve.swift"
         try """
         // keep this
         let x = 1
         """.write(toFile: tmp, atomically: true, encoding: .utf8)
-        _ = try runCommand(["format", tmp, "--minify", "--preserve-comments"])
+        _ = try await runCommand(["format", tmp, "--minify", "--preserve-comments"])
         let content = try String(contentsOfFile: tmp, encoding: .utf8)
         #expect(content.contains("keep this"))
     }
 
     @Test("format without --minify preserves all comments")
-    func formatPreservesComments() throws {
+    func formatPreservesComments() async throws {
         let tmp = "/tmp/test-format-default.swift"
         try """
         /// doc
@@ -215,7 +219,7 @@ struct SwiftCodeQueryIntegrationTests {
         /* block */
         let x = 1
         """.write(toFile: tmp, atomically: true, encoding: .utf8)
-        _ = try runCommand(["format", tmp, "--dry-run"])
+        _ = try await runCommand(["format", tmp, "--dry-run"])
         let content = try String(contentsOfFile: tmp, encoding: .utf8)
         // dry-run doesn't write, so content should be unchanged
         #expect(content.contains("/// doc"))
@@ -226,8 +230,8 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - build command
 
     @Test("build --schema returns valid JSON Schema")
-    func buildSchema() throws {
-        let output = try runCommand(["build", "--schema"])
+    func buildSchema() async throws {
+        let output = try await runCommand(["build", "--schema"])
         #expect(output.contains("\"$schema\""))
         #expect(output.contains("BuildResult"))
     }
@@ -235,7 +239,7 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - tree command
 
     @Test("tree shows struct with braces and members")
-    func treeStructWithBraces() throws {
+    func treeStructWithBraces() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_struct_\(UUID().uuidString).swift")
         try """
@@ -246,7 +250,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("public struct MyStruct {"))
         #expect(output.contains("  var x: Int"))
         #expect(output.contains("  func foo()"))
@@ -254,7 +258,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows enum with cases")
-    func treeEnumCases() throws {
+    func treeEnumCases() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_enum_\(UUID().uuidString).swift")
         try """
@@ -266,7 +270,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("enum Direction {"))
         #expect(output.contains("  case north"))
         #expect(output.contains("  case south"))
@@ -276,7 +280,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree skips import declarations")
-    func treeSkipsImports() throws {
+    func treeSkipsImports() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_skipimports_\(UUID().uuidString).swift")
         try """
@@ -287,7 +291,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         // "import" as a line prefix should not appear (only the file header and struct)
         let lines = output.split(separator: "\n").map(String.init)
         for line in lines {
@@ -297,7 +301,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree skips local variables inside function bodies")
-    func treeSkipsLocals() throws {
+    func treeSkipsLocals() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_locals_\(UUID().uuidString).swift")
         try """
@@ -310,7 +314,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("struct Container {"))
         #expect(output.contains("  func compute()"))
         #expect(!output.contains("localVar"))
@@ -319,7 +323,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows nested types with proper nesting")
-    func treeNestedTypes() throws {
+    func treeNestedTypes() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_nested_\(UUID().uuidString).swift")
         try """
@@ -334,7 +338,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("struct Outer {"))
         #expect(output.contains("  struct Inner {"))
         #expect(output.contains("    var value: Int"))
@@ -348,7 +352,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows access modifiers")
-    func treeAccessModifiers() throws {
+    func treeAccessModifiers() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_mods_\(UUID().uuidString).swift")
         try """
@@ -361,7 +365,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("public struct Foo {"))
         #expect(output.contains("  private var secret: Int"))
         #expect(output.contains("  public internal var readable: String"))
@@ -370,7 +374,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows extension with members")
-    func treeExtension() throws {
+    func treeExtension() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_ext_\(UUID().uuidString).swift")
         try """
@@ -381,7 +385,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("extension String {"))
         #expect(output.contains("  var reversed: String"))
         #expect(output.contains("  func foo()"))
@@ -389,13 +393,13 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree on file with no declarations returns empty")
-    func treeEmptyFile() throws {
+    func treeEmptyFile() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_empty_\(UUID().uuidString).swift")
         try "// just a comment\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         // should have the file header but no symbols
         #expect(output.contains(tmp.lastPathComponent))
         // no declarations means nothing after the header line
@@ -404,7 +408,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree --output writes to file")
-    func treeOutputFile() throws {
+    func treeOutputFile() async throws {
         let src = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_src_\(UUID().uuidString).swift")
         let out = FileManager.default.temporaryDirectory
@@ -415,13 +419,13 @@ struct SwiftCodeQueryIntegrationTests {
             try? FileManager.default.removeItem(at: out)
         }
 
-        _ = try runCommand(["tree", src.path, "--output", out.path])
+        _ = try await runCommand(["tree", src.path, "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("struct Foo"))
     }
 
     @Test("tree on directory produces per-file output")
-    func treeDirectory() throws {
+    func treeDirectory() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_dir_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -430,13 +434,13 @@ struct SwiftCodeQueryIntegrationTests {
         try "struct A {}".write(to: dir.appendingPathComponent("A.swift"), atomically: true, encoding: .utf8)
         try "struct B {}".write(to: dir.appendingPathComponent("B.swift"), atomically: true, encoding: .utf8)
 
-        let output = try runCommand(["tree", dir.path])
+        let output = try await runCommand(["tree", dir.path])
         #expect(output.contains("struct A"))
         #expect(output.contains("struct B"))
     }
 
     @Test("tree shows protocol with members")
-    func treeProtocol() throws {
+    func treeProtocol() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_proto_\(UUID().uuidString).swift")
         try """
@@ -447,7 +451,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("public protocol Drawable {"))
         #expect(output.contains("  var area: Double"))
         #expect(output.contains("  func draw()"))
@@ -455,7 +459,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows class with inheritance")
-    func treeClass() throws {
+    func treeClass() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_class_\(UUID().uuidString).swift")
         try """
@@ -466,7 +470,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("open class ViewController: UIViewController {"))
         #expect(output.contains("  var title: String?"))
         #expect(output.contains("  func viewDidLoad()"))
@@ -474,7 +478,7 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("tree shows typealias and associatedtype")
-    func treeTypeAlias() throws {
+    func treeTypeAlias() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tree_test_typealias_\(UUID().uuidString).swift")
         try """
@@ -485,7 +489,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["tree", tmp.path])
+        let output = try await runCommand(["tree", tmp.path])
         #expect(output.contains("protocol Config {"))
         #expect(output.contains("  associatedtype Value"))
         #expect(output.contains("typealias MyConfig = Config"))
@@ -494,31 +498,31 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - --output flag
 
     @Test("find --output writes to file")
-    func findOutputFile() throws {
+    func findOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("find_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["find", "Normalizer", "Sources/NormalizerCore", "--output", out.path])
+        _ = try await runCommand(["find", "Normalizer", "Sources/NormalizerCore", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("Normalizer"))
     }
 
     @Test("inspect --output writes to file")
-    func inspectOutputFile() throws {
+    func inspectOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("inspect_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["inspect", "--symbol", "Normalizer", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
+        _ = try await runCommand(["inspect", "--symbol", "Normalizer", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("Normalizer"))
     }
 
     @Test("members --output writes to file")
-    func membersOutputFile() throws {
+    func membersOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("members_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["members", "--type", "OutputFormat", "Sources/swift-package-tool/OutputFormat.swift", "--output", out.path])
+        _ = try await runCommand(["members", "--type", "OutputFormat", "Sources/swift-package-tool/OutputFormat.swift", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("OutputFormat"))
     }
@@ -526,7 +530,7 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - validate command
 
     @Test("validate detects syntax errors")
-    func validateDetectsErrors() throws {
+    func validateDetectsErrors() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("validate_test_\(UUID().uuidString).swift")
         try """
@@ -539,24 +543,24 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["validate", tmp.path])
+        let output = try await runCommand(["validate", tmp.path])
         #expect(output.contains("error"))
         #expect(output.contains("expected"))
     }
 
     @Test("validate passes clean file")
-    func validateCleanFile() throws {
+    func validateCleanFile() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("validate_clean_\(UUID().uuidString).swift")
         try "let x: Int = 1\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["validate", tmp.path])
+        let output = try await runCommand(["validate", tmp.path])
         #expect(output.hasPrefix("[]") || output.hasPrefix("[\n"))
     }
 
     @Test("validate --warnings includes warnings")
-    func validateWarnings() throws {
+    func validateWarnings() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("validate_warn_\(UUID().uuidString).swift")
         try """
@@ -569,25 +573,25 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["validate", tmp.path, "--warnings"])
+        let output = try await runCommand(["validate", tmp.path, "--warnings"])
         #expect(output.contains("error"))
     }
 
     @Test("validate --pretty-print works")
-    func validatePrettyPrint() throws {
+    func validatePrettyPrint() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("validate_pp_\(UUID().uuidString).swift")
         try "struct Foo {}\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["validate", tmp.path, "--pretty-print"])
+        let output = try await runCommand(["validate", tmp.path, "--pretty-print"])
         #expect(output.hasPrefix("[\n"))
     }
 
     // MARK: - macro-expand command
 
     @Test("macro-expand finds macro usages")
-    func macroExpandFindsMacros() throws {
+    func macroExpandFindsMacros() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("macro_test_\(UUID().uuidString).swift")
         try """
@@ -600,24 +604,24 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["macro-expand", tmp.path])
+        let output = try await runCommand(["macro-expand", tmp.path])
         #expect(output.contains("#externalMacro"))
         #expect(output.contains("#stringify"))
     }
 
     @Test("macro-expand returns empty for files with no macros")
-    func macroExpandEmpty() throws {
+    func macroExpandEmpty() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("macro_empty_\(UUID().uuidString).swift")
         try "let x: Int = 1\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["macro-expand", tmp.path])
+        let output = try await runCommand(["macro-expand", tmp.path])
         #expect(output.hasPrefix("[]") || output.hasPrefix("[\n"))
     }
 
     @Test("macro-expand --pretty-print works")
-    func macroExpandPrettyPrint() throws {
+    func macroExpandPrettyPrint() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("macro_pp_\(UUID().uuidString).swift")
         try """
@@ -625,14 +629,14 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["macro-expand", tmp.path, "--pretty-print"])
+        let output = try await runCommand(["macro-expand", tmp.path, "--pretty-print"])
         #expect(output.contains("#externalMacro"))
     }
 
     // MARK: - docc-check command
 
     @Test("docc-check finds invalid symbol references")
-    func doccCheckFindsInvalidRefs() throws {
+    func doccCheckFindsInvalidRefs() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("docc_test_\(UUID().uuidString).swift")
         try """
@@ -643,13 +647,13 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["docc-check", tmp.path])
+        let output = try await runCommand(["docc-check", tmp.path])
         #expect(output.contains("NonExistentType"))
         #expect(output.contains("AlsoMissing"))
     }
 
     @Test("docc-check passes for valid references")
-    func doccCheckValidRefs() throws {
+    func doccCheckValidRefs() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("docc_valid_\(UUID().uuidString).swift")
         try """
@@ -660,12 +664,12 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["docc-check", tmp.path])
+        let output = try await runCommand(["docc-check", tmp.path])
         #expect(output.hasPrefix("[]"))
     }
 
     @Test("docc-check --pretty-print works")
-    func doccCheckPrettyPrint() throws {
+    func doccCheckPrettyPrint() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("docc_pp_\(UUID().uuidString).swift")
         try """
@@ -674,21 +678,21 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["docc-check", tmp.path, "--pretty-print"])
+        let output = try await runCommand(["docc-check", tmp.path, "--pretty-print"])
         #expect(output.contains("MissingType"))
     }
 
     // MARK: - clean command
 
     @Test("clean fails on path without Package.swift")
-    func cleanFailsNoPackage() throws {
+    func cleanFailsNoPackage() async throws {
         let badPath = "/tmp/swift-package-tool-test-nonexistent-\(UUID().uuidString)"
-        let output = try runCommand(["clean", badPath])
+        let output = try await runCommand(["clean", badPath])
         #expect(output.contains("no Package.swift found"))
     }
 
     @Test("clean succeeds on minimal package (no build needed)")
-    func cleanSucceedsOnMinimal() throws {
+    func cleanSucceedsOnMinimal() async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("clean_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
@@ -712,7 +716,7 @@ struct SwiftCodeQueryIntegrationTests {
             atomically: true, encoding: .utf8
         )
 
-        let output = try runCommand(["clean", tmpDir.path, "--pretty-print"])
+        let output = try await runCommand(["clean", tmpDir.path, "--pretty-print"])
         #expect(output.contains("\"success\" : true"))
         #expect(output.contains("dependencies preserved"))
     }
@@ -720,47 +724,47 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - editing commands
 
     @Test("replace --old/--new works")
-    func replaceText() throws {
+    func replaceText() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("replace_\(UUID().uuidString).swift")
         try "let x = \"hello\"\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["replace", tmp.path, "--old", "hello", "--new", "world", "--dry-run"])
+        let output = try await runCommand(["replace", tmp.path, "--old", "hello", "--new", "world", "--dry-run"])
         #expect(output.contains("world"))
         #expect(output.contains("modified"))
     }
 
     @Test("insert --after works")
-    func insertAfter() throws {
+    func insertAfter() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("insert_\(UUID().uuidString).swift")
         try "func foo() {}\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["insert", tmp.path, "--content", "func bar() {}", "--after", "foo", "--dry-run"])
+        let output = try await runCommand(["insert", tmp.path, "--content", "func bar() {}", "--after", "foo", "--dry-run"])
         #expect(output.contains("bar"))
     }
 
     @Test("delete --lines works")
-    func deleteLines() throws {
+    func deleteLines() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("delete_\(UUID().uuidString).swift")
         try "line1\nline2\nline3\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["delete", tmp.path, "--lines", "2-2", "--dry-run"])
+        let output = try await runCommand(["delete", tmp.path, "--lines", "2-2", "--dry-run"])
         #expect(output.contains("\"modified\" : true"))
     }
 
     @Test("prepend works")
-    func prependContent() throws {
+    func prependContent() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("prepend_\(UUID().uuidString).swift")
         try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["prepend", tmp.path, "--content", "newfirst", "--dry-run"])
+        let output = try await runCommand(["prepend", tmp.path, "--content", "newfirst", "--dry-run"])
         // LCS diff shows only the added line at the top; unchanged lines stay out of the diff
         #expect(output.contains("newfirst"))
         let content = try String(contentsOf: tmp, encoding: .utf8)
@@ -768,62 +772,62 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("append works")
-    func appendContent() throws {
+    func appendContent() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("append_\(UUID().uuidString).swift")
         try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["append", tmp.path, "--content", "newlast", "--dry-run"])
+        let output = try await runCommand(["append", tmp.path, "--content", "newlast", "--dry-run"])
         #expect(output.contains("newlast"))
     }
 
     @Test("add-import works")
-    func addImport() throws {
+    func addImport() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("addimport_\(UUID().uuidString).swift")
         try "import Foundation\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["add-import", tmp.path, "--module", "SwiftUI", "--dry-run"])
+        let output = try await runCommand(["add-import", tmp.path, "--module", "SwiftUI", "--dry-run"])
         #expect(output.contains("SwiftUI"))
     }
 
     @Test("add-conformance works")
-    func addConformance() throws {
+    func addConformance() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("addconf_\(UUID().uuidString).swift")
         try "struct Foo: Codable {}\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["add-conformance", tmp.path, "--type", "Foo", "--protocol", "Hashable", "--dry-run"])
+        let output = try await runCommand(["add-conformance", tmp.path, "--type", "Foo", "--protocol", "Hashable", "--dry-run"])
         #expect(output.contains("Hashable"))
     }
 
     @Test("add-member --property works")
-    func addMemberProperty() throws {
+    func addMemberProperty() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("addmember_\(UUID().uuidString).swift")
         try "struct Foo {}\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["add-member", tmp.path, "--type", "Foo", "--property", "var x: Int", "--dry-run"])
+        let output = try await runCommand(["add-member", tmp.path, "--type", "Foo", "--property", "var x: Int", "--dry-run"])
         #expect(output.contains("x: Int"))
     }
 
     @Test("wrap --lines works")
-    func wrapLines() throws {
+    func wrapLines() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("wrap_\(UUID().uuidString).swift")
         try "func test() {\n    let x = 1\n}\n".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["wrap", tmp.path, "--lines", "2-2", "--in", "do", "--dry-run"])
+        let output = try await runCommand(["wrap", tmp.path, "--lines", "2-2", "--in", "do", "--dry-run"])
         #expect(output.contains("do {"))
     }
 
     @Test("sort --by name works")
-    func sortMembers() throws {
+    func sortMembers() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("sort_\(UUID().uuidString).swift")
         try """
@@ -834,14 +838,14 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["sort", tmp.path, "--type", "Foo", "--by", "name"])
+        let output = try await runCommand(["sort", tmp.path, "--type", "Foo", "--by", "name"])
         #expect(output.contains("\"modified\" : true"))
     }
 
     // MARK: - complexity nesting fix
 
     @Test("complexity correctly handles nested functions")
-    func complexityNestedFunctions() throws {
+    func complexityNestedFunctions() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("complexity_nested_\(UUID().uuidString).swift")
         try """
@@ -856,7 +860,7 @@ struct SwiftCodeQueryIntegrationTests {
         """.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let output = try runCommand(["complexity", tmp.path, "--pretty-print"])
+        let output = try await runCommand(["complexity", tmp.path, "--pretty-print"])
         // outer should have complexity 1 (base, no decision points in its body)
         // inner should have complexity 3 (base + 2 ifs)
         // simple should have complexity 1
@@ -869,7 +873,7 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - diff missing types
 
     @Test("diff detects init/deinit/subscript changes")
-    func diffInitDeinitSubscript() throws {
+    func diffInitDeinitSubscript() async throws {
         let file1 = FileManager.default.temporaryDirectory
             .appendingPathComponent("diff_init_a_\(UUID().uuidString).swift")
         let file2 = FileManager.default.temporaryDirectory
@@ -881,28 +885,28 @@ struct SwiftCodeQueryIntegrationTests {
             try? FileManager.default.removeItem(at: file2)
         }
 
-        let output = try runCommand(["diff", file1.path, file2.path, "--pretty-print"])
+        let output = try await runCommand(["diff", file1.path, file2.path, "--pretty-print"])
         #expect(output.contains("initializer"))
         #expect(output.contains("deinitializer"))
         #expect(output.contains("subscript"))
     }
 
     @Test("complexity --output writes to file")
-    func complexityOutputFile() throws {
+    func complexityOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("complexity_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["complexity", "Sources/NormalizerCore", "--output", out.path])
+        _ = try await runCommand(["complexity", "Sources/NormalizerCore", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("\"complexity\""))
     }
 
     @Test("diff --output writes to file")
-    func diffOutputFile() throws {
+    func diffOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("diff_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
+        _ = try await runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("\"addedCount\""))
     }
@@ -910,25 +914,25 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - stdin piping
 
     @Test("find - reads from stdin")
-    func findStdin() throws {
+    func findStdin() async throws {
         let source = "struct Foo { func bar() {} }"
-        let output = try runCommandWithStdin(["find", "Foo", "-"], stdin: source)
+        let output = try await runCommandWithStdin(["find", "Foo", "-"], stdin: source)
         #expect(output.contains("Foo"))
         #expect(output.contains("struct"))
     }
 
     @Test("inspect - reads from stdin")
-    func inspectStdin() throws {
+    func inspectStdin() async throws {
         let source = "struct Foo { func bar() {} }"
-        let output = try runCommandWithStdin(["inspect", "--symbol", "Foo", "-"], stdin: source)
+        let output = try await runCommandWithStdin(["inspect", "--symbol", "Foo", "-"], stdin: source)
         #expect(output.contains("Foo"))
         #expect(output.contains("struct"))
     }
 
     @Test("format - reads from stdin")
-    func formatStdin() throws {
+    func formatStdin() async throws {
         let source = "let x = 1\nlet y = 2\n"
-        let output = try runCommandWithStdin(["format", "-", "--minify"], stdin: source)
+        let output = try await runCommandWithStdin(["format", "-", "--minify"], stdin: source)
         // minify strips all whitespace; output should contain the tokens in order
         #expect(output.contains("let"))
         #expect(output.contains("x"))
@@ -938,16 +942,16 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - members details
 
     @Test("members includes enum cases")
-    func membersEnumCases() throws {
-        let output = try runCommand(["members", "--type", "CommentMode", "Sources/NormalizerCore/NormalizationOptions.swift"])
+    func membersEnumCases() async throws {
+        let output = try await runCommand(["members", "--type", "CommentMode", "Sources/NormalizerCore/NormalizationOptions.swift"])
         #expect(output.contains("enum_case"))
         #expect(output.contains("preserve"))
         #expect(output.contains("hide"))
     }
 
     @Test("members --pretty-print works")
-    func membersPrettyPrint() throws {
-        let output = try runCommand(["members", "--type", "NormalizationOptions", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
+    func membersPrettyPrint() async throws {
+        let output = try await runCommand(["members", "--type", "NormalizationOptions", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
         #expect(output.contains("lineEnding"))
         #expect(output.contains("stripTrailingWhitespace"))
     }
@@ -955,29 +959,29 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - complexity details
 
     @Test("complexity includes ratings")
-    func complexityRatings() throws {
-        let output = try runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift"])
+    func complexityRatings() async throws {
+        let output = try await runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift"])
         #expect(output.contains("\"rating\""))
     }
 
     @Test("complexity --pretty-print works")
-    func complexityPrettyPrint() throws {
-        let output = try runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift", "--pretty-print"])
+    func complexityPrettyPrint() async throws {
+        let output = try await runCommand(["complexity", "Sources/NormalizerCore/Normalizer.swift", "--pretty-print"])
         #expect(output.contains("rating"))
     }
 
     // MARK: - diff details
 
     @Test("diff self produces empty changes")
-    func diffSelfEmpty() throws {
-        let output = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift"])
+    func diffSelfEmpty() async throws {
+        let output = try await runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/Normalizer.swift"])
         #expect(output.contains("\"addedCount\":0"))
         #expect(output.contains("\"removedCount\":0"))
     }
 
     @Test("diff --pretty-print works")
-    func diffPrettyPrint() throws {
-        let output = try runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
+    func diffPrettyPrint() async throws {
+        let output = try await runCommand(["diff", "Sources/NormalizerCore/Normalizer.swift", "Sources/NormalizerCore/NormalizationOptions.swift", "--pretty-print"])
         #expect(output.contains("addedCount"))
         #expect(output.contains("removedCount"))
     }
@@ -985,15 +989,15 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - query
 
     @Test("query returns declarations")
-    func queryReturnsDeclarations() throws {
-        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all"])
+    func queryReturnsDeclarations() async throws {
+        let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all"])
         #expect(output.contains("CommentMode"))
         #expect(output.contains("NormalizationOptions"))
     }
 
     @Test("query filters by kind")
-    func queryFiltersByKind() throws {
-        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--enums"])
+    func queryFiltersByKind() async throws {
+        let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--enums"])
         #expect(output.contains("CommentMode"))
         // all results should have kind "enum"
         #expect(output.contains("\"kind\":\"enum\""))
@@ -1001,8 +1005,8 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("query supports --count")
-    func queryCount() throws {
-        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--count"])
+    func queryCount() async throws {
+        let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--count"])
         // --count returns just the number
         let count = Int(output.trimmingCharacters(in: .whitespacesAndNewlines))
         #expect(count != nil)
@@ -1010,8 +1014,8 @@ struct SwiftCodeQueryIntegrationTests {
     }
 
     @Test("query supports --pretty-print")
-    func queryPrettyPrint() throws {
-        let output = try runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--pretty-print"])
+    func queryPrettyPrint() async throws {
+        let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--pretty-print"])
         #expect(output.contains("CommentMode"))
         #expect(output.contains("kind"))
     }
@@ -1019,67 +1023,67 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - search
 
     @Test("search returns matches")
-    func searchReturnsMatches() throws {
-        let output = try runCommand(["search", "Normalizer", "Sources/NormalizerCore"])
+    func searchReturnsMatches() async throws {
+        let output = try await runCommand(["search", "Normalizer", "Sources/NormalizerCore"])
         #expect(output.contains("Normalizer"))
     }
 
     @Test("search supports --context")
-    func searchContext() throws {
-        let output = try runCommand(["search", "struct", "Sources/NormalizerCore/NormalizationOptions.swift", "--context", "1"])
+    func searchContext() async throws {
+        let output = try await runCommand(["search", "struct", "Sources/NormalizerCore/NormalizationOptions.swift", "--context", "1"])
         #expect(output.contains("contextBefore"))
         #expect(output.contains("contextAfter"))
     }
 
     @Test("search supports --regex")
-    func searchRegex() throws {
-        let output = try runCommand(["search", "struct|enum", "Sources/NormalizerCore/NormalizationOptions.swift", "--regex"])
+    func searchRegex() async throws {
+        let output = try await runCommand(["search", "struct|enum", "Sources/NormalizerCore/NormalizationOptions.swift", "--regex"])
         #expect(output.contains("struct") || output.contains("enum"))
     }
 
     // MARK: - references
 
     @Test("references returns results for known symbol")
-    func referencesReturnsResults() throws {
-        let output = try runCommand(["references", "Normalizer", "Sources/NormalizerCore"])
+    func referencesReturnsResults() async throws {
+        let output = try await runCommand(["references", "Normalizer", "Sources/NormalizerCore"])
         #expect(output.contains("Normalizer"))
     }
 
     @Test("references returns empty for nonexistent symbol")
-    func referencesNonexistent() throws {
-        let output = try runCommand(["references", "SymbolThatDoesNotExistXYZ", "Sources/NormalizerCore"])
+    func referencesNonexistent() async throws {
+        let output = try await runCommand(["references", "SymbolThatDoesNotExistXYZ", "Sources/NormalizerCore"])
         #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "[]")
     }
 
     // MARK: - dependencies
 
     @Test("dependencies lists imports")
-    func dependenciesListsImports() throws {
-        let output = try runCommand(["dependencies", "Sources/NormalizerCore"])
+    func dependenciesListsImports() async throws {
+        let output = try await runCommand(["dependencies", "Sources/NormalizerCore"])
         #expect(output.contains("Foundation"))
     }
 
     @Test("dependencies supports --grouped")
-    func dependenciesGrouped() throws {
-        let output = try runCommand(["dependencies", "Sources/NormalizerCore", "--grouped"])
+    func dependenciesGrouped() async throws {
+        let output = try await runCommand(["dependencies", "Sources/NormalizerCore", "--grouped"])
         #expect(output.contains("Foundation"))
     }
 
     // MARK: - index
 
     @Test("index builds project index")
-    func indexBuildsIndex() throws {
-        let output = try runCommand(["index", "Sources/NormalizerCore"])
+    func indexBuildsIndex() async throws {
+        let output = try await runCommand(["index", "Sources/NormalizerCore"])
         #expect(output.contains("fileCount"))
         #expect(output.contains("totalDeclarations"))
     }
 
     @Test("index --output writes to file")
-    func indexOutputFile() throws {
+    func indexOutputFile() async throws {
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("index_out_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: out) }
-        _ = try runCommand(["index", "Sources/NormalizerCore", "--output", out.path])
+        _ = try await runCommand(["index", "Sources/NormalizerCore", "--output", out.path])
         let content = try String(contentsOf: out, encoding: .utf8)
         #expect(content.contains("fileCount"))
     }
@@ -1087,98 +1091,71 @@ struct SwiftCodeQueryIntegrationTests {
     // MARK: - api
 
     @Test("api extracts public API surface")
-    func apiExtractsPublic() throws {
-        let output = try runCommand(["api", "Sources/NormalizerCore"])
+    func apiExtractsPublic() async throws {
+        let output = try await runCommand(["api", "Sources/NormalizerCore"])
         #expect(output.contains("Normalizer"))
         #expect(output.contains("NormalizationOptions"))
     }
 
     @Test("api supports --include-internal")
-    func apiIncludeInternal() throws {
-        let output = try runCommand(["api", "Sources/NormalizerCore", "--include-internal"])
+    func apiIncludeInternal() async throws {
+        let output = try await runCommand(["api", "Sources/NormalizerCore", "--include-internal"])
         #expect(output.contains("lineEnding"))
     }
 
     // MARK: - conformances
 
     @Test("conformances lists protocol conformances")
-    func conformancesListsConformances() throws {
-        let output = try runCommand(["conformances", "Sources/NormalizerCore"])
+    func conformancesListsConformances() async throws {
+        let output = try await runCommand(["conformances", "Sources/NormalizerCore"])
         #expect(output.contains("Sendable"))
         #expect(output.contains("Equatable"))
     }
 
     @Test("conformances supports --pretty-print")
-    func conformancesPrettyPrint() throws {
-        let output = try runCommand(["conformances", "Sources/NormalizerCore", "--pretty-print"])
+    func conformancesPrettyPrint() async throws {
+        let output = try await runCommand(["conformances", "Sources/NormalizerCore", "--pretty-print"])
         #expect(output.contains("Sendable"))
     }
 
     // MARK: - callgraph
 
     @Test("callgraph builds call graph")
-    func callgraphBuilds() throws {
-        let output = try runCommand(["callgraph", "Sources/NormalizerCore"])
+    func callgraphBuilds() async throws {
+        let output = try await runCommand(["callgraph", "Sources/NormalizerCore"])
         #expect(output.contains("caller"))
         #expect(output.contains("callee"))
     }
 
     @Test("callgraph supports --include-unknown")
-    func callgraphIncludeUnknown() throws {
-        let output = try runCommand(["callgraph", "Sources/NormalizerCore", "--include-unknown"])
+    func callgraphIncludeUnknown() async throws {
+        let output = try await runCommand(["callgraph", "Sources/NormalizerCore", "--include-unknown"])
         #expect(output.contains("caller"))
     }
 
     // MARK: - force-unwraps
 
     @Test("force-unwraps scans for force unwraps")
-    func forceUnwrapsScans() throws {
-        let output = try runCommand(["force-unwraps", "Sources/swift-package-tool"])
+    func forceUnwrapsScans() async throws {
+        let output = try await runCommand(["force-unwraps", "Sources/swift-package-tool"])
         #expect(output.contains("force_unwrap") || output.contains("ForceUnwrapItem"))
     }
 
     @Test("force-unwraps supports --pretty-print")
-    func forceUnwrapsPrettyPrint() throws {
-        let output = try runCommand(["force-unwraps", "Sources/swift-package-tool", "--pretty-print"])
+    func forceUnwrapsPrettyPrint() async throws {
+        let output = try await runCommand(["force-unwraps", "Sources/swift-package-tool", "--pretty-print"])
         #expect(output.contains("kind"))
     }
 
     // MARK: - helpers
 
-    private func runCommand(_ args: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = args
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+    private func runCommand(_ args: [String]) async throws -> String {
+        let outcome = try await Subprocess.capture(binaryPath, args)
+        return outcome.stdout + outcome.stderr
     }
 
-    private func runCommandWithStdin(_ args: [String], stdin: String) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = args
-
-        let stdinPipe = Pipe()
-        process.standardInput = stdinPipe
-
-        let outPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = outPipe
-
-        try process.run()
-        stdinPipe.fileHandleForWriting.write(stdin.data(using: .utf8)!)
-        try stdinPipe.fileHandleForWriting.close()
-        process.waitUntilExit()
-
-        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+    private func runCommandWithStdin(_ args: [String], stdin: String) async throws -> String {
+        let outcome = try await Subprocess.capture(binaryPath, args, stdin: stdin)
+        return outcome.stdout + outcome.stderr
     }
 }

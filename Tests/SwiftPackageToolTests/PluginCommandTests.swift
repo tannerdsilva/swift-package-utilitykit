@@ -11,24 +11,19 @@
 
 import Testing
 import Foundation
-
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
+import SubprocessCore
 
 /// Black-box tests for `plugin` (the agent tool protocol over stdin/stdout):
 /// dispatch through the CLI subcommands, the model-actionable error contract,
 /// and the framework-generated arc manifest. Run `swift build` first so
 /// `.build/debug/swift-package-tool` exists.
 ///
-/// The children are spawned with `posix_spawn` (not Foundation `Process`): the
-/// one-shot host reads stdin through a NIO pipe channel, and under the test
-/// runner a Foundation-Process spawn's child never receives the channel's
-/// read events — the same Foundation-pipe hazard the arc harness hit and
-/// worked around with its posix_spawn subscriber. posix_spawn is what both
-/// production harnesses use, so the test exercises the real spawn shape.
+/// The children are spawned through `SubprocessCore` — the same path every
+/// other spawn in this package uses. This harness previously hand-rolled
+/// `posix_spawn` with its own pipes because a Foundation-`Process` spawn's child
+/// never received the one-shot host's NIO pipe channel under the test runner;
+/// the shared path owns its own pipes and hands the child a plain inherited
+/// stdin, so that hazard no longer applies.
 ///
 /// The suite is SERIALIZED: each child runs a `ServiceGroup` whose signal
 /// watchers race startup/shutdown under parallel spawns (the house rule for
@@ -39,9 +34,10 @@ struct PluginCommandTests {
 
     private var repoRoot: String { FileManager.default.currentDirectoryPath }
 
-    // MARK: - posix_spawn harness
+    // MARK: - spawn harness
 
     private struct ToolRun {
+        /// the child's exit status (`128 + signal` when it was killed by a signal).
         let status: Int32
         let stdout: String
         let stderr: String
@@ -55,109 +51,31 @@ struct PluginCommandTests {
         }
     }
 
-    private func readToEOF(_ fd: Int32) -> String {
-        var out: [UInt8] = []
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        while true {
-            let count = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-            if count <= 0 { break }
-            out.append(contentsOf: buffer[0..<count])
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-
-    /// Spawns the built tool, writes `stdin` (when given) and closes the
-    /// stream, waits (bounded) for the exit, and drains both output pipes.
-    private func runPluginTool(_ args: [String], stdin: String? = nil) throws -> ToolRun {
+    /// Runs the built tool with the shared spawn path: writes `stdin` (when
+    /// given) and closes the stream, waits (bounded), and captures both pipes.
+    /// this harness used to hand-roll `posix_spawn` because a Foundation-Process
+    /// spawn's child never received the one-shot host's NIO pipe channel under
+    /// the test runner; the shared path owns its own pipes, so that hazard is gone.
+    private func runPluginTool(_ args: [String], stdin: String? = nil) async throws -> ToolRun {
         let absolute = toolPath.hasPrefix("/")
             ? toolPath
             : FileManager.default.currentDirectoryPath + "/" + toolPath
 
-        var stdinPipe: [Int32] = [-1, -1]
-        var stdoutPipe: [Int32] = [-1, -1]
-        var stderrPipe: [Int32] = [-1, -1]
-        guard pipe(&stdinPipe) == 0, pipe(&stdoutPipe) == 0, pipe(&stderrPipe) == 0 else {
-            throw TestError("pipe() failed: \(String(cString: strerror(errno)))")
-        }
-        for fd in [stdinPipe[0], stdinPipe[1], stdoutPipe[0], stdoutPipe[1], stderrPipe[0], stderrPipe[1]] {
-            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-        }
+        // newline-delimited framing: the host's frame codec delivers a frame on
+        // its terminating newline (the envelope's own examples — `echo '{...}'
+        // | tool` — terminate every frame).
+        let payload = stdin.map { $0 + "\n" }
 
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        posix_spawn_file_actions_adddup2(&actions, stdinPipe[0], STDIN_FILENO)
-        posix_spawn_file_actions_adddup2(&actions, stdoutPipe[1], STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&actions, stderrPipe[1], STDERR_FILENO)
-
-        var argv: [UnsafeMutablePointer<CChar>?] = ([absolute] + args).map { strdup($0) }
-        argv.append(nil)
-        var envp: [UnsafeMutablePointer<CChar>?] = []
-        envp.append(nil)
-        defer {
-            for pointer in argv { free(pointer) }
-            for pointer in envp { free(pointer) }
-        }
-
-        var pid: pid_t = 0
-        let spawnResult = posix_spawn(&pid, absolute, &actions, nil, &argv, &envp)
-        posix_spawn_file_actions_destroy(&actions)
-        close(stdinPipe[0])
-        close(stdoutPipe[1])
-        close(stderrPipe[1])
-        guard spawnResult == 0 else {
-            close(stdinPipe[1])
-            close(stdoutPipe[0])
-            close(stderrPipe[0])
-            throw TestError("posix_spawn failed: \(String(cString: strerror(spawnResult)))")
-        }
-
-        if let stdin {
-            // newline-delimited framing: the host's frame codec delivers a
-            // frame on its terminating newline (the envelope's own examples —
-            // `echo '{...}' | tool` — terminate every frame).
-            var bytes = Array(stdin.utf8)
-            bytes.append(0x0A)
-            var offset = 0
-            while offset < bytes.count {
-                let written = bytes.withUnsafeBytes { buffer -> Int in
-                    write(stdinPipe[1], buffer.baseAddress?.advanced(by: offset), bytes.count - offset)
-                }
-                if written <= 0 { break }
-                offset += written
-            }
-        }
-        close(stdinPipe[1])
-
-        var status: Int32 = 0
-        var exited = false
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            let result = waitpid(pid, &status, WNOHANG)
-            if result == pid { exited = true; break }
-            if result < 0 { throw TestError("waitpid failed: \(String(cString: strerror(errno)))") }
-            usleep(20_000)
-        }
-        guard exited else {
-            kill(pid, SIGKILL)
-            _ = waitpid(pid, &status, 0)
-            throw TestError("tool did not exit within the test bound")
-        }
-
-        let run = ToolRun(
-            status: (status & 0x7F) == 0 ? (status >> 8) & 0xFF : -(status & 0x7F),
-            stdout: readToEOF(stdoutPipe[0]),
-            stderr: readToEOF(stderrPipe[0])
-        )
-        close(stdoutPipe[0])
-        close(stderrPipe[0])
-        return run
+        let outcome = try await Subprocess.capture(
+            absolute, args, stdin: payload, timeout: .seconds(10))
+        return ToolRun(status: outcome.exitCode, stdout: outcome.stdout, stderr: outcome.stderr)
     }
 
     // MARK: - Tests
 
     @Test("manifest is generated from the compiled surface, addressed at this binary")
-    func manifest() throws {
-        let run = try runPluginTool(["plugin", "--mcp-manifest", "arc"])
+    func manifest() async throws {
+        let run = try await runPluginTool(["plugin", "--mcp-manifest", "arc"])
         #expect(run.status == 0)
         let manifest = try run.stdoutJSON()
         #expect(manifest["name"] as? String == "swift-package-utilitykit")
@@ -180,9 +98,9 @@ struct PluginCommandTests {
     }
 
     @Test("pkg_api returns the subcommand's JSON through the result envelope")
-    func apiInvoke() throws {
+    func apiInvoke() async throws {
         let stdin = #"{"tool": "pkg_api", "args": {"path": "\#(repoRoot)/Sources/NormalizerCore", "limit": 3}}"#
-        let run = try runPluginTool(["plugin"], stdin: stdin)
+        let run = try await runPluginTool(["plugin"], stdin: stdin)
         #expect(run.status == 0)
         let response = try run.stdoutJSON()
         let result = response["result"] as? String ?? ""
@@ -191,27 +109,27 @@ struct PluginCommandTests {
     }
 
     @Test("unknown tools and bad arguments produce model-actionable errors")
-    func errorContract() throws {
-        let unknown = try runPluginTool(["plugin"], stdin: #"{"tool": "pkg_nope", "args": {}}"#).stdoutJSON()
+    func errorContract() async throws {
+        let unknown = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_nope", "args": {}}"#).stdoutJSON()
         #expect((unknown["result"] as? String)?.contains("Unknown tool: pkg_nope") == true)
 
-        let missing = try runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {}}"#).stdoutJSON()
+        let missing = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {}}"#).stdoutJSON()
         #expect((missing["result"] as? String)?.contains("path") == true)
 
-        let relative = try runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {"path": "Sources"}}"#).stdoutJSON()
+        let relative = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {"path": "Sources"}}"#).stdoutJSON()
         #expect((relative["result"] as? String)?.contains("must be an absolute path") == true)
     }
 
     @Test("a frame that is not the plugin envelope exits 1 with a stderr diagnostic")
-    func malformedFrameExitContract() throws {
-        let run = try runPluginTool(["plugin"], stdin: "not json")
+    func malformedFrameExitContract() async throws {
+        let run = try await runPluginTool(["plugin"], stdin: "not json")
         #expect(run.status == 1)
         #expect(run.stdout.isEmpty)
         #expect(run.stderr.contains("no dialect recognized the first frame"))
     }
 
     @Test("pkg_validate carries the pass/fail verdict through as a result")
-    func validateVerdict() throws {
+    func validateVerdict() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("uk-plugin-validate-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -220,7 +138,7 @@ struct PluginCommandTests {
             to: dir.appendingPathComponent("Broken.swift"), atomically: true, encoding: .utf8)
 
         let stdin = #"{"tool": "pkg_validate", "args": {"path": "\#(dir.path)"}}"#
-        let response = try runPluginTool(["plugin"], stdin: stdin).stdoutJSON()
+        let response = try await runPluginTool(["plugin"], stdin: stdin).stdoutJSON()
         let result = response["result"] as? String ?? ""
         #expect(result.contains("error"), "diagnostics must survive the rc=1 exit: \(result.prefix(200))")
         #expect(!result.hasPrefix("Error"), "a negative verdict is a result, not an error")

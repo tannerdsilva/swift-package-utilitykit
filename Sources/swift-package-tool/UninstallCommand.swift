@@ -11,7 +11,7 @@ import ArgumentParser
 ///
 /// port of the former `scripts/install.sh --remove`. dependencies are never
 /// touched — clean/deep-clean is the `swift-package-tool clean` command's job.
-struct UninstallCommand: ParsableCommand {
+struct UninstallCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "uninstall",
         abstract: "Remove installed binaries, adapter plugin, and PATH wiring."
@@ -35,7 +35,7 @@ struct UninstallCommand: ParsableCommand {
     @Option(name: .customLong("plugins-dir"), help: "Remove the adapter plugin previously installed into this harness's plugins directory (omit to skip).")
     var pluginsDirOverride: String?
 
-    mutating func run() throws {
+    mutating func run() async throws {
         let env = ProcessInfo.processInfo.environment
         let home = PathWirer.homeDir()
 
@@ -108,7 +108,7 @@ struct UninstallCommand: ParsableCommand {
                 cmd.append("sudo")
             }
             cmd += ["rm", "-f", binPath]
-            if runProcess("/usr/bin/env", cmd) != nil {
+            if await runProcess("/usr/bin/env", cmd) != nil {
                 InstPrinter.ok("Removed \(binPath)")
             } else {
                 InstPrinter.warn("Failed to remove \(binPath)")
@@ -118,7 +118,7 @@ struct UninstallCommand: ParsableCommand {
         // ---- remove plugin -------------------------------------------------------------
 
         if foundPlugin, let pluginDst {
-            if runProcess("/bin/rm", ["-rf", pluginDst]) != nil {
+            if await runProcess("/bin/rm", ["-rf", pluginDst]) != nil {
                 InstPrinter.ok("Removed \(pluginDst)")
             } else {
                 InstPrinter.warn("Failed to remove \(pluginDst)")

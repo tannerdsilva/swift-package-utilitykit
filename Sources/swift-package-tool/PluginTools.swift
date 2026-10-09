@@ -11,6 +11,7 @@
 
 import Foundation
 import MCP
+import SubprocessCore
 
 // MARK: - Tool errors + argument validation
 
@@ -64,7 +65,7 @@ struct PkgApi {
         var argv = ["api", try requiredAbsolutePath(path)]
         if include_internal { argv.append("--include-internal") }
         if let limit { argv += ["--limit", String(limit)] }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -94,7 +95,7 @@ struct PkgBuild {
         if warnings_only { argv.append("--warnings-only") }
         if errors_only { argv.append("--errors-only") }
         if let timeout_seconds { argv += ["--timeout", String(timeout_seconds)] }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -116,7 +117,7 @@ struct PkgTest {
         var argv = ["build", try requiredAbsolutePath(path), "--test"]
         if let filter, !filter.isEmpty { argv += ["--filter", filter] }
         if let timeout_seconds { argv += ["--timeout", String(timeout_seconds)] }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -134,7 +135,7 @@ struct PkgClean {
     func run() async throws -> String {
         var argv = ["clean", try requiredAbsolutePath(path)]
         if purge_all { argv.append("--purge-all") }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -152,7 +153,7 @@ struct PkgDoccCheck {
     func run() async throws -> String {
         var argv = ["docc-check", try requiredAbsolutePath(path)]
         if let limit { argv += ["--limit", String(limit)] }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -170,7 +171,7 @@ struct PkgForceUnwraps {
     func run() async throws -> String {
         var argv = ["force-unwraps", try requiredAbsolutePath(path)]
         if let limit { argv += ["--limit", String(limit)] }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -188,7 +189,7 @@ struct PkgValidate {
     func run() async throws -> String {
         var argv = ["validate", try requiredAbsolutePath(path)]
         if warnings { argv.append("--warnings") }
-        return try PluginToolRunner.run(argv)
+        return try await PluginToolRunner.run(argv)
     }
 }
 
@@ -240,44 +241,17 @@ enum PluginHost {
 /// Runs the CLI subcommand behind a tool and returns its stdout — the CLI
 /// stays the contract, so no analysis logic is duplicated in the tool layer.
 enum PluginToolRunner {
-    static func run(_ argv: [String]) throws -> String {
+    static func run(_ argv: [String]) async throws -> String {
         guard let executable = MCPManifestContext.resolveExecutablePath() else {
             throw PluginToolError("cannot locate this binary's own path")
         }
-        // stdout/stderr are captured through temp files (never pipes — a
-        // large undrained pipe deadlocks).
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("swift-package-tool-plugin-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let outURL = dir.appendingPathComponent("stdout")
-        let errURL = dir.appendingPathComponent("stderr")
-        FileManager.default.createFile(atPath: outURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errURL.path, contents: nil)
-        let outHandle = try FileHandle(forWritingTo: outURL)
-        let errHandle = try FileHandle(forWritingTo: errURL)
-        defer {
-            try? outHandle.close()
-            try? errHandle.close()
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = argv
-        process.standardOutput = outHandle
-        process.standardError = errHandle
-        try process.run()
-        process.waitUntilExit()
-        try outHandle.close()
-        try errHandle.close()
-
-        let outData = (try? Data(contentsOf: outURL)) ?? Data()
-        let errData = (try? Data(contentsOf: errURL)) ?? Data()
+        // the spawn layer drains stdout and stderr concurrently, so a large
+        // undrained pipe cannot deadlock and no temp files are needed.
+        let outcome = try await Subprocess.capture(executable, argv)
         return composeResult(
-            status: process.terminationStatus,
-            stdout: String(data: outData, encoding: .utf8) ?? "",
-            stderr: String(data: errData, encoding: .utf8) ?? ""
+            status: outcome.exitCode,
+            stdout: outcome.stdout,
+            stderr: outcome.stderr
         )
     }
 

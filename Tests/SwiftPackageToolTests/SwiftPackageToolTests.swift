@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SubprocessCore
 
 /// Tests for swift-package-tool that invoke the built executable as a
 /// subprocess and verify its JSON output. This is a black-box integration
@@ -8,31 +9,20 @@ import Foundation
 
 let toolPath = ".build/debug/swift-package-tool"
 
+/// the tool's absolute path — the tests run from the package root.
+func absoluteToolPath() -> String {
+    toolPath.hasPrefix("/") ? toolPath : FileManager.default.currentDirectoryPath + "/" + toolPath
+}
+
+/// Run the tool and return its stdout.
+func runToolStdout(_ args: [String], stdin: String? = nil) async throws -> String {
+    let outcome = try await Subprocess.capture(absoluteToolPath(), args, stdin: stdin)
+    return outcome.stdout
+}
+
 /// Run the tool with given arguments and return parsed JSON output.
-func runTool(_ args: String..., stdin: String? = nil) throws -> [String: Any] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: toolPath)
-    process.arguments = args
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
-    let stdout = Pipe()
-    let stderr = Pipe()
-    process.standardOutput = stdout
-    process.standardError = stderr
-
-    if let input = stdin {
-        let stdinPipe = Pipe()
-        stdinPipe.fileHandleForWriting.write(input.data(using: .utf8)!)
-        stdinPipe.fileHandleForWriting.closeFile()
-        process.standardInput = stdinPipe
-    }
-
-    try process.run()
-    process.waitUntilExit()
-
-    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: outputData, encoding: .utf8) ?? ""
-
+func runTool(_ args: String..., stdin: String? = nil) async throws -> [String: Any] {
+    let output = try await runToolStdout(args, stdin: stdin)
     guard let data = output.data(using: .utf8),
           let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         throw TestError("Failed to parse JSON output: \(output)")
@@ -40,30 +30,8 @@ func runTool(_ args: String..., stdin: String? = nil) throws -> [String: Any] {
     return json
 }
 
-func runToolArray(_ args: String..., stdin: String? = nil) throws -> [[String: Any]] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: toolPath)
-    process.arguments = args
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
-    let stdout = Pipe()
-    let stderr = Pipe()
-    process.standardOutput = stdout
-    process.standardError = stderr
-
-    if let input = stdin {
-        let stdinPipe = Pipe()
-        stdinPipe.fileHandleForWriting.write(input.data(using: .utf8)!)
-        stdinPipe.fileHandleForWriting.closeFile()
-        process.standardInput = stdinPipe
-    }
-
-    try process.run()
-    process.waitUntilExit()
-
-    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: outputData, encoding: .utf8) ?? ""
-
+func runToolArray(_ args: String..., stdin: String? = nil) async throws -> [[String: Any]] {
+    let output = try await runToolStdout(args, stdin: stdin)
     guard let data = output.data(using: .utf8),
           let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
         throw TestError("Failed to parse JSON array output: \(output)")
@@ -79,7 +47,7 @@ struct TestError: Error, CustomStringConvertible {
 
 // MARK: - FileEditor tests (via tool invocation)
 
-@Suite("FileEditor.processMultilineContent")
+@Suite("FileEditor.processMultilineContent", .serialized)
 struct ProcessMultilineTests {
 
     @Test("converts literal \\n to actual newlines")
@@ -89,7 +57,7 @@ struct ProcessMultilineTests {
         try "// TARGET".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let json = try runTool(
+        let json = try await runTool(
             "insert", tmp.path,
             "--after", "// TARGET",
             "--content", "// LINE 1\n// LINE 2\n// LINE 3",
@@ -109,7 +77,7 @@ struct ProcessMultilineTests {
         try "// TARGET".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let json = try runTool(
+        let json = try await runTool(
             "insert", tmp.path,
             "--after", "// TARGET",
             "--content", "// SINGLE LINE",
@@ -122,7 +90,7 @@ struct ProcessMultilineTests {
     }
 }
 
-@Suite("FileEditor.replace multiline")
+@Suite("FileEditor.replace multiline", .serialized)
 struct ReplaceMultilineTests {
 
     @Test("replace with multiline content")
@@ -131,7 +99,7 @@ struct ReplaceMultilineTests {
         try "let x = 1\nlet y = 2".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let json = try runTool(
+        let json = try await runTool(
             "replace", tmp.path,
             "--old", "let x = 1",
             "--new", "let a = 10\nlet b = 20",
@@ -147,7 +115,7 @@ struct ReplaceMultilineTests {
 
 // MARK: - Batch command tests
 
-@Suite("Batch command")
+@Suite("Batch command", .serialized)
 struct BatchCommandTests {
 
     @Test("batch executes multiple operations")
@@ -177,7 +145,7 @@ struct BatchCommandTests {
         try planData.write(to: planPath)
         defer { try? FileManager.default.removeItem(at: planPath) }
 
-        let json = try runTool("batch", planPath.path, "--dry-run", "--show-diff")
+        let json = try await runTool("batch", planPath.path, "--dry-run", "--show-diff")
 
         let results = json["results"] as? [[String: Any]] ?? []
         #expect(results.count == 2)
@@ -210,7 +178,7 @@ struct BatchCommandTests {
         try planData.write(to: planPath)
         defer { try? FileManager.default.removeItem(at: planPath) }
 
-        let json = try runTool("batch", planPath.path, "--dry-run", "--fail-fast")
+        let json = try await runTool("batch", planPath.path, "--dry-run", "--fail-fast")
 
         let results = json["results"] as? [[String: Any]] ?? []
         // With --fail-fast, the batch stops after the first failure.
@@ -239,7 +207,7 @@ struct BatchCommandTests {
         try planData.write(to: planPath)
         defer { try? FileManager.default.removeItem(at: planPath) }
 
-        let json = try runTool("batch", planPath.path, "--dry-run", "--show-diff")
+        let json = try await runTool("batch", planPath.path, "--dry-run", "--show-diff")
 
         let results = json["results"] as? [[String: Any]] ?? []
         #expect(results.count == 1)
@@ -251,7 +219,7 @@ struct BatchCommandTests {
 
 // MARK: - Dry-run diff tests
 
-@Suite("Dry-run diff")
+@Suite("Dry-run diff", .serialized)
 struct DryRunDiffTests {
 
     @Test("--dry-run returns diff without --show-diff")
@@ -260,7 +228,7 @@ struct DryRunDiffTests {
         try "let x = 1".write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let json = try runTool(
+        let json = try await runTool(
             "replace", tmp.path,
             "--old", "let x = 1",
             "--new", "let x = 42",

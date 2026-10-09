@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- **`SubprocessCore` — one spawn path, built on `SwiftSlash` 5.0.2.** every
+  subprocess in the package (the CLI's `build`/`clean`/`install`/`uninstall`/
+  plugin-tool runner, the git probe, and the test harnesses) goes through
+  `Subprocess.capture`, which owns the launch, the concurrent stdout/stderr
+  drain, the stdin payload, the optional timeout, and the reap. 5.0.2 carries
+  the fix for an argv-marshalling defect that truncated non-ascii arguments (and
+  `argv[0]`) to their character count in bytes; it is tagged locally, so this is
+  a path pin until it is pushed (`from: "5.0.2"` then replaces it), alongside the
+  path-pinned `swift-mcp` sibling.
 - **`plugin`: the agent tool protocol over stdin/stdout** — built on
   [swift-mcp](https://github.com/tannerdsilva/swift-mcp)'s one-shot stdin tool
   facade. `swift-package-tool plugin` reads `{"tool": "<name>", "args": {...}}`
@@ -101,6 +110,24 @@
   falls back to the plain semver number.
 
 ### Changed
+- **the subprocess layer is Swift-native: no Grand Central Dispatch, no
+  `Foundation.Process`.** `build`'s timeout was a `DispatchGroup.wait` with a
+  `@unchecked Sendable` box fed by two `DispatchQueue.global()` readers; it now
+  races the child against a `Task.sleep` in a task group. on timeout the child's
+  process group is signalled and reaped before the command reports, so a
+  timed-out build can no longer leave a compiler running, and the timeout path
+  reports the same structured payload as before. every `Process` site — the
+  git probe (`GitMetadataProbe.collect` is now `async`), the plugin-tool runner
+  (its temp-file dance is gone; the drain is concurrent), the installer
+  helpers, and all six test harnesses (155 test functions became `async`) —
+  moved to `SubprocessCore`. output is captured byte-exactly by running
+  swift-slash's streams with the line parser disabled (`separator: []`), since
+  its line framing consumes the separator. spawn-heavy suites are `.serialized`
+  (the documented house rule for subprocess-heavy suites). the two plugin
+  targets cannot link a library from another package (SwiftPM: `plugin 'X'
+  cannot depend on 'Y' of type 'library'`), so `NormalizeSyntaxPlugin` spawns
+  via `posix_spawn` from its synchronous entry point — a blocking wait on a
+  plugin thread, never on a concurrency thread.
 - **the CLI is now harness-agnostic end to end.** `install`/`uninstall` take
   `--plugins-dir` (env `PLUGINS_DIR`) and `skill-generate` takes
   `--skills-dir` (env `SKILLS_DIR`); the adapter plugin step runs only when a

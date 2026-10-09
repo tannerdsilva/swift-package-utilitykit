@@ -1,5 +1,6 @@
 import Foundation
 import ArgumentParser
+import SubprocessCore
 
 /// run `swift build` (or `swift test`) as a subprocess and reshape the
 /// chaotic stdout/stderr stream into structured, LLM-friendly JSON.
@@ -11,7 +12,7 @@ import ArgumentParser
 ///   - final summary: `Build complete!` or `Build failed`
 ///
 /// everything else is collected as raw log lines so no information is lost.
-struct BuildCommand: ParsableCommand {
+struct BuildCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "build",
         abstract: "Run swift build/test and return structured JSON."
@@ -53,7 +54,7 @@ struct BuildCommand: ParsableCommand {
     @Flag(name: .customLong("errors-only"), help: "Suppress phases, raw log, and warnings — output only errors, summary, and exit status.")
     var errorsOnly = false
 
-    mutating func run() throws {
+    func run() async throws {
         if schema {
             print(BuildResult.jsonSchema)
             return
@@ -87,40 +88,18 @@ struct BuildCommand: ParsableCommand {
             args += splitArgs(extra)
         }
 
-        // run the subprocess
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = args
-        process.currentDirectoryURL = URL(fileURLWithPath: resolvedPath)
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        // use a Sendable box to safely collect output across threads
-        final class OutputBox: @unchecked Sendable {
-            var stdoutData = Data()
-            var stderrData = Data()
-        }
-        let box = OutputBox()
-
-        try process.run()
-
-        // read output with timeout
-        let group = DispatchGroup()
-
-        DispatchQueue.global().async(group: group) {
-            box.stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        DispatchQueue.global().async(group: group) {
-            box.stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-
-        let timeoutResult = group.wait(timeout: .now() + .seconds(timeout))
-
-        if timeoutResult == .timedOut {
-            process.terminate()
+        // run the subprocess through the package's one spawn path. the timeout
+        // signals and reaps the child before throwing, so a timed-out build
+        // never leaves a compiler running.
+        let outcome: SubprocessOutcome
+        do {
+            outcome = try await Subprocess.capture(
+                "/usr/bin/env",
+                args,
+                workingDirectory: resolvedPath,
+                timeout: .seconds(timeout)
+            )
+        } catch SubprocessError.timedOut {
             let duration = Date().timeIntervalSince(startTime)
             let result = BuildResult(
                 ok: true,
@@ -139,16 +118,12 @@ struct BuildCommand: ParsableCommand {
             throw ExitCode(1)
         }
 
-        process.waitUntilExit()
-
         let duration = Date().timeIntervalSince(startTime)
-        let stdout = String(data: box.stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: box.stderrData, encoding: .utf8) ?? ""
-        let combined = stdout + "\n" + stderr
+        let combined = outcome.stdout + "\n" + outcome.stderr
 
         // parse the output
         let parsed = parseBuildOutput(combined)
-        let succeeded = process.terminationStatus == 0
+        let succeeded = outcome.exitCode == 0
 
         let compactMode = warningsOnly || errorsOnly
 
@@ -168,11 +143,11 @@ struct BuildCommand: ParsableCommand {
         let result = BuildResult(
             ok: true,
             succeeded: succeeded,
-            exitCode: Int(process.terminationStatus),
+            exitCode: Int(outcome.exitCode),
             duration: duration,
             phases: compactMode ? [] : parsed.phases,
             diagnostics: diag,
-            summary: makeSummary(succeeded: succeeded, exitCode: Int(process.terminationStatus),
+            summary: makeSummary(succeeded: succeeded, exitCode: Int(outcome.exitCode),
                                  diagnostics: diag, duration: duration),
             rawLog: compactMode ? "" : String(combined.suffix(5000))
         )

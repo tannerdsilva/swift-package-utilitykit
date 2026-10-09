@@ -1,10 +1,11 @@
 import Testing
 import Foundation
+import SubprocessCore
 
 /// regression tests for bugs found while testing swift-package-tool against a
 /// large real-world package (rawdog). each test drives the built binary as a
 /// subprocess and asserts on the fixed behavior, so a re-regression fails.
-@Suite("swift-package-tool regression tests")
+@Suite("swift-package-tool regression tests", .serialized)
 struct RegressionTests {
 
     let binaryPath: String
@@ -32,34 +33,17 @@ struct RegressionTests {
         cwd: String? = nil,
         env: [String: String]? = nil,
         stdin: String? = nil
-    ) throws -> (output: String, exitCode: Int32) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binary ?? binaryPath)
-        process.arguments = args
-        if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    ) async throws -> (output: String, exitCode: Int32) {
         var mergedEnv = ProcessInfo.processInfo.environment
         if let env { mergedEnv.merge(env) { _, new in new } }
-        process.environment = mergedEnv
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        if let stdin {
-            let inPipe = Pipe()
-            process.standardInput = inPipe
-            try process.run()
-            inPipe.fileHandleForWriting.write(stdin.data(using: .utf8)!)
-            try inPipe.fileHandleForWriting.close()
-        } else {
-            try process.run()
-        }
-        process.waitUntilExit()
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = (String(data: outData, encoding: .utf8) ?? "")
-            + (String(data: errData, encoding: .utf8) ?? "")
-        return (output, process.terminationStatus)
+        let outcome = try await Subprocess.capture(
+            binary ?? binaryPath,
+            args,
+            workingDirectory: cwd,
+            environment: mergedEnv,
+            stdin: stdin
+        )
+        return (outcome.stdout + outcome.stderr, outcome.exitCode)
     }
 
     private func makeTempFile(_ content: String, _ name: String) throws -> String {
@@ -78,11 +62,11 @@ struct RegressionTests {
     // MARK: - delete --symbol (bug: visitAny never intercepted typed nodes)
 
     @Test("delete --symbol removes the declaration and verifies")
-    func deleteSymbol() throws {
+    func deleteSymbol() async throws {
         let path = try makeTempFile("import RAW\n\nstruct Foo: Sendable {}\nstruct Bar: Sendable {}\n", "del.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, code) = try runTool(["delete", path, "--symbol", "Foo"])
+        let (output, code) = try await runTool(["delete", path, "--symbol", "Foo"])
         #expect(code == 0)
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == true)
@@ -94,11 +78,11 @@ struct RegressionTests {
     }
 
     @Test("delete --symbol reports untouched when symbol absent")
-    func deleteSymbolMissing() throws {
+    func deleteSymbolMissing() async throws {
         let path = try makeTempFile("struct Bar: Sendable {}\n", "del2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, _) = try runTool(["delete", path, "--symbol", "Nope"])
+        let (output, _) = try await runTool(["delete", path, "--symbol", "Nope"])
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == false)
     }
@@ -106,13 +90,13 @@ struct RegressionTests {
     // MARK: - --force gating (bug: verify-failing edits wrote anyway)
 
     @Test("verify-failing edit is blocked without --force")
-    func forceBlocksUnverified() throws {
+    func forceBlocksUnverified() async throws {
         let path = try makeTempFile("struct S {\n  var value: Int\n}\n", "fx.swift")
         let original = try String(contentsOfFile: path, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         // removing the closing brace breaks the syntax
-        let (output, code) = try runTool(["replace", path, "--old", "}", "--new", ""])
+        let (output, code) = try await runTool(["replace", path, "--old", "}", "--new", ""])
         #expect(code == 0)
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == false)
@@ -124,11 +108,11 @@ struct RegressionTests {
     }
 
     @Test("--force allows the unverified write")
-    func forceWritesWhenForced() throws {
+    func forceWritesWhenForced() async throws {
         let path = try makeTempFile("struct S {\n  var value: Int\n}\n", "fx2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, code) = try runTool(["replace", path, "--old", "}", "--new", "", "--force"])
+        let (output, code) = try await runTool(["replace", path, "--old", "}", "--new", "", "--force"])
         #expect(code == 0)
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == true)
@@ -138,7 +122,7 @@ struct RegressionTests {
     // MARK: - minify token separation (bug: space between tokens dropped)
 
     @Test("minify preserves required token separation")
-    func minifyPreservesSeparation() throws {
+    func minifyPreservesSeparation() async throws {
         let source = """
         import __crawdog_sha256
         import RAW
@@ -151,7 +135,7 @@ struct RegressionTests {
         let path = try makeTempFile(source, "min.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (_, code) = try runTool(["format", path, "--minify"])
+        let (_, code) = try await runTool(["format", path, "--minify"])
         #expect(code == 0)
 
         let minified = try String(contentsOfFile: path, encoding: .utf8)
@@ -163,7 +147,7 @@ struct RegressionTests {
     }
 
     @Test("minified output still parses cleanly")
-    func minifiedReparses() throws {
+    func minifiedReparses() async throws {
         let source = """
         import __crawdog_sha256
         import RAW
@@ -175,8 +159,8 @@ struct RegressionTests {
         let path = try makeTempFile(source, "min2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        _ = try runTool(["format", path, "--minify"])
-        let (validation, _) = try runTool(["validate", path, "--output-format", "json"])
+        _ = try await runTool(["format", path, "--minify"])
+        let (validation, _) = try await runTool(["validate", path, "--output-format", "json"])
         let data = validation.data(using: .utf8) ?? Data()
         let diags = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
         let errors = diags.filter { ($0["severity"] as? String) == "error" }
@@ -186,11 +170,11 @@ struct RegressionTests {
     // MARK: - LCS diff (bug: insertion flagged the whole tail as changed)
 
     @Test("insert-at-top diff shows only the added line")
-    func diffInsertAtTopIsMinimal() throws {
+    func diffInsertAtTopIsMinimal() async throws {
         let path = try makeTempFile("let x = 1\nlet y = 2\nlet z = 3\n", "d1.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, _) = try runTool(
+        let (output, _) = try await runTool(
             ["replace", path, "--old", "let x = 1", "--new", "let pre = 0\nlet x = 1", "--show-diff"]
         )
         let json = parsedJSON(output)
@@ -202,11 +186,11 @@ struct RegressionTests {
     }
 
     @Test("mid-file delete diff shows only the removed line")
-    func diffMiddleDeleteIsMinimal() throws {
+    func diffMiddleDeleteIsMinimal() async throws {
         let path = try makeTempFile("let x = 1\nlet y = 2\nlet z = 3\n", "d2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, _) = try runTool(["delete", path, "--lines", "2-2", "--show-diff"])
+        let (output, _) = try await runTool(["delete", path, "--lines", "2-2", "--show-diff"])
         let json = parsedJSON(output)
         let diff = json["diff"] as? String ?? ""
         #expect(diff.contains("-let y = 2"))
@@ -217,7 +201,7 @@ struct RegressionTests {
     // MARK: - short output (bug: raw Swift reflection dump)
 
     @Test("short output is human text, not reflection dumps")
-    func shortFormatIsHumanReadable() throws {
+    func shortFormatIsHumanReadable() async throws {
         let srcDir = packageDir + "/Sources/NormalizerCore"
 
         // command -> (argv, artifact that must NOT appear); argv starts with
@@ -231,7 +215,7 @@ struct RegressionTests {
             ("force-unwraps", ["force-unwraps", srcDir, "--output-format", "short"], "ForceUnwrapItem("),
         ]
         for (cmd, argv, forbidden) in cases {
-            let (output, code) = try runTool(argv)
+            let (output, code) = try await runTool(argv)
             #expect(code == 0, "\(cmd) short should exit 0")
             #expect(!output.contains(forbidden), "\(cmd) short must not dump reflection")
             // short output must carry a file:line prefix — unless the command
@@ -245,12 +229,12 @@ struct RegressionTests {
     // MARK: - audit fixes (unknown subcommand, UTF-8 drops, validate exit)
 
     @Test("unknown subcommand is a hard error, not a silent find fall-through")
-    func unknownSubcommandIsHardError() throws {
+    func unknownSubcommandIsHardError() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("unk-\\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let (output, code) = try runTool(["indexx", "."], cwd: dir.path)
+        let (output, code) = try await runTool(["indexx", "."], cwd: dir.path)
         #expect(code != 0, "typo'd subcommand must not exit 0")
         #expect(
             output.localizedCaseInsensitiveContains("unexpected") || output.localizedCaseInsensitiveContains("unknown"),
@@ -259,7 +243,7 @@ struct RegressionTests {
     }
 
     @Test("non-utf8 file is skipped with a stderr warning, exit 0")
-    func nonUtf8FileWarns() throws {
+    func nonUtf8FileWarns() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("u8-\\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -269,20 +253,20 @@ struct RegressionTests {
         bytes.append(0xE9) // é in latin-1, invalid utf-8 continuation
         try Data(bytes).write(to: bad)
 
-        let (output, code) = try runTool(["query", dir.path, "--all"])
+        let (output, code) = try await runTool(["query", dir.path, "--all"])
         #expect(code == 0)
         #expect(output.localizedCaseInsensitiveContains("skipped"), "should warn about the dropped file: \\(output)")
     }
 
     @Test("validate exits non-zero when syntax errors are found")
-    func validateExitsNonZeroOnErrors() throws {
+    func validateExitsNonZeroOnErrors() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("val-\\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let broken = dir.appendingPathComponent("Broken.swift")
         try "struct S { func f( }\n".write(to: broken, atomically: true, encoding: .utf8)
 
-        let (output, code) = try runTool(["validate", broken.path, "--output-format", "compact"])
+        let (output, code) = try await runTool(["validate", broken.path, "--output-format", "compact"])
         #expect(code != 0, "validate with syntax errors must exit non-zero")
         #expect(output.contains("expected"))
     }
@@ -290,23 +274,23 @@ struct RegressionTests {
     // MARK: - bare invocation defaults (bug: paths were required at parse time)
 
     @Test("query/dependencies/index work with no path args")
-    func bareInvocationDefaultsToCwd() throws {
+    func bareInvocationDefaultsToCwd() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bare-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let src = dir.appendingPathComponent("Sample.swift")
         try "public struct SampleThing {}\n".write(to: src, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let (queryOut, queryCode) = try runTool(["query", "--all", "--count"], cwd: dir.path)
+        let (queryOut, queryCode) = try await runTool(["query", "--all", "--count"], cwd: dir.path)
         #expect(queryCode == 0)
         #expect(queryOut.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
 
-        let (depsOut, depsCode) = try runTool(["dependencies"], cwd: dir.path)
+        let (depsOut, depsCode) = try await runTool(["dependencies"], cwd: dir.path)
         #expect(depsCode == 0)
         let trimmedDeps = depsOut.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(trimmedDeps.contains("Sample.swift") || trimmedDeps == "[]")
 
-        let (idxOut, idxCode) = try runTool(["index"], cwd: dir.path)
+        let (idxOut, idxCode) = try await runTool(["index"], cwd: dir.path)
         #expect(idxCode == 0)
         #expect(idxOut.contains("Sample.swift"))
     }
@@ -314,7 +298,7 @@ struct RegressionTests {
     // MARK: - build exit-code contract
 
     @Test("build exits non-zero when the build cannot succeed")
-    func buildFailsLoudly() throws {
+    func buildFailsLoudly() async throws {
         // an empty dir with no Package.swift — `swift build` cannot succeed
         // here. `build` must signal the failure on its exit code: a failed or
         // timed-out build used to be reported as exit 0, which nested callers
@@ -323,7 +307,7 @@ struct RegressionTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let (out, code) = try runTool(["build", dir.path])
+        let (out, code) = try await runTool(["build", dir.path])
         #expect(code != 0, "failed build must not exit 0: \(out)")
         #expect(out.contains("\"succeeded\":false"), "result JSON should mark the build as not succeeded: \(out)")
     }
@@ -331,7 +315,7 @@ struct RegressionTests {
     // MARK: - install/uninstall lifecycle (new subcommands)
 
     @Test("install then uninstall lands and removes binaries + plugin")
-    func installUninstallLifecycle() throws {
+    func installUninstallLifecycle() async throws {
         let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("life-\(UUID().uuidString)")
         let binDir = sandbox.appendingPathComponent("bin").path
         let pluginDir = sandbox.appendingPathComponent("plugins").path
@@ -367,7 +351,7 @@ struct RegressionTests {
         let scratch = sandbox.appendingPathComponent("scratch-build")
         let scratchBin = "\(scratch.path)/out/Products/Debug"
         try FileManager.default.createDirectory(atPath: scratchBin, withIntermediateDirectories: true)
-        let (prebuild, prebuildCode) = try runTool(
+        let (prebuild, prebuildCode) = try await runTool(
             ["build", packageDir, "--extra-args=--scratch-path \(scratch.path) --product normalizer-tool"],
             cwd: packageDir
         )
@@ -379,7 +363,7 @@ struct RegressionTests {
         #expect(FileManager.default.fileExists(atPath: "\(scratchBin)/swift-package-tool"), "staged harness binary should exist: \(scratchBin)/swift-package-tool")
 
         // install with no plugins dir: binaries land, the plugin step skips
-        let (installOut, installCode) = try runTool(
+        let (installOut, installCode) = try await runTool(
             ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
             cwd: packageDir, env: env
         )
@@ -390,7 +374,7 @@ struct RegressionTests {
         #expect(!FileManager.default.fileExists(atPath: pluginManifest), "no plugins dir requested — plugin must be skipped: \(installOut)")
 
         // install with PLUGINS_DIR: the adapter plugin lands
-        let (pluginInstallOut, pluginInstallCode) = try runTool(
+        let (pluginInstallOut, pluginInstallCode) = try await runTool(
             ["install", "--no-build", "--debug", "--build-dir", scratchBin, "--no-path-update", "--no-interactive"],
             cwd: packageDir, env: pluginEnv
         )
@@ -398,7 +382,7 @@ struct RegressionTests {
         #expect(FileManager.default.fileExists(atPath: pluginManifest))
 
         // uninstall: both binaries and the plugin are removed
-        let (removeOut, removeCode) = try runTool(
+        let (removeOut, removeCode) = try await runTool(
             ["uninstall", "--force", "--no-path-update", "--bin-dir", binDir, "--plugins-dir", pluginDir, "--prefix", prefix],
             env: env
         )
@@ -409,7 +393,7 @@ struct RegressionTests {
     }
 
     @Test("uninstall without --plugins-dir leaves the plugin untouched")
-    func uninstallSkipsPluginWithoutDir() throws {
+    func uninstallSkipsPluginWithoutDir() async throws {
         let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("uninst-\(UUID().uuidString)")
         let binDir = sandbox.appendingPathComponent("bin").path
         let pluginDir = sandbox.appendingPathComponent("plugins").path
@@ -426,7 +410,7 @@ struct RegressionTests {
             "PATH_UPDATE": "0",
             "PLUGINS_DIR": "",
         ]
-        let (out, code) = try runTool(
+        let (out, code) = try await runTool(
             ["uninstall", "--force", "--no-path-update", "--bin-dir", binDir, "--prefix", sandbox.appendingPathComponent("prefix").path],
             env: env
         )
@@ -440,36 +424,36 @@ struct RegressionTests {
     //           rewritten — a glob string could lose its whole declaration)
 
     @Test("normalizer --minify keeps code lines containing /* inside strings")
-    func minifyKeepsGlobStrings() throws {
+    func minifyKeepsGlobStrings() async throws {
         let source = "let glob = \"Sources/*.swift\"\nlet x = 1\n"
         let path = try makeTempFile(source, "hide-code.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        let (out, code) = try await runTool(["--minify", "--file", path], binary: normalizerPath)
         #expect(code == 0, "\(out)")
         let content = try String(contentsOfFile: path, encoding: .utf8)
         #expect(content == source, "minify must not touch code lines: \(content)")
     }
 
     @Test("normalizer --minify hides multi-line block comment interiors")
-    func minifyHidesBlockCommentInterior() throws {
+    func minifyHidesBlockCommentInterior() async throws {
         let source = "/* secret one\n   secret two\n   secret three */\nlet y = 2\n"
         let path = try makeTempFile(source, "hide-block.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        let (out, code) = try await runTool(["--minify", "--file", path], binary: normalizerPath)
         #expect(code == 0, "\(out)")
         let content = try String(contentsOfFile: path, encoding: .utf8)
         #expect(content == "/* comment invisible\n* comment invisible\ncomment invisible */\nlet y = 2\n", "interior comment content must be hidden: \(content)")
     }
 
     @Test("normalizer --minify keeps code after a same-line block comment")
-    func minifyKeepsCodeAfterBlockComment() throws {
+    func minifyKeepsCodeAfterBlockComment() async throws {
         let source = "/* note */ let x = 1\n"
         let path = try makeTempFile(source, "hide-mixed.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["--minify", "--file", path], binary: normalizerPath)
+        let (out, code) = try await runTool(["--minify", "--file", path], binary: normalizerPath)
         #expect(code == 0, "\(out)")
         let content = try String(contentsOfFile: path, encoding: .utf8)
         #expect(content == "/* comment invisible */ let x = 1\n")
@@ -479,12 +463,12 @@ struct RegressionTests {
     //           cleanup ran inside multi-line literals, changing values)
 
     @Test("format --minify preserves whitespace inside multi-line string literals")
-    func formatMinifyPreservesMultilineString() throws {
+    func formatMinifyPreservesMultilineString() async throws {
         let source = "let s = \"\"\"\n    line1\n        indented\n        deepLast\n    keep   \n    \"\"\"\nprint(s)\n"
         let path = try makeTempFile(source, "minify-string.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["format", path, "--minify"])
+        let (out, code) = try await runTool(["format", path, "--minify"])
         #expect(code == 0, "\(out)")
         let minified = try String(contentsOfFile: path, encoding: .utf8)
         // the closing delimiter is dedented to column 0, so preserved interior
@@ -496,12 +480,12 @@ struct RegressionTests {
     }
 
     @Test("format --minify preserves blank lines inside multi-line string literals")
-    func formatMinifyPreservesStringBlankLines() throws {
+    func formatMinifyPreservesStringBlankLines() async throws {
         let source = "let a = \"\"\"\n    first\n\n\n    after\n    \"\"\"\n"
         let path = try makeTempFile(source, "minify-string-blanks.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["format", path, "--minify"])
+        let (out, code) = try await runTool(["format", path, "--minify"])
         #expect(code == 0, "\(out)")
         let minified = try String(contentsOfFile: path, encoding: .utf8)
         #expect(minified.contains("first\n\n\nafter"), "blank lines inside the literal collapsed: \(minified)")
@@ -511,12 +495,12 @@ struct RegressionTests {
     //           character indices — a trap, or a silently misplaced edit)
 
     @Test("add-member does not trap on files with multi-byte characters")
-    func addMemberWithMultibyteCharacters() throws {
+    func addMemberWithMultibyteCharacters() async throws {
         let source = "// éééé\nstruct Foo {\n    let a = 1\n}\n"
         let path = try makeTempFile(source, "add-member-unicode.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
+        let (out, code) = try await runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
         #expect(code == 0, "must not trap: \(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == true)
@@ -526,7 +510,7 @@ struct RegressionTests {
     }
 
     @Test("add-member keeps the member inside the type when bytes shift the offset")
-    func addMemberStaysInsideTheType() throws {
+    func addMemberStaysInsideTheType() async throws {
         // 17 two-byte characters shift the closing brace 17 characters; the
         // old math landed inside the next declaration and wrote there
         let source = "// " + String(repeating: "é", count: 17) + "\n"
@@ -534,7 +518,7 @@ struct RegressionTests {
         let path = try makeTempFile(source, "add-member-shift.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
+        let (out, code) = try await runTool(["add-member", path, "--type", "Foo", "--property", "var b: Int"])
         #expect(code == 0, "\(out)")
         let content = try String(contentsOfFile: path, encoding: .utf8)
         #expect(content.contains("    let a = 1\n\n    var b: Int\n}"), "member must land inside Foo: \(content)")
@@ -542,12 +526,12 @@ struct RegressionTests {
     }
 
     @Test("force-unwraps does not trap on files with multi-byte characters")
-    func forceUnwrapsWithMultibyteCharacters() throws {
+    func forceUnwrapsWithMultibyteCharacters() async throws {
         let source = "// " + String(repeating: "é", count: 60) + "\nlet x = maybe()!\n"
         let path = try makeTempFile(source, "force-unwrap-unicode.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["force-unwraps", path, "--output-format", "json"])
+        let (out, code) = try await runTool(["force-unwraps", path, "--output-format", "json"])
         #expect(code == 0, "must not trap: \(out)")
         #expect(out.contains("maybe()!"), "context snippet must include the finding: \(out)")
     }
@@ -557,12 +541,12 @@ struct RegressionTests {
     //           counted bytes instead of characters)
 
     @Test("query reports each declaration's own line, not its leading trivia")
-    func queryReportsDeclarationLines() throws {
+    func queryReportsDeclarationLines() async throws {
         let source = "import Foundation\n\n/// doc for alpha\nfunc alpha() {}\n\n// note\nfunc beta() {}\n"
         let path = try makeTempFile(source, "locations.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["query", path, "--all", "--output-format", "json"])
+        let (out, code) = try await runTool(["query", path, "--all", "--output-format", "json"])
         #expect(code == 0, "\(out)")
         let decls = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
         var lines: [String: Int] = [:]
@@ -574,11 +558,11 @@ struct RegressionTests {
     }
 
     @Test("inspect reports the symbol's own line")
-    func inspectReportsDeclarationLine() throws {
+    func inspectReportsDeclarationLine() async throws {
         let path = try makeTempFile("/// doc\nfunc alpha() {}\n", "inspect-loc.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["inspect", path, "--symbol", "alpha", "--output-format", "json"])
+        let (out, code) = try await runTool(["inspect", path, "--symbol", "alpha", "--output-format", "json"])
         #expect(code == 0, "\(out)")
         let json = parsedJSON(out)
         #expect(json["line"] as? Int == 2, "\(out)")
@@ -586,12 +570,12 @@ struct RegressionTests {
     }
 
     @Test("columns count characters, not bytes")
-    func columnsCountCharacters() throws {
+    func columnsCountCharacters() async throws {
         // `struct` starts at character column 10; the two é are two bytes each
         let path = try makeTempFile("/* éé */ struct Foo {}\n", "unicode-column.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["query", path, "--all", "--output-format", "json"])
+        let (out, code) = try await runTool(["query", path, "--all", "--output-format", "json"])
         #expect(code == 0, "\(out)")
         let decls = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
         let foo = decls.first { $0["name"] as? String == "Foo" }
@@ -600,12 +584,12 @@ struct RegressionTests {
     }
 
     @Test("docc-check points at the reference, not the declaration")
-    func doccCheckReportsReferenceLocation() throws {
+    func doccCheckReportsReferenceLocation() async throws {
         let source = "struct S {\n    /// bad `Missing` ref here\n    func gamma() {}\n}\n"
         let path = try makeTempFile(source, "docc-loc.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["docc-check", path, "--output-format", "json"])
+        let (out, code) = try await runTool(["docc-check", path, "--output-format", "json"])
         #expect(code == 0, "\(out)")
         let warnings = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
         #expect(warnings.first?["referencedSymbol"] as? String == "Missing", "\(out)")
@@ -614,12 +598,12 @@ struct RegressionTests {
     }
 
     @Test("docc-check locates a reference in a later doc-comment line")
-    func doccCheckReportsMultiLineCommentLocation() throws {
+    func doccCheckReportsMultiLineCommentLocation() async throws {
         let source = "/// first line is fine\n/// second line references `AlsoMissing`\nfunc beta() {}\n"
         let path = try makeTempFile(source, "docc-loc2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["docc-check", path, "--output-format", "json"])
+        let (out, code) = try await runTool(["docc-check", path, "--output-format", "json"])
         #expect(code == 0, "\(out)")
         let warnings = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
         #expect(warnings.first?["line"] as? Int == 2, "reference is on the second comment line: \(out)")
@@ -630,12 +614,12 @@ struct RegressionTests {
     //           visiting children, so a nested target was never found)
 
     @Test("add-conformance finds a nested type")
-    func addConformanceFindsNestedType() throws {
+    func addConformanceFindsNestedType() async throws {
         let source = "struct Outer {\n    struct Inner {}\n}\n"
         let path = try makeTempFile(source, "nested-conformance.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["add-conformance", path, "--type", "Inner", "--protocol", "Sendable"])
+        let (out, code) = try await runTool(["add-conformance", path, "--type", "Inner", "--protocol", "Sendable"])
         #expect(code == 0, "\(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == true, "nested type must be found: \(out)")
@@ -644,12 +628,12 @@ struct RegressionTests {
     }
 
     @Test("sort finds a nested type")
-    func sortFindsNestedType() throws {
+    func sortFindsNestedType() async throws {
         let source = "struct Outer {\n    struct Inner {\n        var b = 2\n        var a = 1\n    }\n}\n"
         let path = try makeTempFile(source, "nested-sort.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["sort", path, "--type", "Inner"])
+        let (out, code) = try await runTool(["sort", path, "--type", "Inner"])
         #expect(code == 0, "\(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == true, "nested type must be found: \(out)")
@@ -665,13 +649,13 @@ struct RegressionTests {
     // MARK: - backup reuse (bug: a stale .bak made the second edit fail)
 
     @Test("--backup works twice on the same file")
-    func backupReplacesStaleBackup() throws {
+    func backupReplacesStaleBackup() async throws {
         let path = try makeTempFile("let a = 1\n", "backup-twice.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out1, code1) = try runTool(["insert", path, "--content", "let first = 1", "--after", "let a = 1", "--backup"])
+        let (out1, code1) = try await runTool(["insert", path, "--content", "let first = 1", "--after", "let a = 1", "--backup"])
         #expect(code1 == 0, "\(out1)")
-        let (out2, code2) = try runTool(["insert", path, "--content", "let second = 2", "--after", "let first = 1", "--backup"])
+        let (out2, code2) = try await runTool(["insert", path, "--content", "let second = 2", "--after", "let first = 1", "--backup"])
         #expect(code2 == 0, "second run must not fail on the stale backup: \(out2)")
         #expect(parsedJSON(out2)["modified"] as? Bool == true, "\(out2)")
 
@@ -688,11 +672,11 @@ struct RegressionTests {
     //           no-op edit and a malformed range were both silent)
 
     @Test("an insert anchor miss reports why nothing changed")
-    func insertAnchorMissReportsNote() throws {
+    func insertAnchorMissReportsNote() async throws {
         let path = try makeTempFile("let a = 1\n", "anchor-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["insert", path, "--content", "let x = 1", "--after", "NOT-THERE"])
+        let (out, code) = try await runTool(["insert", path, "--content", "let x = 1", "--after", "NOT-THERE"])
         #expect(code == 0, "\(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == false, "\(out)")
@@ -700,11 +684,11 @@ struct RegressionTests {
     }
 
     @Test("a delete range beyond the file reports why nothing changed")
-    func deleteRangeBeyondEOFReportsNote() throws {
+    func deleteRangeBeyondEOFReportsNote() async throws {
         let path = try makeTempFile("let a = 1\nlet b = 2\n", "range-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["delete", path, "--lines", "100-200"])
+        let (out, code) = try await runTool(["delete", path, "--lines", "100-200"])
         #expect(code == 0, "\(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == false, "\(out)")
@@ -712,11 +696,11 @@ struct RegressionTests {
     }
 
     @Test("a malformed --lines range is a usage error, not a silent no-op")
-    func malformedLineRangeIsUsageError() throws {
+    func malformedLineRangeIsUsageError() async throws {
         let path = try makeTempFile("let a = 1\n", "range-bad.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["delete", path, "--lines", "garbage"])
+        let (out, code) = try await runTool(["delete", path, "--lines", "garbage"])
         #expect(code != 0, "malformed range must not exit 0: \(out)")
         #expect(out.contains("invalid line range"), "\(out)")
         let content = try String(contentsOfFile: path, encoding: .utf8)
@@ -724,24 +708,24 @@ struct RegressionTests {
     }
 
     @Test("a replace that matches nothing reports why nothing changed")
-    func replaceMissReportsNote() throws {
+    func replaceMissReportsNote() async throws {
         let path = try makeTempFile("let a = 1\n", "replace-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (out, code) = try runTool(["replace", path, "--old", "NOT-THERE", "--new", "x"])
+        let (out, code) = try await runTool(["replace", path, "--old", "NOT-THERE", "--new", "x"])
         #expect(code == 0, "\(out)")
         #expect(parsedJSON(out)["warning"] as? String == "no occurrence of 'NOT-THERE' found", "\(out)")
     }
 
     @Test("batch reports the same diagnostic for an anchor miss")
-    func batchAnchorMissReportsNote() throws {
+    func batchAnchorMissReportsNote() async throws {
         let target = try makeTempFile("let a = 1\n", "batch-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: target) }
         let plan = "{\"operations\":[{\"command\":\"insert\",\"file\":\"\(target)\",\"content\":\"x\",\"after\":\"NOPE\"}]}"
         let planPath = try makeTempFile(plan, "plan.json")
         defer { try? FileManager.default.removeItem(atPath: planPath) }
 
-        let (out, code) = try runTool(["batch", planPath])
+        let (out, code) = try await runTool(["batch", planPath])
         #expect(code == 0, "\(out)")
         let results = parsedJSON(out)["results"] as? [[String: Any]] ?? []
         #expect(results.first?["warning"] as? String == "no line containing 'NOPE' found", "\(out)")
@@ -752,23 +736,23 @@ struct RegressionTests {
     //           file-level failures)
 
     @Test("format emits csv and short output when asked")
-    func formatHonorsAllOutputFormats() throws {
+    func formatHonorsAllOutputFormats() async throws {
         let path = try makeTempFile("let x = 1\n", "format-csv.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (shortOut, shortCode) = try runTool(["format", path, "--output-format", "short"])
+        let (shortOut, shortCode) = try await runTool(["format", path, "--output-format", "short"])
         #expect(shortCode == 0, "\(shortOut)")
         #expect(shortOut.contains("\(path): unchanged"), "short must be human text: \(shortOut)")
         #expect(!shortOut.contains("FormatResult("), "short must not dump reflection: \(shortOut)")
 
-        let (csvOut, csvCode) = try runTool(["format", path, "--output-format", "csv"])
+        let (csvOut, csvCode) = try await runTool(["format", path, "--output-format", "csv"])
         #expect(csvCode == 0, "\(csvOut)")
         #expect(!csvOut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "csv must emit output: \(csvOut)")
         #expect(csvOut.contains("unchanged"), "\(csvOut)")
     }
 
     @Test("a failed clean exits non-zero")
-    func failedCleanExitsNonZero() throws {
+    func failedCleanExitsNonZero() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cleanfail-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -777,18 +761,18 @@ struct RegressionTests {
 
         // an empty PATH makes the spawned `swift package clean` unrunnable — a
         // deterministic clean failure for the exit-code contract
-        let (out, code) = try runTool(["clean", dir.path], env: ["PATH": "/nonexistent"])
+        let (out, code) = try await runTool(["clean", dir.path], env: ["PATH": "/nonexistent"])
         #expect(code != 0, "a failed clean must not exit 0: \(out)")
         let payload = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [[String: Any]] ?? []
         #expect(payload.first?["success"] as? Bool == false, "the payload must report the failure: \(out)")
 
         // a clean that succeeds stays exit 0
-        let (okOut, okCode) = try runTool(["clean", dir.path])
+        let (okOut, okCode) = try await runTool(["clean", dir.path])
         #expect(okCode == 0, "a successful clean must stay exit 0: \(okOut)")
     }
 
     @Test("normalizer-tool exits non-zero when a file cannot be normalized")
-    func normalizerFailsLoudly() throws {
+    func normalizerFailsLoudly() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("norm-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -797,41 +781,41 @@ struct RegressionTests {
         bytes.append(0xE9)   // latin-1 é: not valid utf-8
         try Data(bytes).write(to: bad)
 
-        let (out, code) = try runTool(["--file", bad.path], binary: normalizerPath)
+        let (out, code) = try await runTool(["--file", bad.path], binary: normalizerPath)
         #expect(code != 0, "a failed file must fail the run: \(out)")
         #expect(out.contains("1 failed"), "the summary must report it: \(out)")
 
         let good = dir.appendingPathComponent("Good.swift")
         try "let ok = 1\n".write(to: good, atomically: true, encoding: .utf8)
-        let (okOut, okCode) = try runTool(["--file", good.path], binary: normalizerPath)
+        let (okOut, okCode) = try await runTool(["--file", good.path], binary: normalizerPath)
         #expect(okCode == 0, "a clean run stays exit 0: \(okOut)")
     }
 
     // MARK: - git provenance (build tool plugin)
 
     @Test("git-metadata-tool reports the checkout's commit")
-    func gitMetadataToolReportsCommit() throws {
+    func gitMetadataToolReportsCommit() async throws {
         let tool = packageDir + "/.build/debug/git-metadata-tool"
         guard FileManager.default.isExecutableFile(atPath: tool) else {
             Issue.record("build git-metadata-tool first (swift build) — \(tool) is missing")
             return
         }
-        let (headOut, headCode) = try runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
+        let (headOut, headCode) = try await runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
         #expect(headCode == 0, "\(headOut)")
         let short = headOut.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let (out, code) = try runTool(["--print", "--repo", packageDir], binary: tool)
+        let (out, code) = try await runTool(["--print", "--repo", packageDir], binary: tool)
         #expect(code == 0, "\(out)")
         #expect(out.contains("shortCommitHash: \(short)"), "\(out)")
         #expect(out.contains("branch: "), "\(out)")
     }
 
     @Test("--version names the commit the binary was built from")
-    func versionReportsGitMetadata() throws {
-        let (headOut, headCode) = try runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
+    func versionReportsGitMetadata() async throws {
+        let (headOut, headCode) = try await runTool(["rev-parse", "--short", "HEAD"], binary: "/usr/bin/git", cwd: packageDir)
         let short = headOut.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let (out, code) = try runTool(["--version"])
+        let (out, code) = try await runTool(["--version"])
         #expect(code == 0, "\(out)")
         #expect(out.contains("1.0.0"), "the semantic version leads: \(out)")
         if headCode == 0, !short.isEmpty {

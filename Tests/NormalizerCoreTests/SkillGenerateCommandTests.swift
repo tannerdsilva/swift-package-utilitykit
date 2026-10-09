@@ -1,11 +1,12 @@
 import Testing
 import Foundation
+import SubprocessCore
 
 /// end-to-end tests for `skill-generate`, driving the built binary as a
 /// subprocess against a fixture package. asserts the portable skill contract
 /// (frontmatter invariants, ≤60-char description, byte-determinism) plus the
 /// digest/article/digest-install behavior.
-@Suite("swift-package-tool skill-generate tests")
+@Suite("swift-package-tool skill-generate tests", .serialized)
 struct SkillGenerateCommandTests {
 
     let binaryPath: String
@@ -26,25 +27,12 @@ struct SkillGenerateCommandTests {
         _ args: [String],
         cwd: String? = nil,
         env: [String: String]? = nil
-    ) throws -> (output: String, exitCode: Int32) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = args
-        if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    ) async throws -> (output: String, exitCode: Int32) {
         var mergedEnv = ProcessInfo.processInfo.environment
         if let env { mergedEnv.merge(env) { _, new in new } }
-        process.environment = mergedEnv
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        try process.run()
-        process.waitUntilExit()
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = (String(data: outData, encoding: .utf8) ?? "")
-            + (String(data: errData, encoding: .utf8) ?? "")
-        return (output, process.terminationStatus)
+        let outcome = try await Subprocess.capture(
+            binaryPath, args, workingDirectory: cwd, environment: mergedEnv)
+        return (outcome.stdout + outcome.stderr, outcome.exitCode)
     }
 
     private func parsedJSON(_ output: String) -> [String: Any] {
@@ -144,10 +132,10 @@ struct SkillGenerateCommandTests {
     // MARK: - the skill tree
 
     @Test("skill-generate writes a valid skill tree with a correct digest")
-    func generatesSkillTree() throws {
+    func generatesSkillTree() async throws {
         let pkg = try makeFixture()
         let outDir = URL(fileURLWithPath: pkg).deletingLastPathComponent().appendingPathComponent("out").path
-        let (output, code) = try runTool(["skill-generate", pkg, "--output-dir", outDir])
+        let (output, code) = try await runTool(["skill-generate", pkg, "--output-dir", outDir])
         #expect(code == 0, "exit 0: \(output)")
 
         let json = parsedJSON(output)
@@ -212,12 +200,12 @@ struct SkillGenerateCommandTests {
     }
 
     @Test("skill-generate honors --name, --version, and --output")
-    func nameVersionAndOutput() throws {
+    func nameVersionAndOutput() async throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         let outDir = "\(base)/out2"
         let summaryPath = "\(base)/summary.json"
-        let (output, code) = try runTool([
+        let (output, code) = try await runTool([
             "skill-generate", pkg,
             "--output-dir", outDir,
             "--name", "my-skill",
@@ -232,17 +220,17 @@ struct SkillGenerateCommandTests {
         #expect(skill.contains("version: 2.3.0"))
 
         // a bad custom name is rejected loudly
-        let (badOut, badCode) = try runTool(["skill-generate", pkg, "--output-dir", outDir, "--name", "Bad_Name"])
+        let (badOut, badCode) = try await runTool(["skill-generate", pkg, "--output-dir", outDir, "--name", "Bad_Name"])
         #expect(badCode != 0)
         #expect(badOut.contains("invalid --name"))
     }
 
     @Test("skill-generate --include-internal captures internal declarations")
-    func includeInternal() throws {
+    func includeInternal() async throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         let outDir = "\(base)/out-internal"
-        let (output, code) = try runTool(["skill-generate", pkg, "--output-dir", outDir, "--include-internal"])
+        let (output, code) = try await runTool(["skill-generate", pkg, "--output-dir", outDir, "--include-internal"])
         #expect(code == 0, "exit 0: \(output)")
         let json = parsedJSON(output)
         // 6 public + hidden() + topLevelHelper() + the manifest's `let package`
@@ -255,12 +243,12 @@ struct SkillGenerateCommandTests {
     // MARK: - install
 
     @Test("skill-generate --install lands in the given skills dir")
-    func installLands() throws {
+    func installLands() async throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         let skillsDir = "\(base)/skills"
         let env = ["SKILLS_DIR": skillsDir]
-        let (output, code) = try runTool(
+        let (output, code) = try await runTool(
             ["skill-generate", pkg, "--output-dir", "\(base)/out", "--install"],
             env: env
         )
@@ -271,7 +259,7 @@ struct SkillGenerateCommandTests {
         #expect(FileManager.default.fileExists(atPath: "\(skillsDir)/swift/skillfixture-api/references/api.md"))
 
         // --category routes into the requested category
-        let (output2, code2) = try runTool(
+        let (output2, code2) = try await runTool(
             ["skill-generate", pkg, "--output-dir", "\(base)/out", "--install", "--category", "software-development"],
             env: env
         )
@@ -279,7 +267,7 @@ struct SkillGenerateCommandTests {
         #expect(FileManager.default.fileExists(atPath: "\(skillsDir)/software-development/skillfixture-api/SKILL.md"))
 
         // the explicit flag form works too (and wins over the env var)
-        let (output3, code3) = try runTool(
+        let (output3, code3) = try await runTool(
             ["skill-generate", pkg, "--output-dir", "\(base)/out", "--install", "--skills-dir", "\(base)/skills-flag"],
             env: env
         )
@@ -288,11 +276,11 @@ struct SkillGenerateCommandTests {
     }
 
     @Test("skill-generate --install without a skills dir is a hard error")
-    func installRequiresExplicitDir() throws {
+    func installRequiresExplicitDir() async throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         // an empty env value means unset — no skills directory is ever assumed
-        let (output, code) = try runTool(
+        let (output, code) = try await runTool(
             ["skill-generate", pkg, "--output-dir", "\(base)/out-nodir", "--install"],
             env: ["SKILLS_DIR": ""]
         )
@@ -303,13 +291,13 @@ struct SkillGenerateCommandTests {
     // MARK: - determinism & contract guards
 
     @Test("skill-generate is byte-deterministic across runs")
-    func deterministic() throws {
+    func deterministic() async throws {
         let pkg = try makeFixture()
         let base = URL(fileURLWithPath: pkg).deletingLastPathComponent().path
         let a = "\(base)/out-a"
         let b = "\(base)/out-b"
-        let (o1, c1) = try runTool(["skill-generate", pkg, "--output-dir", a])
-        let (o2, c2) = try runTool(["skill-generate", pkg, "--output-dir", b])
+        let (o1, c1) = try await runTool(["skill-generate", pkg, "--output-dir", a])
+        let (o2, c2) = try await runTool(["skill-generate", pkg, "--output-dir", b])
         #expect(c1 == 0 && c2 == 0, "\(o1) \(o2)")
         for file in ["SKILL.md", "references/api.md", "references/articles/usage.md", "references/articles/Widget.md"] {
             let x = try String(contentsOfFile: "\(a)/\(file)", encoding: .utf8)
@@ -319,15 +307,15 @@ struct SkillGenerateCommandTests {
     }
 
     @Test("skill-generate rejects the stdin path")
-    func rejectsStdin() throws {
-        let (output, code) = try runTool(["skill-generate", "-"])
+    func rejectsStdin() async throws {
+        let (output, code) = try await runTool(["skill-generate", "-"])
         #expect(code != 0)
         #expect(output.contains("stdin"))
     }
 
     @Test("skill-generate --schema prints the summary schema")
-    func schema() throws {
-        let (output, code) = try runTool(["skill-generate", "--schema"])
+    func schema() async throws {
+        let (output, code) = try await runTool(["skill-generate", "--schema"])
         #expect(code == 0)
         #expect(output.contains("skillName"))
         #expect(output.contains("undocumented"))

@@ -21,8 +21,22 @@ let package = Package(
         // the arc plugin manifest format. path pin while co-developing; the
         // URL/version pin replaces it when swift-mcp tags.
         .package(path: "../swift-mcp"),
+        // subprocess execution. path pin while co-developing: 5.0.2 fixes a
+        // non-ascii argv truncation and is tagged locally but not yet pushed, so a
+        // URL pin cannot see it (`from: "5.0.2"` replaces this once it is).
+        // every spawn in this package goes through SubprocessCore, which is a
+        // thin adapter over this.
+        .package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "5.0.2"..<"6.0.0"),
     ],
     targets: [
+        // the one subprocess entry point for this package: swift-slash owns the
+        // spawn, the concurrent stream drain, and the reap. plugins cannot link
+        // it (SwiftPM forbids library deps in plugin targets), which is why the
+        // two plugin adapters spawn directly.
+        .target(
+            name: "SubprocessCore",
+            dependencies: [.product(name: "SwiftSlash", package: "SwiftSlash")]
+        ),
         .target(name: "NormalizerCore"),
         .executableTarget(
             name: "normalizer-tool",
@@ -46,7 +60,7 @@ let package = Package(
         // git provenance: a library with the probe/renderer logic, a thin tool
         // the plugin invokes, and the build tool plugin that wires them into a
         // target's build. see Plugins/GitMetadataPlugin for the design notes.
-        .target(name: "GitMetadataCore"),
+        .target(name: "GitMetadataCore", dependencies: ["SubprocessCore"]),
         .executableTarget(
             name: "git-metadata-tool",
             dependencies: [
@@ -69,6 +83,7 @@ let package = Package(
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
                 .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
                 "NormalizerCore",
+                "SubprocessCore",
             ],
             // generates GitProvenance.swift, which AppVersion reads so
             // `--version` reports the commit the binary was built from
@@ -76,15 +91,15 @@ let package = Package(
         ),
         .testTarget(
             name: "NormalizerCoreTests",
-            dependencies: ["NormalizerCore"]
+            dependencies: ["NormalizerCore", "SubprocessCore"]
         ),
         .testTarget(
             name: "SwiftPackageToolTests",
-            dependencies: []
+            dependencies: ["SubprocessCore"]
         ),
         .testTarget(
             name: "GitMetadataCoreTests",
-            dependencies: ["GitMetadataCore"]
+            dependencies: ["GitMetadataCore", "SubprocessCore"]
         ),
     ]
 )

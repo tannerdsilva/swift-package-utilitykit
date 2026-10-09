@@ -1,4 +1,5 @@
 import Foundation
+import SubprocessCore
 
 /// the git provenance of a working tree.
 ///
@@ -56,7 +57,8 @@ public struct GitMetadata: Equatable, Sendable {
 /// collection never throws: a missing executable, a missing repository, or a
 /// failing command all degrade to `.unknown` fields, because a build must not
 /// fail over metadata. `--print` on the tool surfaces what was and was not
-/// available.
+/// available. it runs through the package's shared spawn path, so collection is
+/// async like every other subprocess in the package.
 public enum GitMetadataProbe {
     /// the conventional git location, tried before falling back to `PATH`.
     public static let defaultGitPath = "/usr/bin/git"
@@ -88,55 +90,44 @@ public enum GitMetadataProbe {
     public static func collect(
         at directory: String,
         gitPath: String? = nil
-    ) -> GitMetadata {
+    ) async -> GitMetadata {
         guard let command = resolveCommand(explicit: gitPath) else { return .unknown }
 
         let directory = NSString(string: directory).standardizingPath
 
         // every command targets the repository explicitly; safe.directory
         // covers repositories owned by another user (containers, CI mounts)
-        func git(_ arguments: [String]) -> String? {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: command.executable)
-            process.arguments = command.leadingArguments
-                + ["-c", "safe.directory=\(directory)", "-C", directory] + arguments
+        func git(_ arguments: [String]) async -> String? {
             var environment = ProcessInfo.processInfo.environment
             for (key, value) in probeEnvironment { environment[key] = value }
-            process.environment = environment
 
-            let stdout = Pipe()
-            process.standardOutput = stdout
-            process.standardError = FileHandle.nullDevice
-
-            do {
-                try process.run()
-            } catch {
-                return nil
-            }
-            let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let text = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (text?.isEmpty ?? true) ? nil : text
+            let outcome = try? await Subprocess.capture(
+                command.executable,
+                command.leadingArguments
+                    + ["-c", "safe.directory=\(directory)", "-C", directory] + arguments,
+                environment: environment
+            )
+            guard let outcome, outcome.exitCode == 0 else { return nil }
+            let text = outcome.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
         }
 
         // the branch is independent of HEAD resolving to a commit, so an empty
         // repository still reports where it is checked out
-        let branch = git(["symbolic-ref", "--short", "-q", "HEAD"])
-        guard let commitHash = git(["rev-parse", "HEAD"]) else {
+        let branch = await git(["symbolic-ref", "--short", "-q", "HEAD"])
+        guard let commitHash = await git(["rev-parse", "HEAD"]) else {
             return GitMetadata(branch: branch)
         }
 
         return GitMetadata(
             commitHash: commitHash,
-            shortCommitHash: git(["rev-parse", "--short", "HEAD"]),
+            shortCommitHash: await git(["rev-parse", "--short", "HEAD"]),
             branch: branch,
-            tag: git(["describe", "--tags", "--abbrev=0"]),
-            describe: git(["describe", "--tags", "--always"]),
-            commitDate: git(["log", "-1", "--format=%cI"]),
-            commitCount: git(["rev-list", "--count", "HEAD"]).flatMap(Int.init),
-            isDirty: git(["status", "--porcelain"]) != nil
+            tag: await git(["describe", "--tags", "--abbrev=0"]),
+            describe: await git(["describe", "--tags", "--always"]),
+            commitDate: await git(["log", "-1", "--format=%cI"]),
+            commitCount: (await git(["rev-list", "--count", "HEAD"])).flatMap(Int.init),
+            isDirty: await git(["status", "--porcelain"]) != nil
         )
     }
 }

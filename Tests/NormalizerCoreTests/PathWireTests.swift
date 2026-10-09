@@ -1,10 +1,11 @@
 import Testing
 import Foundation
+import SubprocessCore
 
 /// integration tests for the `path-wire` subcommand (former shell script
 /// `scripts/path-wire.sh`). each test runs the built binary as a subprocess
 /// against a sandboxed `HOME` so real shell rc files are never touched.
-@Suite("swift-package-tool path-wire")
+@Suite("swift-package-tool path-wire", .serialized)
 struct PathWireTests {
 
     let binaryPath: String
@@ -20,20 +21,11 @@ struct PathWireTests {
 
     /// run the binary with a sandboxed HOME and return stdout.
     @discardableResult
-    private func runPathWire(_ args: [String], home: String) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = ["path-wire"] + args
+    private func runPathWire(_ args: [String], home: String) async throws -> String {
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = home
-        process.environment = env
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        let outcome = try await Subprocess.capture(binaryPath, ["path-wire"] + args, environment: env)
+        return outcome.stdout + outcome.stderr
     }
 
     private func makeSandbox() throws -> String {
@@ -48,9 +40,9 @@ struct PathWireTests {
     }
 
     @Test("add writes marker-guarded export to .profile")
-    func addWritesProfile() throws {
+    func addWritesProfile() async throws {
         let home = try makeSandbox()
-        try runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
         let profile = read("\(home)/.profile")
         #expect(profile?.contains("# >>> swift-package-utilitykit >>>") == true)
         #expect(profile?.contains("# <<< swift-package-utilitykit <<<") == true)
@@ -58,28 +50,28 @@ struct PathWireTests {
     }
 
     @Test("add uses $HOME-relative export for dirs under home")
-    func addUsesHomeRelative() throws {
+    func addUsesHomeRelative() async throws {
         let home = try makeSandbox()
-        try runPathWire(["\(home)/bin"], home: home)
+        try await runPathWire(["\(home)/bin"], home: home)
         let profile = read("\(home)/.profile")
         #expect(profile?.contains("$HOME/bin") == true)
     }
 
     @Test("add is idempotent — second run adds no duplicate block")
-    func addIsIdempotent() throws {
+    func addIsIdempotent() async throws {
         let home = try makeSandbox()
-        try runPathWire(["/opt/tools"], home: home)
-        try runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
         let profile = read("\(home)/.profile")
         let blockCount = (profile ?? "").components(separatedBy: "# >>> swift-package-utilitykit >>>").count - 1
         #expect(blockCount == 1)
     }
 
     @Test("add only touches .bashrc/.zshrc when they already exist")
-    func addRespectsExistingFiles() throws {
+    func addRespectsExistingFiles() async throws {
         let home = try makeSandbox()
         try "export FOO=1\n".write(toFile: "\(home)/.zshrc", atomically: true, encoding: .utf8)
-        try runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
         let zshrc = read("\(home)/.zshrc")
         #expect(zshrc?.contains("swift-package-utilitykit") == true)
         #expect(zshrc?.contains("export FOO=1") == true)
@@ -88,18 +80,18 @@ struct PathWireTests {
     }
 
     @Test("remove strips the block and preserves other content")
-    func removePreservesOtherContent() throws {
+    func removePreservesOtherContent() async throws {
         let home = try makeSandbox()
         try "export KEEP=1\n".write(toFile: "\(home)/.profile", atomically: true, encoding: .utf8)
-        try runPathWire(["/opt/tools"], home: home)
-        try runPathWire(["--remove"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["--remove"], home: home)
         let profile = read("\(home)/.profile")
         #expect(profile?.contains("swift-package-utilitykit") == false)
         #expect(profile?.contains("export KEEP=1") == true)
     }
 
     @Test("uninstall-compatible: remove handles the legacy scripts/path-wire.sh marker")
-    func removeHandlesLegacyMarker() throws {
+    func removeHandlesLegacyMarker() async throws {
         let home = try makeSandbox()
         // block as written by the former shell script
         let legacy = """
@@ -109,16 +101,16 @@ struct PathWireTests {
 
         """
         try legacy.write(toFile: "\(home)/.profile", atomically: true, encoding: .utf8)
-        try runPathWire(["--remove"], home: home)
+        try await runPathWire(["--remove"], home: home)
         let profile = read("\(home)/.profile")
         #expect(profile?.contains("swift-package-utilitykit") == false)
     }
 
     @Test("add then remove leaves an empty .profile")
-    func addThenRemoveEmpty() throws {
+    func addThenRemoveEmpty() async throws {
         let home = try makeSandbox()
-        try runPathWire(["/opt/tools"], home: home)
-        try runPathWire(["--remove"], home: home)
+        try await runPathWire(["/opt/tools"], home: home)
+        try await runPathWire(["--remove"], home: home)
         let profile = read("\(home)/.profile")
         #expect(profile?.isEmpty == true)
     }

@@ -4,7 +4,7 @@ import Foundation
 @main
 struct NormalizeSyntaxPlugin: CommandPlugin {
 
-    func performCommand(context: PluginContext, arguments: [String]) async throws {
+    func performCommand(context: PluginContext, arguments: [String]) throws {
         let parsed = try ArgumentParser.parse(arguments)
         if parsed.showHelp {
             ArgumentParser.printUsage()
@@ -49,16 +49,9 @@ struct NormalizeSyntaxPlugin: CommandPlugin {
         }
 
         // run the tool and stream its output through to the user.
-        let process = Process()
-        process.executableURL = toolURL
-        process.arguments = toolArgs
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            Diagnostics.error("normalizer-tool exited with status \(process.terminationStatus).")
+        let status = try PluginSpawn.run(toolURL.path, toolArgs)
+        if status != 0 {
+            Diagnostics.error("normalizer-tool exited with status \(status).")
         }
     }
 

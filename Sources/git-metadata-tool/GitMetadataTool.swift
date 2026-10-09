@@ -8,7 +8,7 @@ import GitMetadataCore
 /// also usable by hand (`--print`) when a binary reports surprising
 /// provenance, and `--output` writes only when the rendered text changed.
 @main
-struct GitMetadataTool: ParsableCommand {
+struct GitMetadataTool: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "git-metadata-tool",
         abstract: "Collect git provenance and render it as Swift constants.",
@@ -24,8 +24,8 @@ struct GitMetadataTool: ParsableCommand {
     @Flag(name: .customLong("print"), help: "Print the collected fields as text instead of generating source.")
     var printFields = false
 
-    mutating func run() throws {
-        let metadata = GitMetadataProbe.collect(at: repo)
+    func run() async throws {
+        let metadata = await GitMetadataProbe.collect(at: repo)
 
         if printFields {
             print(GitMetadataRenderer.text(metadata), terminator: "")
