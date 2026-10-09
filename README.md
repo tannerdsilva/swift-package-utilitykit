@@ -167,7 +167,7 @@ hermes mcp remove utilitykit          # if it was registered as an MCP server
 ### Verify
 
 ```bash
-swift-package-tool --version         # e.g. 1.0.0+f8aedbd.dirty — see "build provenance" below
+swift-package-tool --version         # e.g. 2.0.0+f8aedbd.dirty — see "build provenance" below
 swift-package-tool plugin --mcp-list # the 11-tool surface this binary serves
 hermes mcp list | grep utilitykit    # when registered with Hermes
 ```
@@ -381,9 +381,9 @@ metadata.
 
 ```bash
 swift-package-tool --version
-# 1.0.0                 — source tarball, or no git on the machine
-# 1.0.0+f8aedbd         — clean checkout at f8aedbd
-# 1.0.0+f8aedbd.dirty   — the working tree had local changes at build time
+# 2.0.0                 — source tarball, or no git on the machine
+# 2.0.0+f8aedbd         — clean checkout at f8aedbd
+# 2.0.0+f8aedbd.dirty   — the working tree had local changes at build time
 ```
 
 The plugin is a thin adapter. The probe, the renderer, and the
@@ -416,7 +416,7 @@ let package = Package(
     name: "App",
     platforms: [.macOS(.v15)],   // required: the plugin product inherits this package's minimum
     dependencies: [
-        .package(url: "https://github.com/tannerdsilva/swift-package-utilitykit", from: "1.0.0"),
+        .package(url: "https://github.com/tannerdsilva/swift-package-utilitykit", from: "2.0.0"),
     ],
     targets: [
         .executableTarget(

@@ -18,9 +18,9 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax", from: "603.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         // the MCP facade: one-shot stdin tool host + generated tool schemas +
-        // the arc plugin manifest format. path pin while co-developing; the
-        // URL/version pin replaces it when swift-mcp tags.
-        .package(path: "../swift-mcp"),
+        // the arc plugin manifest format, consumed as a released version from
+        // origin (2.0.0 — the one-shot facade + tool-pack arc).
+        .package(url: "https://github.com/tannerdsilva/swift-mcp.git", from: "2.0.0"),
         // subprocess execution. path pin while co-developing: 5.0.2 fixes a
         // non-ascii argv truncation and is tagged locally but not yet pushed, so a
         // URL pin cannot see it (`from: "5.0.2"` replaces this once it is).

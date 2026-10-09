@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
 
 ### Added
 - **`SubprocessCore` — one spawn path, built on `SwiftSlash` 5.0.2.** every
