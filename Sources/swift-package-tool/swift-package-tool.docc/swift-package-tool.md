@@ -1,6 +1,6 @@
 # ``swift-package-tool``
 
-A Swift source code analysis tool with 35 subcommands for code intelligence,
+A Swift source code analysis tool with 42 subcommands for code intelligence,
 security auditing, and LLM-optimized formatting.
 
 ## Overview
@@ -40,6 +40,14 @@ output by default for token-efficient consumption by LLM agents.
 - ``DiffCommand``
 - ``ForceUnwrapsCommand``
 
+### Package Inspection
+
+- ``ScanCommand``
+- ``TargetsCommand``
+- ``PackageDependenciesCommand``
+- ``DocCoverageCommand``
+- ``InspectorCommand``
+
 ### Build & Clean
 
 - ``BuildCommand``
@@ -64,6 +72,11 @@ output by default for token-efficient consumption by LLM agents.
 - ``InstallCommand``
 - ``UninstallCommand``
 - ``PathWireCommand``
+
+### Agent Surface
+
+- ``PluginCommand``
+- ``SkillGenerateCommand``
 
 ### Formatting
 
