@@ -1,4 +1,4 @@
-# ``swift-package-tool``
+# swift-package-tool
 
 A Swift source code analysis tool with 42 subcommands for code intelligence,
 security auditing, and LLM-optimized formatting.

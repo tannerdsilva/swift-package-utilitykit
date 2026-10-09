@@ -11,26 +11,26 @@ paths are given, most commands default to the current directory.
 
 ## Output formats
 
-Analysis subcommands support ``--output-format`` with these values (text-output
-commands like ``tree``/``format`` and the host-management installers differ —
-see ``--help``):
+Analysis subcommands support `--output-format` with these values (text-output
+commands like `tree`/`format` and the host-management installers differ —
+see `--help`):
 
-- ``json`` — Pretty-printed JSON (human-readable)
-- ``compact`` — Single-line JSON per array (default, LLM-optimized)
-- ``csv`` — Comma-separated values
-- ``short`` — Human-readable text summary
-- ``jsonl`` — JSON Lines (one object per line)
+- `json` — Pretty-printed JSON (human-readable)
+- `compact` — Single-line JSON per array (default, LLM-optimized)
+- `csv` — Comma-separated values
+- `short` — Human-readable text summary
+- `jsonl` — JSON Lines (one object per line)
 
 ## Common flags
 
 | Flag | Description |
 |------|-------------|
-| ``--pretty-print`` | Force pretty-printed JSON output |
-| ``--output <file>`` | Write output to file instead of stdout |
-| ``--schema`` | Print JSON Schema for the output type and exit |
-| ``--include <exts>`` | Only process files with these extensions |
-| ``--exclude <exts>`` | Skip files with these extensions |
-| ``--output-format <fmt>`` | Output format (json, compact, csv, short, jsonl) |
+| `--pretty-print` | Force pretty-printed JSON output |
+| `--output <file>` | Write output to file instead of stdout |
+| `--schema` | Print JSON Schema for the output type and exit |
+| `--include <exts>` | Only process files with these extensions |
+| `--exclude <exts>` | Skip files with these extensions |
+| `--output-format <fmt>` | Output format (json, compact, csv, short, jsonl) |
 
 ## Examples
 
