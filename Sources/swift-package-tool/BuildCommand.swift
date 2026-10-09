@@ -12,6 +12,11 @@ import SubprocessCore
 ///   - final summary: `Build complete!` or `Build failed`
 ///
 /// everything else is collected as raw log lines so no information is lost.
+///
+/// with `--isolated` the whole run happens in a fresh ephemeral scratch dir
+/// under `<pkg>/.build/swift-package-audit/` that the call removes when it
+/// finishes (see ``AuditScratch``) — no persistent build state, and the
+/// package's real `.build` products are never touched.
 struct BuildCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "build",
@@ -35,6 +40,9 @@ struct BuildCommand: AsyncParsableCommand {
 
     @Option(name: .long, help: "Timeout in seconds.")
     var timeout: Int = 600
+
+    @Flag(name: .customLong("isolated"), help: "Build in a fresh ephemeral scratch under <pkg>/.build/swift-package-audit (no persistent build state; the real .build is untouched).")
+    var isolated = false
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Pretty-print JSON output.")
     var prettyPrint = false
@@ -60,104 +68,72 @@ struct BuildCommand: AsyncParsableCommand {
             return
         }
 
-        // validate path — default to current directory if empty
-        let resolvedPath: String
-        if path.isEmpty {
-            resolvedPath = "."
-        } else {
-            resolvedPath = path
-        }
+        let request = BuildRequest(
+            path: path.isEmpty ? "." : path,
+            test: test,
+            filter: testFilter,
+            target: buildTarget,
+            extraArgs: extraArgs,
+            timeout: timeout,
+            isolated: isolated
+        )
 
-        let startTime = Date()
-
-        // build the command line
-        var args: [String] = ["swift"]
-        if test {
-            args.append("test")
-            if let f = testFilter {
-                args += ["--filter", f]
-            }
-        } else {
-            args.append("build")
-        }
-        if let t = buildTarget {
-            args += ["--target", t]
-        }
-        if let extra = extraArgs {
-            // split on whitespace, respecting quoted strings
-            args += splitArgs(extra)
-        }
-
-        // run the subprocess through the package's one spawn path. the timeout
-        // signals and reaps the child before throwing, so a timed-out build
-        // never leaves a compiler running.
-        let outcome: SubprocessOutcome
+        let result: BuildResult
         do {
-            outcome = try await Subprocess.capture(
-                "/usr/bin/env",
-                args,
-                workingDirectory: resolvedPath,
-                timeout: .seconds(timeout)
-            )
+            result = try await BuildRunner.execute(request)
         } catch SubprocessError.timedOut {
-            let duration = Date().timeIntervalSince(startTime)
-            let result = BuildResult(
+            let timedOut = BuildResult(
                 ok: true,
                 succeeded: false,
                 exitCode: nil,
-                duration: duration,
+                duration: TimeInterval(timeout),
                 phases: [],
                 diagnostics: BuildDiagnostics(
                     errorCount: 0, warningCount: 0, noteCount: 0,
                     errors: [], warnings: [], notes: []
                 ),
                 summary: "build timed out after \(timeout)s",
-                rawLog: ""
+                rawLog: "",
+                testsTotal: nil,
+                testsFailed: nil
             )
-            try emit(result)
+            try emit(timedOut)
             throw ExitCode(1)
         }
 
-        let duration = Date().timeIntervalSince(startTime)
-        let combined = outcome.stdout + "\n" + outcome.stderr
-
-        // parse the output
-        let parsed = parseBuildOutput(combined)
-        let succeeded = outcome.exitCode == 0
-
-        let compactMode = warningsOnly || errorsOnly
-
-        // When errors-only, strip warnings and notes from the diagnostics
-        var diag = parsed.diagnostics
-        if errorsOnly {
-            diag = BuildDiagnostics(
-                errorCount: diag.errorCount,
-                warningCount: 0,
-                noteCount: 0,
-                errors: diag.errors,
-                warnings: [],
-                notes: []
+        var output = result
+        if warningsOnly || errorsOnly {
+            var diagnostics = result.diagnostics
+            if errorsOnly {
+                diagnostics = BuildDiagnostics(
+                    errorCount: diagnostics.errorCount,
+                    warningCount: 0,
+                    noteCount: 0,
+                    errors: diagnostics.errors,
+                    warnings: [],
+                    notes: []
+                )
+            }
+            output = BuildResult(
+                ok: result.ok,
+                succeeded: result.succeeded,
+                exitCode: result.exitCode,
+                duration: result.duration,
+                phases: [],
+                diagnostics: diagnostics,
+                summary: result.summary,
+                rawLog: "",
+                testsTotal: result.testsTotal,
+                testsFailed: result.testsFailed
             )
         }
 
-        let result = BuildResult(
-            ok: true,
-            succeeded: succeeded,
-            exitCode: Int(outcome.exitCode),
-            duration: duration,
-            phases: compactMode ? [] : parsed.phases,
-            diagnostics: diag,
-            summary: makeSummary(succeeded: succeeded, exitCode: Int(outcome.exitCode),
-                                 diagnostics: diag, duration: duration),
-            rawLog: compactMode ? "" : String(combined.suffix(5000))
-        )
-
-        try emit(result)
+        try emit(output)
 
         // a build that failed or timed out is a tool failure — never report
         // success through the process exit code. the structured result on
         // stdout still carries the specifics (summary, diagnostics, exitCode).
-        guard succeeded else {
+        guard output.succeeded else {
             throw ExitCode(1)
         }
     }
@@ -173,8 +149,107 @@ struct BuildCommand: AsyncParsableCommand {
         } else {
             fmt = .compact
         }
-        let outputStr = try formatOutput([result], format: fmt)
-        try writeOutput(outputStr, to: outputPath)
+        try writeOutput(try formatOutput([result], format: fmt), to: outputPath)
+    }
+}
+
+// MARK: - the runner
+
+/// one build/test invocation.
+struct BuildRequest: Sendable {
+    var path: String
+    var test = false
+    var filter: String?
+    var target: String?
+    var extraArgs: String?
+    var timeout: Int = 600
+    var isolated = false
+}
+
+/// the single home for build/test execution: spawn `swift build`/`swift test`,
+/// parse the output, and (when isolated) own the ephemeral scratch.  shared by
+/// the `build` subcommand and the inspector, so a verdict means the same thing
+/// wherever it is produced.
+enum BuildRunner {
+    static func execute(_ request: BuildRequest) async throws -> BuildResult {
+        let startTime = Date()
+        let workingDirectory: String
+        var scratch: String?
+        if request.isolated {
+            let resolved = try resolveExistingPath(request.path)
+            let package = packageFileURL(for: resolved)
+            guard FileManager.default.fileExists(atPath: package.path) else {
+                throw ValidationError("no Package.swift found at \(package.path)")
+            }
+            let packageDir = package.deletingLastPathComponent().path
+            workingDirectory = packageDir
+            scratch = try AuditScratch.create(packageDir: packageDir)
+        } else {
+            workingDirectory = request.path
+        }
+        defer {
+            if let scratch {
+                AuditScratch.remove(runDirectory: scratch, packageDir: workingDirectory)
+            }
+        }
+
+        // build the command line
+        var args: [String] = ["swift"]
+        if request.test {
+            args.append("test")
+            if let f = request.filter {
+                args += ["--filter", f]
+            }
+        } else {
+            args.append("build")
+        }
+        if let t = request.target {
+            args += ["--target", t]
+        }
+        if let extra = request.extraArgs {
+            args += splitBuildArgs(extra)
+        }
+        if let scratch {
+            args += ["--scratch-path", scratch]
+        }
+
+        // run the subprocess through the package's one spawn path. the timeout
+        // signals and reaps the child before throwing, so a timed-out build
+        // never leaves a compiler running.
+        let outcome = try await Subprocess.capture(
+            "/usr/bin/env",
+            args,
+            workingDirectory: workingDirectory,
+            timeout: .seconds(request.timeout)
+        )
+
+        let duration = Date().timeIntervalSince(startTime)
+        let combined = outcome.stdout + "\n" + outcome.stderr
+
+        let parsed = parseBuildOutput(combined)
+        let succeeded = outcome.exitCode == 0
+
+        var testsTotal: Int?
+        var testsFailed: Int?
+        if request.test {
+            (testsTotal, testsFailed) = parseTestCounts(combined)
+        }
+
+        return BuildResult(
+            ok: true,
+            succeeded: succeeded,
+            exitCode: Int(outcome.exitCode),
+            duration: duration,
+            phases: parsed.phases,
+            diagnostics: parsed.diagnostics,
+            summary: makeSummary(
+                succeeded: succeeded, exitCode: Int(outcome.exitCode),
+                diagnostics: parsed.diagnostics, duration: duration
+            ),
+            rawLog: String(combined.suffix(5000)),
+            testsTotal: testsTotal,
+            testsFailed: testsFailed
+        )
     }
 
     // MARK: - parsing
@@ -187,7 +262,7 @@ struct BuildCommand: AsyncParsableCommand {
         )
     }
 
-    func parseBuildOutput(_ text: String) -> ParsedOutput {
+    static func parseBuildOutput(_ text: String) -> ParsedOutput {
         var parsed = ParsedOutput()
         let lines = text.components(separatedBy: "\n")
         var i = 0
@@ -266,7 +341,7 @@ struct BuildCommand: AsyncParsableCommand {
     }
 
     /// parse a phase line like `[1/10] Compiling SomeFile.swift`
-    func parsePhase(_ line: String) -> BuildPhase? {
+    static func parsePhase(_ line: String) -> BuildPhase? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("["), let bracketEnd = trimmed.firstIndex(of: "]") else {
             return nil
@@ -295,7 +370,7 @@ struct BuildCommand: AsyncParsableCommand {
     }
 
     /// parse a diagnostic line: `file:line:col: level: message`
-    func parseDiagnosticLine(_ line: String) -> (file: String, line: Int, column: Int, level: String, message: String)? {
+    static func parseDiagnosticLine(_ line: String) -> (file: String, line: Int, column: Int, level: String, message: String)? {
         // pattern: /path/file.swift:42:13: error: message
         // or: /path/file.swift:42:13: warning: message
         // or: /path/file.swift:42:13: note: message
@@ -326,7 +401,30 @@ struct BuildCommand: AsyncParsableCommand {
         return (file, lineNum, colNum, level, message)
     }
 
-    func makeSummary(succeeded: Bool, exitCode: Int, diagnostics: BuildDiagnostics, duration: TimeInterval) -> String {
+    /// executed/failed test counts from the run log.  XCTest emits
+    /// "Executed N tests, with M failures" and Swift Testing emits
+    /// "Test run with N tests in M suites".
+    static func parseTestCounts(_ text: String) -> (total: Int?, failed: Int?) {
+        if let match = firstMatch(#"Executed (\d+) tests?, with (\d+) failure"#, in: text) {
+            return (Int(match[0]), Int(match[1]))
+        }
+        if let match = firstMatch(#"Test run with (\d+) tests? in"#, in: text) {
+            return (Int(match[0]), 0)
+        }
+        return (nil, nil)
+    }
+
+    private static func firstMatch(_ pattern: String, in text: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        return (1..<match.numberOfRanges).map { index in
+            guard let r = Range(match.range(at: index), in: text) else { return "" }
+            return String(text[r])
+        }
+    }
+
+    static func makeSummary(succeeded: Bool, exitCode: Int, diagnostics: BuildDiagnostics, duration: TimeInterval) -> String {
         let status = succeeded ? "succeeded" : "failed"
         return "build \(status) (exit \(exitCode)); " +
                "\(diagnostics.errorCount) error(s), " +
@@ -336,7 +434,7 @@ struct BuildCommand: AsyncParsableCommand {
     }
 
     /// simple argument splitter that respects quoted strings.
-    private func splitArgs(_ input: String) -> [String] {
+    private static func splitBuildArgs(_ input: String) -> [String] {
         var args: [String] = []
         var current = ""
         var inQuote = false
@@ -370,6 +468,8 @@ struct BuildResult: Codable, Sendable {
     let diagnostics: BuildDiagnostics
     let summary: String
     let rawLog: String
+    let testsTotal: Int?
+    let testsFailed: Int?
 
     static let jsonSchema = """
     {
@@ -384,7 +484,9 @@ struct BuildResult: Codable, Sendable {
         "phases":      { "type": "array", "items": { "$ref": "#/definitions/BuildPhase" }, "description": "Build phases (compiling, linking, etc.)" },
         "diagnostics": { "$ref": "#/definitions/BuildDiagnostics" },
         "summary":     { "type": "string", "description": "Human-readable one-line summary" },
-        "rawLog":      { "type": "string", "description": "Last 5000 chars of raw output for debugging" }
+        "rawLog":      { "type": "string", "description": "Last 5000 chars of raw output for debugging" },
+        "testsTotal":  { "type": ["integer", "null"], "description": "Executed test count (swift test runs only)" },
+        "testsFailed": { "type": ["integer", "null"], "description": "Failed test count (swift test runs only)" }
       },
       "definitions": {
         "BuildPhase": {

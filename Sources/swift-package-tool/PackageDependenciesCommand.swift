@@ -65,22 +65,47 @@ struct PackageDependenciesCommand: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
-        let described: Any
+        let dependencies: [DependencyEntry]
         do {
-            described = try await runSwiftPackageJSON(["show-dependencies", "--format", "json"], in: packageDir)
+            dependencies = try await DependenciesEngine.list(packageDir: packageDir)
         } catch {
             try emit(PackageDependenciesFailureReport(ok: false, target: target, error: "\(error)"))
             throw ExitCode(1)
         }
-        guard let root = described as? [String: Any] else {
-            try emit(PackageDependenciesFailureReport(
-                ok: false, target: target, error: "failed to parse deps output: not an object"
-            ))
-            throw ExitCode(1)
-        }
 
-        // flatten the tree: walk children only — the root node is the package
-        // under analysis, not a dependency of itself.
+        let fmt: OutputFormat = prettyPrint ? .json : outputFormat
+        if compact {
+            let report = PackageDependenciesCompactReport(
+                ok: true, target: target, count: dependencies.count,
+                dependencies: dependencies.map {
+                    CompactDependency(name: $0.name, requirementKind: $0.requirementKind, version: $0.version)
+                },
+                packagePath: package.path, compact: true
+            )
+            try writeOutput(try formatObject(report, format: fmt), to: outputPath)
+        } else {
+            let report = PackageDependenciesReport(
+                ok: true, target: target, count: dependencies.count,
+                dependencies: dependencies, packagePath: package.path, compact: false
+            )
+            try writeOutput(try formatObject(report, format: fmt), to: outputPath)
+        }
+    }
+}
+
+// MARK: - the engine
+
+/// the dependency-listing engine — shared by `package-dependencies` and
+/// `inspector`.  the walk starts at the root's children, so the package under
+/// analysis is never listed as its own dependency.
+enum DependenciesEngine {
+    static func list(packageDir: String) async throws -> [DependencyEntry] {
+        let described = try await runSwiftPackageJSON(
+            ["show-dependencies", "--format", "json"], in: packageDir
+        )
+        guard let root = described as? [String: Any] else {
+            throw UsageError("failed to parse deps output: not an object")
+        }
         var dependencies: [DependencyEntry] = []
         func walk(_ node: [String: Any]) {
             let identity = node["identity"] as? String
@@ -103,24 +128,7 @@ struct PackageDependenciesCommand: AsyncParsableCommand {
         for child in (root["dependencies"] as? [[String: Any]]) ?? [] {
             walk(child)
         }
-
-        let fmt: OutputFormat = prettyPrint ? .json : outputFormat
-        if compact {
-            let report = PackageDependenciesCompactReport(
-                ok: true, target: target, count: dependencies.count,
-                dependencies: dependencies.map {
-                    CompactDependency(name: $0.name, requirementKind: $0.requirementKind, version: $0.version)
-                },
-                packagePath: package.path, compact: true
-            )
-            try writeOutput(try formatObject(report, format: fmt), to: outputPath)
-        } else {
-            let report = PackageDependenciesReport(
-                ok: true, target: target, count: dependencies.count,
-                dependencies: dependencies, packagePath: package.path, compact: false
-            )
-            try writeOutput(try formatObject(report, format: fmt), to: outputPath)
-        }
+        return dependencies
     }
 }
 

@@ -65,22 +65,12 @@ struct TargetsCommand: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
-        let described: Any
+        let entries: [TargetEntry]
         do {
-            described = try await runSwiftPackageJSON(["describe", "--type", "json"], in: packageDir)
+            entries = try await TargetsEngine.list(packageDir: packageDir)
         } catch {
             try emit(TargetsFailureReport(ok: false, target: target, error: "\(error)"))
             throw ExitCode(1)
-        }
-
-        guard let root = described as? [String: Any] else {
-            try emit(TargetsFailureReport(ok: false, target: target, error: "failed to parse describe output: not an object"))
-            throw ExitCode(1)
-        }
-
-        var entries: [TargetEntry] = []
-        for rawTarget in (root["targets"] as? [[String: Any]]) ?? [] {
-            entries.append(makeEntry(rawTarget, packageDir: packageDir))
         }
 
         let fmt: OutputFormat = prettyPrint ? .json : outputFormat
@@ -105,9 +95,25 @@ struct TargetsCommand: AsyncParsableCommand {
         }
     }
 
-    // MARK: - one target
+    }
 
-    private func makeEntry(_ rawTarget: [String: Any], packageDir: String) -> TargetEntry {
+// MARK: - the engine
+
+/// the target-listing engine — shared by `targets` and `inspector`, so both
+/// report a package's shape from the same measurement.
+enum TargetsEngine {
+    /// resolve and measure every target of the package.
+    static func list(packageDir: String) async throws -> [TargetEntry] {
+        let described = try await runSwiftPackageJSON(["describe", "--type", "json"], in: packageDir)
+        guard let root = described as? [String: Any] else {
+            throw UsageError("failed to parse describe output: not an object")
+        }
+        return ((root["targets"] as? [[String: Any]]) ?? []).map {
+            makeEntry($0, packageDir: packageDir)
+        }
+    }
+
+    static func makeEntry(_ rawTarget: [String: Any], packageDir: String) -> TargetEntry {
         let name = rawTarget["name"] as? String ?? ""
         let type = rawTarget["type"] as? String ?? "library"
         let rawPath = rawTarget["path"] as? String ?? ""
@@ -200,7 +206,7 @@ struct TargetsCommand: AsyncParsableCommand {
 
     /// a path relative to the package dir when possible (the python contract),
     /// else the absolute path.
-    private func relativePath(of url: URL, from packageDir: String) -> String {
+    private static func relativePath(of url: URL, from packageDir: String) -> String {
         let base = packageDir.hasSuffix("/") ? packageDir : packageDir + "/"
         return url.path.hasPrefix(base) ? String(url.path.dropFirst(base.count)) : url.path
     }

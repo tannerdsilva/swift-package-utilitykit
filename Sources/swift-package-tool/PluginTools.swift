@@ -46,31 +46,18 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 // envelope (via the host's plugin dialect); each `run()` maps its typed
 // parameters onto the CLI subcommand that implements it — the CLI stays the
 // contract, and no analysis logic is duplicated here.
+//
+// The surface is the package-inspector contract: the eight `pkg_*` tools a
+// harness already consumes, plus three read-only extras (`pkg_api`,
+// `pkg_force_unwraps`, `pkg_validate`) that the CLI has always offered.
+//
+// Build/test/clean are the audit-safe faces of their subcommands: `pkg_build`
+// and `pkg_test` run isolated (fresh ephemeral scratch, the package's real
+// `.build` untouched) and `pkg_clean` sweeps only audit residue — an agent can
+// never destroy a consumer's build products through this surface.
 
 @MCPCommand(
-    description: "extract the public API surface of a Swift package or source directory (declarations + conformances, compact JSON). read-only.",
-    name: "pkg_api"
-)
-struct PkgApi {
-    @Argument(description: "absolute path to the Swift package directory or source files to analyze")
-    var path: String = ""
-
-    @Flag(description: "include internal declarations (default: public only)")
-    var include_internal: Bool = false
-
-    @Option(description: "maximum number of declarations to return")
-    var limit: Int? = nil
-
-    func run() async throws -> String {
-        var argv = ["api", try requiredAbsolutePath(path)]
-        if include_internal { argv.append("--include-internal") }
-        if let limit { argv += ["--limit", String(limit)] }
-        return try await PluginToolRunner.run(argv)
-    }
-}
-
-@MCPCommand(
-    description: "build a Swift package (or one target) and return the authoritative structured result: pass/fail, warning/error counts, exit status.",
+    description: "build a Swift package (or one target) in an isolated scratch dir and return the authoritative structured result: pass/fail, warning/error counts, exit status. the package's real .build is never touched.",
     name: "pkg_build"
 )
 struct PkgBuild {
@@ -90,7 +77,7 @@ struct PkgBuild {
     var timeout_seconds: Int? = nil
 
     func run() async throws -> String {
-        var argv = ["build", try requiredAbsolutePath(path)]
+        var argv = ["build", try requiredAbsolutePath(path), "--isolated"]
         if let target, !target.isEmpty { argv += ["--target", target] }
         if warnings_only { argv.append("--warnings-only") }
         if errors_only { argv.append("--errors-only") }
@@ -100,7 +87,70 @@ struct PkgBuild {
 }
 
 @MCPCommand(
-    description: "run a Swift package's test suite and return the authoritative structured pass/fail result.",
+    description: "scan a Swift package for security and code-quality issues (unsafe pointers, force unwraps, process safety, hardcoded secrets). returns unified findings with severity counts; use compact=true for a quick triage pass. read-only.",
+    name: "pkg_scan"
+)
+struct PkgScan {
+    @Argument(description: "absolute path to the Swift package directory or source files to scan")
+    var path: String = ""
+
+    @Option(
+        description: "scan categories to run. default: all.",
+        enumValues: ["unsafe_ptrs", "force_unwraps", "process_safety", "secrets", "all"]
+    )
+    var categories: [String]? = nil
+
+    @Flag(description: "return counts and top-5 findings only per category")
+    var compact: Bool = false
+
+    func run() async throws -> String {
+        var argv = ["scan", try requiredAbsolutePath(path)]
+        if let categories, !categories.isEmpty {
+            argv += ["--categories", categories.joined(separator: ",")]
+        }
+        if compact { argv.append("--compact") }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "list a Swift package's resolved dependencies with requirement kinds and pinned versions. use compact=true for name/kind/version only. read-only.",
+    name: "pkg_list_dependencies"
+)
+struct PkgListDependencies {
+    @Argument(description: "absolute path to the Swift package directory or Package.swift")
+    var path: String = ""
+
+    @Flag(description: "return name, requirement kind, and pinned version only")
+    var compact: Bool = false
+
+    func run() async throws -> String {
+        var argv = ["package-dependencies", try requiredAbsolutePath(path)]
+        if compact { argv.append("--compact") }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "list a Swift package's targets with resolved source paths, file counts, line counts and symbol heatmaps. use compact=true for name/type/files/lines only. read-only.",
+    name: "pkg_list_targets"
+)
+struct PkgListTargets {
+    @Argument(description: "absolute path to the Swift package directory or Package.swift")
+    var path: String = ""
+
+    @Flag(description: "return name, type, file count, and line count only")
+    var compact: Bool = false
+
+    func run() async throws -> String {
+        var argv = ["targets", try requiredAbsolutePath(path)]
+        if compact { argv.append("--compact") }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "run a Swift package's test suite in an isolated scratch dir and return the authoritative structured result: pass/fail, executed/failed test counts, exit status. the package's real .build is never touched.",
     name: "pkg_test"
 )
 struct PkgTest {
@@ -114,7 +164,7 @@ struct PkgTest {
     var timeout_seconds: Int? = nil
 
     func run() async throws -> String {
-        var argv = ["build", try requiredAbsolutePath(path), "--test"]
+        var argv = ["build", try requiredAbsolutePath(path), "--test", "--isolated"]
         if let filter, !filter.isEmpty { argv += ["--filter", filter] }
         if let timeout_seconds { argv += ["--timeout", String(timeout_seconds)] }
         return try await PluginToolRunner.run(argv)
@@ -122,36 +172,72 @@ struct PkgTest {
 }
 
 @MCPCommand(
-    description: "delete a package's build artifacts (cached dependencies are preserved unless purge_all is set).",
+    description: "sweep a Swift package's stale audit build scratch (crashed-run leftovers older than 1h and legacy .build-audit residue). non-destructive: the package's real build products and sources are never touched.",
     name: "pkg_clean"
 )
 struct PkgClean {
-    @Argument(description: "absolute path to the Swift package directory to clean")
+    @Argument(description: "absolute path to the Swift package directory to sweep")
     var path: String = ""
 
-    @Flag(description: "DESTRUCTIVE: also delete all cached dependencies (re-fetched on the next build)")
-    var purge_all: Bool = false
-
     func run() async throws -> String {
-        var argv = ["clean", try requiredAbsolutePath(path)]
-        if purge_all { argv.append("--purge-all") }
+        let argv = ["clean", try requiredAbsolutePath(path), "--audit"]
         return try await PluginToolRunner.run(argv)
     }
 }
 
 @MCPCommand(
-    description: "validate docc symbol references in Swift sources and return warnings with locations. read-only.",
+    description: "inventory a Swift package's DocC catalogs and measure /// doc-comment coverage, with the uncovered-symbol list. read-only.",
     name: "pkg_docc_check"
 )
 struct PkgDoccCheck {
     @Argument(description: "absolute path to the package directory or source files to check")
     var path: String = ""
 
-    @Option(description: "maximum number of warnings to return")
+    @Option(description: "maximum number of uncovered symbols to list (the count is always the full total)")
+    var uncovered_limit: Int? = nil
+
+    func run() async throws -> String {
+        var argv = ["doc-coverage", try requiredAbsolutePath(path)]
+        if let uncovered_limit { argv += ["--limit", String(uncovered_limit)] }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "one-call orientation on a Swift package: targets, dependencies, security findings, build and test verdicts, doc coverage, README intent, AGENTS.md and git state, plus a one-line summary. the first tool to reach for on an unfamiliar package. use compact=true for the summary only.",
+    name: "pkg_inspector"
+)
+struct PkgInspector {
+    @Argument(description: "absolute path to the Swift package directory to inspect")
+    var path: String = ""
+
+    @Flag(description: "return the orientation summary only (counts + verdicts)")
+    var compact: Bool = false
+
+    func run() async throws -> String {
+        var argv = ["inspector", try requiredAbsolutePath(path)]
+        if compact { argv.append("--compact") }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "extract the public API surface of a Swift package or source directory (declarations + conformances, compact JSON). read-only.",
+    name: "pkg_api"
+)
+struct PkgApi {
+    @Argument(description: "absolute path to the Swift package directory or source files to analyze")
+    var path: String = ""
+
+    @Flag(description: "include internal declarations (default: public only)")
+    var include_internal: Bool = false
+
+    @Option(description: "maximum number of declarations to return")
     var limit: Int? = nil
 
     func run() async throws -> String {
-        var argv = ["docc-check", try requiredAbsolutePath(path)]
+        var argv = ["api", try requiredAbsolutePath(path)]
+        if include_internal { argv.append("--include-internal") }
         if let limit { argv += ["--limit", String(limit)] }
         return try await PluginToolRunner.run(argv)
     }
@@ -209,11 +295,15 @@ struct PkgValidate {
     interface: .oneShot
 )
 struct SwiftPackageUtilityKitPlugin {
-    @Tool var api = PkgApi()
     @Tool var build = PkgBuild()
+    @Tool var scan = PkgScan()
+    @Tool var listDependencies = PkgListDependencies()
+    @Tool var listTargets = PkgListTargets()
     @Tool var test = PkgTest()
     @Tool var clean = PkgClean()
     @Tool var doccCheck = PkgDoccCheck()
+    @Tool var inspector = PkgInspector()
+    @Tool var api = PkgApi()
     @Tool var forceUnwraps = PkgForceUnwraps()
     @Tool var validate = PkgValidate()
 }

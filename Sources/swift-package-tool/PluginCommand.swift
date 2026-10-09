@@ -17,11 +17,25 @@ import ArgumentParser
 /// A thin shim over the one-shot stdin host built by `PluginHost.run()`
 /// (see `PluginTools.swift`):
 ///
-///     stdin:  {"tool": "pkg_api", "args": {"path": "/abs/path/to/pkg"}}
+///     stdin:  {"tool": "pkg_scan", "args": {"path": "/abs/path/to/pkg"}}
 ///     stdout: {"result": "<the subcommand's output>"}
 ///
-/// `plugin --mcp-manifest arc` renders the harness plugin manifest instead —
-/// pipe it into `<plugins-dir>/swift-package-utilitykit/manifest.json`.
+/// The surface is the full package-inspector set — `pkg_inspector`,
+/// `pkg_scan`, `pkg_list_targets`, `pkg_list_dependencies`, `pkg_build`,
+/// `pkg_test`, `pkg_clean`, `pkg_docc_check`, `pkg_api`, `pkg_force_unwraps`,
+/// `pkg_validate` — one `@MCPCommand` each in `PluginTools.swift`. Build, test
+/// and clean are the audit-safe faces of their subcommands (isolated scratch,
+/// non-destructive sweep), so an agent cannot destroy a consumer's build
+/// products through this surface.
+///
+/// `plugin --mcp-manifest arc` renders the harness plugin manifest (tools +
+/// schemas) instead; `install --adapter arc` writes it into
+/// `<plugins-dir>/swift-package-utilitykit/manifest.json`, so a manifest
+/// harness discovers the same surface with no interpreter in the path.
+///
+/// The same binary answers a full MCP session on the same streams
+/// (`initialize` → `tools/list` → `tools/call`), so an MCP-speaking harness
+/// registers it as a plain stdio server.
 ///
 /// The ArgumentParser and MCP imports live in separate files (`PluginCommand`
 /// here, `PluginTools.swift` there): both export `Argument`/`Option`/`Flag`/
