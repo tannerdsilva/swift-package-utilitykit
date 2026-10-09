@@ -75,3 +75,19 @@ private func escapeCsvField(_ field: String) -> String {
 }
 
 // MARK: - search
+
+/// encode a single encodable value (an object, not an array) for agent
+/// consumption.  `.json` pretty-prints; every other format falls back to the
+/// compact single-line form, because the object payloads are consumed whole
+/// (a CSV row or `short` line for a nested object is meaningless).
+public func formatObject<T: Encodable & Sendable>(_ value: T, format: OutputFormat) throws -> String {
+    let enc = JSONEncoder()
+    switch format {
+    case .json:
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    default:
+        enc.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    }
+    let data = try enc.encode(value)
+    return String(data: data, encoding: .utf8) ?? "{}"
+}
