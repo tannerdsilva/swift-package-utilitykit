@@ -33,6 +33,7 @@ struct SwiftCodeQuery: AsyncParsableCommand {
             ScanCommand.self,
             TargetsCommand.self,
             PackageDependenciesCommand.self,
+            DocCoverageCommand.self,
             BuildCommand.self,
             TreeCommand.self,
             ValidateCommand.self,
