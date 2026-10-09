@@ -2,6 +2,7 @@ import Foundation
 import ArgumentParser
 import SwiftSyntax
 import SwiftParser
+import SubprocessCore
 
 // MARK: - file discovery
 
@@ -147,4 +148,66 @@ public struct UsageError: Error, CustomStringConvertible {
     public let message: String
     public init(_ message: String) { self.message = message }
     public var description: String { message }
+}
+
+// MARK: - package helpers
+
+/// resolve a possibly-relative path against the cwd and require it to exist —
+/// the package-inspector contract (`_resolve_target`), so "no results" stays
+/// distinct from "invalid invocation" for every aggregate command.
+public func resolveExistingPath(_ path: String) throws -> String {
+    let url = URL(fileURLWithPath: path).standardizedFileURL
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+        throw ValidationError("path not found: \(path)")
+    }
+    return url.path
+}
+
+/// the `Package.swift` for a target path — the path itself when it is a
+/// directory, else the containing directory's package.  mirrors the
+/// package-inspector contract, so a path may name either the package or any
+/// file inside it.
+public func packageFileURL(for path: String) -> URL {
+    let url = URL(fileURLWithPath: path).standardizedFileURL
+    var isDir: ObjCBool = false
+    let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+    if exists && isDir.boolValue {
+        return url.appendingPathComponent("Package.swift")
+    }
+    return url.deletingLastPathComponent().appendingPathComponent("Package.swift")
+}
+
+/// run `swift package <args>` inside `directory` and decode the JSON it prints.
+///
+/// throws with a message suitable for an `{ok: false, error: …}` payload when
+/// the toolchain is missing, the command times out, it exits non-zero, or its
+/// output is not JSON — the caller never has to invent a reason.
+public func runSwiftPackageJSON(
+    _ args: [String],
+    in directory: String,
+    timeoutSeconds: Int = 120
+) async throws -> Any {
+    let outcome: SubprocessOutcome
+    do {
+        outcome = try await Subprocess.capture(
+            "/usr/bin/env",
+            ["swift", "package"] + args,
+            workingDirectory: directory,
+            timeout: .seconds(timeoutSeconds)
+        )
+    } catch SubprocessError.timedOut {
+        throw UsageError("swift package \(args.joined(separator: " ")) timed out after \(timeoutSeconds)s")
+    } catch {
+        throw UsageError("swift package \(args.joined(separator: " ")) failed to launch: \(error)")
+    }
+    guard outcome.exitCode == 0 else {
+        let message = outcome.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        throw UsageError(message.isEmpty ? "swift package \(args.first ?? "") exited \(outcome.exitCode)" : message)
+    }
+    do {
+        return try JSONSerialization.jsonObject(with: Data(outcome.stdout.utf8))
+    } catch {
+        throw UsageError("failed to parse swift package \(args.first ?? "") output: \(error)")
+    }
 }
