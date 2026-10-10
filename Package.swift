@@ -38,6 +38,16 @@ let package = Package(
             dependencies: [.product(name: "SwiftSlash", package: "SwiftSlash")]
         ),
         .target(name: "NormalizerCore"),
+        .target(
+            name: "BuildOutputParsing",
+            // the pure text parser for `swift build`/`swift test` output,
+            // extracted so it can be unit-tested (an executable target cannot
+            // be imported by a test).  follows the package's established
+            // pattern: NormalizerCore + normalizer-tool, GitMetadataCore +
+            // git-metadata-tool.  BuildCommand.swift is the only other surface
+            // that consumes it.
+            dependencies: []
+        ),
         .executableTarget(
             name: "normalizer-tool",
             dependencies: ["NormalizerCore"]
@@ -84,6 +94,7 @@ let package = Package(
                 .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
                 "NormalizerCore",
                 "SubprocessCore",
+                "BuildOutputParsing",
             ],
             // generates GitProvenance.swift, which AppVersion reads so
             // `--version` reports the commit the binary was built from
