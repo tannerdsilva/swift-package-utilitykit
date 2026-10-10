@@ -1,0 +1,3 @@
+/Users/tannerdsilva/.hermes/profiles/swift-dev/cache/scratch/cap-warn/Sources/F/F.swift:2:9: warning: initialization of immutable value 'unused' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+[0/2] Write sources
+/Users/tannerdsilva/.hermes/profiles/swift-dev/cache/scratch/cap-error/Sources/F/F.swift:1:14: error: expected parameter name followed by ':'

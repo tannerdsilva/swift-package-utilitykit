@@ -1,0 +1,3 @@
+/Users/tannerdsilva/.hermes/profiles/swift-dev/cache/scratch/cap-warn/Sources/F/F.swift:2:9: \x1b[1;33mwarning: \x1b[1;39minitialization of immutable value 'unused' was never used; consider replacing with assignment to '_' or removing it\x1b[0;0m [#\x1b]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\x1b\\NoUsage\x1b]8;;\x1b\\]
+[19\u2009/\u200928] F
+error: /Users/tannerdsilva/.hermes/profiles/swift-dev/cache/scratch/cap-error/Sources/F/F.swift:1:14 expected parameter name followed by ':'

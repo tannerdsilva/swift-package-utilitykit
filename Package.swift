@@ -105,6 +105,14 @@ let package = Package(
             dependencies: ["NormalizerCore", "SubprocessCore"]
         ),
         .testTarget(
+            name: "BuildOutputParsingTests",
+            dependencies: ["BuildOutputParsing"],
+            // golden capture lines are read from the source tree at runtime via
+            // #filePath, so they are excluded from the compile step, not made
+            // bundle resources.
+            exclude: ["Fixtures"]
+        ),
+        .testTarget(
             name: "SwiftPackageToolTests",
             dependencies: ["SubprocessCore"]
         ),
