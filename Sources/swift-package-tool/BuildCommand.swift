@@ -227,13 +227,18 @@ enum BuildRunner {
         let duration = Date().timeIntervalSince(startTime)
         let combined = outcome.stdout + "\n" + outcome.stderr
 
-        let parsed = BuildOutputParser.parseBuildOutput(combined)
+        // strip escape sequences once, up front: both the diagnostic parser and
+        // rawLog consume the same cleaned text, so no escape byte can reach a
+        // model and the parser is colour-blind (6.4.0 emits colour even when
+        // both streams are pipes).
+        let clean = BuildOutputParser.stripEscapeSequences(combined)
+        let parsed = BuildOutputParser.parseBuildOutput(clean)
         let succeeded = outcome.exitCode == 0
 
         var testsTotal: Int?
         var testsFailed: Int?
         if request.test {
-            (testsTotal, testsFailed) = BuildOutputParser.parseTestCounts(combined)
+            (testsTotal, testsFailed) = BuildOutputParser.parseTestCounts(clean)
         }
 
         return BuildResult(
@@ -247,7 +252,7 @@ enum BuildRunner {
                 succeeded: succeeded, exitCode: Int(outcome.exitCode),
                 diagnostics: parsed.diagnostics, duration: duration
             ),
-            rawLog: String(combined.suffix(5000)),
+            rawLog: String(clean.suffix(5000)),
             testsTotal: testsTotal,
             testsFailed: testsFailed
         )
