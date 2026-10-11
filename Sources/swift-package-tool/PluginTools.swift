@@ -290,7 +290,7 @@ struct PkgValidate {
 /// manifests keep the `plugin` entry argv.
 @MCPApplication(
     name: "swift-package-utilitykit",
-    version: "2.0.0",
+    version: "2.0.1",
     description: "Swift package inspection and audit tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
     interface: .oneShot
 )

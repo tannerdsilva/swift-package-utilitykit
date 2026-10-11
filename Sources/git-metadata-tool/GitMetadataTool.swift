@@ -12,7 +12,7 @@ struct GitMetadataTool: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "git-metadata-tool",
         abstract: "Collect git provenance and render it as Swift constants.",
-        version: "2.0.0"
+        version: "2.0.1"
     )
 
     @Option(name: .long, help: "Repository or work-tree directory to inspect (default: current directory).")
