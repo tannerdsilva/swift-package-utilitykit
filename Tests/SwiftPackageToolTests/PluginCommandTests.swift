@@ -79,7 +79,7 @@ struct PluginCommandTests {
         #expect(run.status == 0)
         let manifest = try run.stdoutJSON()
         #expect(manifest["name"] as? String == "swift-package-utilitykit")
-        #expect(manifest["version"] as? String == "2.0.1")
+        #expect(manifest["version"] as? String == "2.0.2")
 
         let tools = manifest["tools"] as? [[String: Any]] ?? []
         let names = tools.compactMap { $0["name"] as? String }

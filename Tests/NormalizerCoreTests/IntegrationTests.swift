@@ -154,7 +154,7 @@ struct SwiftCodeQueryIntegrationTests {
     @Test("--version flag works")
     func versionFlag() async throws {
         let output = try await runCommand(["--version"])
-        #expect(output.contains("2.0.1"))
+        #expect(output.contains("2.0.2"))
     }
 
     // MARK: - comment handling
