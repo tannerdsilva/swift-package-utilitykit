@@ -330,6 +330,12 @@ enum PluginHost {
 
 /// Runs the CLI subcommand behind a tool and returns its stdout — the CLI
 /// stays the contract, so no analysis logic is duplicated in the tool layer.
+///
+/// A non-zero subcommand exit is a real failure, not a payload: the runner
+/// THROWS, so the host router reports it through the framework's documented
+/// `isError` channel (the plugin dialect renders the thrown message as
+/// `Error: <payload>`, with the structured payload intact after the prefix).
+/// A consumer never has to parse prose to learn a tool failed.
 enum PluginToolRunner {
     static func run(_ argv: [String]) async throws -> String {
         guard let executable = MCPManifestContext.resolveExecutablePath() else {
@@ -338,11 +344,21 @@ enum PluginToolRunner {
         // the spawn layer drains stdout and stderr concurrently, so a large
         // undrained pipe cannot deadlock and no temp files are needed.
         let outcome = try await Subprocess.capture(executable, argv)
-        return composeResult(
+        // composeResult is the single source of the payload text: stdout
+        // verbatim when non-empty (structured verdicts live there), otherwise
+        // stderr with the exit status. Its payload-preserving behaviour is the
+        // contract and must not change.
+        let result = composeResult(
             status: outcome.exitCode,
             stdout: outcome.stdout,
             stderr: outcome.stderr
         )
+        guard outcome.exitCode == 0 else {
+            // carry the payload text through the throw so it survives the
+            // `Error: ` prefix; `pkg_build`'s succeeded:false rides along.
+            throw PluginToolError(result)
+        }
+        return result
     }
 
     /// The CLI output IS the tool result: prefer stdout verbatim (structured
