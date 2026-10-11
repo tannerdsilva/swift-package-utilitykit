@@ -57,7 +57,7 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 // never destroy a consumer's build products through this surface.
 
 @MCPCommand(
-    description: "build a Swift package (or one target) in an isolated scratch dir and return the authoritative structured result: pass/fail, warning/error counts, exit status. the package's real .build is never touched.",
+    description: "build a Swift package (or one target) in an isolated scratch dir. performs a real cold compile - the slowest tool, seconds to minutes. a failed build reports through the MCP isError flag; the structured verdict (pass/fail, warning/error counts, exit status) is always returned. the package's real .build is never touched.",
     name: "pkg_build"
 )
 struct PkgBuild {
@@ -87,7 +87,7 @@ struct PkgBuild {
 }
 
 @MCPCommand(
-    description: "scan a Swift package for security and code-quality issues (unsafe pointers, force unwraps, process safety, hardcoded secrets). returns unified findings with severity counts; use compact=true for a quick triage pass. read-only.",
+    description: "scan a Swift package for security and code-quality issues (unsafe pointers, force unwraps, process safety, hardcoded secrets). returns unified findings with severity counts; use compact=true for a quick triage pass. read-only; answers in seconds.",
     name: "pkg_scan"
 )
 struct PkgScan {
@@ -114,7 +114,7 @@ struct PkgScan {
 }
 
 @MCPCommand(
-    description: "list a Swift package's resolved dependencies with requirement kinds and pinned versions. use compact=true for name/kind/version only. read-only.",
+    description: "list a Swift package's resolved dependencies with requirement kinds and pinned versions. use compact=true for name/kind/version only. read-only; answers in seconds.",
     name: "pkg_list_dependencies"
 )
 struct PkgListDependencies {
@@ -132,7 +132,7 @@ struct PkgListDependencies {
 }
 
 @MCPCommand(
-    description: "list a Swift package's targets with resolved source paths, file counts, line counts and symbol heatmaps. use compact=true for name/type/files/lines only. read-only.",
+    description: "list a Swift package's targets with resolved source paths, file counts, line counts and symbol heatmaps. use compact=true for name/type/files/lines only. read-only; answers in seconds.",
     name: "pkg_list_targets"
 )
 struct PkgListTargets {
@@ -150,7 +150,7 @@ struct PkgListTargets {
 }
 
 @MCPCommand(
-    description: "run a Swift package's test suite in an isolated scratch dir and return the authoritative structured result: pass/fail, executed/failed test counts, exit status. the package's real .build is never touched.",
+    description: "run a Swift package's test suite in an isolated scratch dir - a real cold compile-and-run, seconds to minutes. a failed test run reports through the MCP isError flag; the structured verdict (pass/fail, executed/failed test counts, exit status) is always returned. the package's real .build is never touched.",
     name: "pkg_test"
 )
 struct PkgTest {
@@ -172,7 +172,7 @@ struct PkgTest {
 }
 
 @MCPCommand(
-    description: "sweep a Swift package's stale audit build scratch (crashed-run leftovers older than 1h and legacy .build-audit residue). non-destructive: the package's real build products and sources are never touched.",
+    description: "sweep a Swift package's stale audit build scratch (crashed-run leftovers older than 1h and legacy .build-audit residue). non-destructive: the package's real build products and sources are never touched. answers in seconds.",
     name: "pkg_clean"
 )
 struct PkgClean {
@@ -186,7 +186,7 @@ struct PkgClean {
 }
 
 @MCPCommand(
-    description: "inventory a Swift package's DocC catalogs and measure /// doc-comment coverage, with the uncovered-symbol list. read-only.",
+    description: "inventory a Swift package's DocC catalogs and measure /// doc-comment coverage, with the uncovered-symbol list. read-only; answers in seconds.",
     name: "pkg_docc_check"
 )
 struct PkgDoccCheck {
@@ -204,7 +204,7 @@ struct PkgDoccCheck {
 }
 
 @MCPCommand(
-    description: "one-call orientation on a Swift package: targets, dependencies, security findings, build and test verdicts, doc coverage, README intent, AGENTS.md and git state, plus a one-line summary. the first tool to reach for on an unfamiliar package. use compact=true for the summary only.",
+    description: "one-call orientation on a Swift package: targets, dependencies, security findings, build and test verdicts, doc coverage, README intent, AGENTS.md and git state, plus a one-line summary. the first tool to reach for on an unfamiliar package: one round-trip returns the broad picture, but it also runs a real build+test, so reach for a granular pkg_* tool when you can stop early (fat-call vs thin-call trade-off, see the README). use compact=true for the summary only.",
     name: "pkg_inspector"
 )
 struct PkgInspector {
@@ -222,7 +222,7 @@ struct PkgInspector {
 }
 
 @MCPCommand(
-    description: "extract the public API surface of a Swift package or source directory (declarations + conformances, compact JSON). read-only.",
+    description: "extract the public API surface of a Swift package or source directory (declarations + conformances, compact JSON). read-only; answers in seconds.",
     name: "pkg_api"
 )
 struct PkgApi {
@@ -244,7 +244,7 @@ struct PkgApi {
 }
 
 @MCPCommand(
-    description: "find force-unwrap `!` usage in Swift sources, classified by subkind. read-only.",
+    description: "find force-unwrap `!` usage in Swift sources, classified by subkind. read-only; answers in seconds.",
     name: "pkg_force_unwraps"
 )
 struct PkgForceUnwraps {
@@ -262,7 +262,7 @@ struct PkgForceUnwraps {
 }
 
 @MCPCommand(
-    description: "shallow syntax validation of Swift sources via SwiftParser diagnostics; exits non-zero when errors exist (a pass/fail gate). read-only.",
+    description: "shallow syntax validation of Swift sources via SwiftParser diagnostics - a pass/fail gate. read-only; answers in seconds. a failed validation (errors present) reports through the MCP isError flag.",
     name: "pkg_validate"
 )
 struct PkgValidate {

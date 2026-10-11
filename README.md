@@ -56,6 +56,22 @@ Eleven tools, one per agent-facing verb. The read-only tools never write; the
 build/test tools run in an isolated scratch directory (the package's real
 `.build` is never touched) and `pkg_clean` sweeps only stale audit scratch.
 
+**Cost.** The read-only `pkg_*` tools answer in seconds. `pkg_build` and
+`pkg_test` perform a real cold compile (and, for `pkg_test`, run the suite) and
+are much slower — treat them as expensive, rare calls. One `pkg_inspector` call
+returns the broad picture — targets, dependencies, findings, build/test
+verdicts, doc coverage — in a single round-trip, worth it when you don't yet
+know what you need; the granular `pkg_*` tools cost one call each but let you
+stop as soon as you have the answer. A failed `pkg_build` / `pkg_test` /
+`pkg_validate` reports through the MCP `isError` flag rather than quietly in
+the payload.
+
+**stdin is a pipe, and it must close.** These tools read a JSON-RPC frame
+stream from **stdin** (via `plugin` or a native MCP stdio client), so stdin
+must be a **pipe** and must be **closed** for the tool to finish. A harness
+that leaves stdin open after the final frame will hang waiting for the next
+one — always close stdin when you are done writing frames.
+
 | tool | what it does |
 | --- | --- |
 | `pkg_inspector` | one-call orientation: targets, dependencies, findings, build/test verdicts, doc coverage, README intent, git state, summary |
@@ -912,8 +928,8 @@ Sources/
     NormalizationOptions.swift             options struct with .standard and .minified presets
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
-  swift-package-tool/                        agentic code query/inspect/search/index tool (40 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 35 subcommands)
+  swift-package-tool/                        agentic code query/inspect/search/index tool (50 files)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 42 subcommands)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info

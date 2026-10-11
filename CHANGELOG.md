@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+- **build-output parsing is correct across Swift 6.3.0 - 6.4.0.** the
+  toolchain output format changes at 6.4.0, and three defects left
+  `pkg_build`/`pkg_test` (and `build`) reporting empty diagnostics on it. ANSI
+  SGR codes and OSC-8 hyperlink sequences in toolchain output were never
+  stripped, so a colour-wrapped `warning:` level token failed the
+  `["error","warning","note"]` allowlist and the warning was dropped; the
+  6.4.0 level-prefix error layout (`error: file:line:col msg`) matched no rule,
+  unlike the classic `<file>:<lin>:<col>: <level>: <msg>` form; and
+  thin-space phase lines `[N / M]` failed to parse as counts. the parser now
+  strips escape sequences up front, understands both layouts, and normalises
+  the phase bracket (including the U+2009 thin space) before splitting, so
+  `errorCount`, `warningCount` and `phases` populate on every toolchain and
+  `rawLog` carries no escape bytes. the four parse functions were extracted
+  into the new `BuildOutputParsing` library target with golden fixtures for
+  both eras — the whole 6.3.x classic path is preserved (it must not regress),
+  and the 6.4.0 summary headline `error: emit-module command failed ...` is a
+  build summary, not a file diagnostic, and is never counted.
+
+### Changed
+- **a failed `pkg_build` / `pkg_test` / `pkg_validate` now reports through the
+  MCP `isError` flag instead of returning a normal result with the failure
+  buried in the payload. this is a BREAKING change for any consumer that
+  previously read a failed build/test/validate out of the payload alone — the
+  verdict now lives on `isError`, not only in the result. the structured
+  payload still round-trips (over the plugin dialect it sits after the
+  framework's `Error: ` prefix), and `pkg_build` keeps `succeeded:false`, so
+  the verdict is present twice and cannot be missed.**
+- **tool descriptions now carry cost and failure semantics.** every `pkg_*`
+  tool states whether it is read-only and answers in seconds;
+  `pkg_build`/`pkg_test` are called out as real cold compiles that are much
+  slower, and the three failure-gated tools say they report through `isError`.
+  no runtime behaviour changes.
+
+### Removed
+- the orphaned `Sources/Examples/` directory — its target was removed from the
+  manifest in 1.0.0, but the directory itself lingered as dead weight — and the
+  retired shim's leftover `hermes-plugin/__pycache__`.
+
 ## 2.0.0
 
 ### Added
