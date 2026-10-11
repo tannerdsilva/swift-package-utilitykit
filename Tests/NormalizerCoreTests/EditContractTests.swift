@@ -6,9 +6,9 @@ import SubprocessCore
 /// built binary: a selector miss or a blocked write prints its EditResult and
 /// exits non-zero; an applied edit or an already-satisfied state exits 0.
 ///
-/// this suite exists because 2.0.1 exited 0 for every one of these paths
-/// while the payload said `modified:false` — the failure was visible only to
-/// a consumer parsing stdout (bugfix202).
+/// this suite exists because the tool used to exit 0 for every one of these
+/// paths while the payload said `modified:false` — the failure was visible
+/// only to a consumer parsing stdout (bugfix202).
 @Suite("edit exit-code contract", .serialized)
 struct EditExitContractTests {
 
