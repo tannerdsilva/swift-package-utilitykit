@@ -629,7 +629,22 @@ All editing commands share a common safety interface:
 | `--verify` (default: on) | Re-parse to confirm syntactic validity |
 | `--show-diff` | Show unified diff of changes |
 | `--output <file>` | Write to a different file instead of in-place |
-| `--force` | Write even if verification fails |
+| `--force` | Write even if verification fails. |
+
+every edit prints one `EditResult` and exits:
+
+| exit | status | meaning |
+|---|---|---|
+| 0 | `applied` | the edit applied (or, under `--dry-run`, would apply) |
+| 0 | `alreadyCurrent` | the file already satisfies the request — nothing to do |
+| 1 | `missed` | the selector matched nothing — the edit could not be applied |
+| 1 | `blocked` | re-parse found syntax errors; use `--force` to write anyway |
+| 1 | `failed` | the operation errored before it could apply (batch) |
+| 64 | — | usage error: bad flags, missing file, malformed plan |
+
+the payload is always printed before the exit tells its story, so a caller
+that only reads `$?` cannot mistake a silent no-op for a successful edit.
+`--dry-run` mirrors the real run's exit code.
 
 **replace** — find and replace text, or rename a symbol.
 
@@ -637,7 +652,7 @@ Two modes:
 - `--old <text> --new <text>` — simple text replacement
 - `--symbol <name> --rename <name>` — AST-aware rename of all occurrences in the file
 
-Output: `EditResult — {file, modified, diff, verified, warning}`
+Output: `EditResult — {file, modified, diff, verified, warning, status}`
 
 **insert** — insert code at a precise location.
 
@@ -685,7 +700,8 @@ Content is auto-indented to match the target line.
 
 **batch** — execute multiple edit operations from a single JSON plan file,
 applied sequentially.  Operations that fail are reported without aborting the
-rest unless `--fail-fast` is set.
+rest unless `--fail-fast` is set; the process exits 1 when any operation
+missed or failed, and `--fail-fast` stops at the first failure.
 
 ```bash
 swift-package-tool batch plan.json                # apply all operations

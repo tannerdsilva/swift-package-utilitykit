@@ -541,7 +541,9 @@ Find and replace text, or rename a symbol in a file.
 
 **Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
 
-**Output type:** `EditResult` — `{file, modified, diff, verified, warning}`
+**Output type:** `EditResult` — `{file, modified, diff, verified, warning, status}`
+
+**Exit codes:** `0` when the edit applied or the file already satisfies it (`applied` / `alreadyCurrent`); `1` when it did not (`missed` / `blocked` / `failed`; the payload is printed first, and `--dry-run` mirrors the real run); `64` for bad usage.
 
 ---
 

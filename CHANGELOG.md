@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.0.2
+
+### Fixed
+
+- **edit commands no longer exit 0 when the edit did not apply.** a `replace`
+  whose `--old` matches nothing, an `insert` anchor that is absent, a `delete`
+  range / symbol / pattern that selects nothing, a `wrap` range beyond the
+  file, an `add-member` / `add-conformance` / `sort` target that does not
+  exist, and a `replace --symbol` rename with no references all printed a
+  `warning` and exited 0 — the failure was visible only to a consumer parsing
+  stdout. every "did not apply" outcome now exits 1 **after** the payload is
+  printed (the same print-then-throw shape `validate`, `clean` and `build`
+  use), so a caller that only reads `$?` cannot mistake a silent no-op for a
+  successful edit. `--dry-run` mirrors the real run's exit code.
+- **a write withheld by `--verify` now exits 1** unless `--force` applies it.
+- **`batch` exits 1 when any operation missed or failed**, and `--fail-fast`
+  now stops on a selector miss (it previously keyed on verification alone, so
+  misses slipped past it).
+- **`sort` no longer reports `modified: true` when its output is
+  byte-identical** — an already-sorted type reports `alreadyCurrent` and the
+  file is left untouched.
+
+### Changed
+
+- (BREAKING) **`EditResult` gains a machine-readable `status` field** —
+  `applied` | `alreadyCurrent` | `missed` | `blocked` | `failed` — carried in
+  the JSON payload and the `--schema` output, and mirrored by the process
+  exit code for the failure cases. benign idempotent no-ops (`already
+  imported`, `already conforms`, nothing to sort, identity replacement) stay
+  exit 0. a consumer that keyed on `exit 0` for a no-op edit must treat
+  exit 1 as "the edit did not apply" — the payload still carries the
+  specifics.
+
 ## 2.0.1
 
 ### Fixed
