@@ -98,7 +98,7 @@ struct WrapCommand: ParsableCommand, EditCommand {
             var newLines = lines
             newLines.replaceSubrange(startIdx..<endIdx, with: wrapper.components(separatedBy: "\n"))
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
 
         try emitEditResult(result)

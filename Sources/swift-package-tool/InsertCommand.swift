@@ -90,7 +90,7 @@ struct InsertCommand: ParsableCommand, EditCommand {
             }
 
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
 
         try emitEditResult(result)

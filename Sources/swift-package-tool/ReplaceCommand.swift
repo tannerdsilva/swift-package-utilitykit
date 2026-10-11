@@ -87,7 +87,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         ) { source in
             guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
             source = source.replacingOccurrences(of: old, with: processedNew)
-            return ""
+            return nil
         }
 
         try emitEditResult(result)
@@ -103,7 +103,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let modifiedTree = rewriter.rewrite(tree)
 
         guard rewriter.renameCount > 0 else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found")
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found", status: .missed)
             try emitEditResult(result)
             return
         }
@@ -111,6 +111,12 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let modified = modifiedTree.description
 
         let original = source
+        if modified == original {
+            // a rename to the same name reproduces the file byte-for-byte
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "rename produced no change", status: .alreadyCurrent)
+            try emitEditResult(result)
+            return
+        }
         var warning: String? = nil
         var verified = true
         if verify {
@@ -126,14 +132,14 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
             try emitEditResult(result)
             return
         }
@@ -145,7 +151,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
         try emitEditResult(result)
     }
 }

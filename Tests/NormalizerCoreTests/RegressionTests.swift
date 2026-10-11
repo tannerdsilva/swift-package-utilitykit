@@ -82,9 +82,11 @@ struct RegressionTests {
         let path = try makeTempFile("struct Bar: Sendable {}\n", "del2.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let (output, _) = try await runTool(["delete", path, "--symbol", "Nope"])
+        let (output, code) = try await runTool(["delete", path, "--symbol", "Nope"])
+        #expect(code != 0, "a delete --symbol miss must not exit 0: \(output)")
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == false)
+        #expect(json["status"] as? String == "missed", "\(output)")
     }
 
     // MARK: - --force gating (bug: verify-failing edits wrote anyway)
@@ -97,10 +99,11 @@ struct RegressionTests {
 
         // removing the closing brace breaks the syntax
         let (output, code) = try await runTool(["replace", path, "--old", "}", "--new", ""])
-        #expect(code == 0)
+        #expect(code != 0, "a blocked write must not exit 0: \(output)")
         let json = parsedJSON(output)
         #expect(json["modified"] as? Bool == false)
         #expect(json["verified"] as? Bool == false)
+        #expect(json["status"] as? String == "blocked", "\(output)")
 
         // file must be untouched on disk
         let after = try String(contentsOfFile: path, encoding: .utf8)
@@ -670,28 +673,30 @@ struct RegressionTests {
     // MARK: - edit diagnostics (bug: a transform's note was discarded, so a
     //           no-op edit and a malformed range were both silent)
 
-    @Test("an insert anchor miss reports why nothing changed")
+    @Test("an insert anchor miss reports why and exits non-zero")
     func insertAnchorMissReportsNote() async throws {
         let path = try makeTempFile("let a = 1\n", "anchor-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let (out, code) = try await runTool(["insert", path, "--content", "let x = 1", "--after", "NOT-THERE"])
-        #expect(code == 0, "\(out)")
+        #expect(code != 0, "an anchor miss must not exit 0: \(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == false, "\(out)")
         #expect(json["warning"] as? String == "no line containing 'NOT-THERE' found", "\(out)")
+        #expect(json["status"] as? String == "missed", "\(out)")
     }
 
-    @Test("a delete range beyond the file reports why nothing changed")
+    @Test("a delete range beyond the file reports why and exits non-zero")
     func deleteRangeBeyondEOFReportsNote() async throws {
         let path = try makeTempFile("let a = 1\nlet b = 2\n", "range-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let (out, code) = try await runTool(["delete", path, "--lines", "100-200"])
-        #expect(code == 0, "\(out)")
+        #expect(code != 0, "a range that selects no lines must not exit 0: \(out)")
         let json = parsedJSON(out)
         #expect(json["modified"] as? Bool == false, "\(out)")
         #expect(json["warning"] as? String == "line range '100-200' selects no lines", "\(out)")
+        #expect(json["status"] as? String == "missed", "\(out)")
     }
 
     @Test("a malformed --lines range is a usage error, not a silent no-op")
@@ -706,17 +711,21 @@ struct RegressionTests {
         #expect(content == "let a = 1\n", "file must be untouched: \(content)")
     }
 
-    @Test("a replace that matches nothing reports why nothing changed")
+    @Test("a replace that matches nothing reports why and exits non-zero")
     func replaceMissReportsNote() async throws {
         let path = try makeTempFile("let a = 1\n", "replace-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let (out, code) = try await runTool(["replace", path, "--old", "NOT-THERE", "--new", "x"])
-        #expect(code == 0, "\(out)")
-        #expect(parsedJSON(out)["warning"] as? String == "no occurrence of 'NOT-THERE' found", "\(out)")
+        #expect(code != 0, "a replace miss must not exit 0: \(out)")
+        let json = parsedJSON(out)
+        #expect(json["warning"] as? String == "no occurrence of 'NOT-THERE' found", "\(out)")
+        #expect(json["status"] as? String == "missed", "\(out)")
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(content == "let a = 1\n", "file must be untouched: \(content)")
     }
 
-    @Test("batch reports the same diagnostic for an anchor miss")
+    @Test("batch reports the miss and exits non-zero")
     func batchAnchorMissReportsNote() async throws {
         let target = try makeTempFile("let a = 1\n", "batch-miss.swift")
         defer { try? FileManager.default.removeItem(atPath: target) }
@@ -725,9 +734,10 @@ struct RegressionTests {
         defer { try? FileManager.default.removeItem(atPath: planPath) }
 
         let (out, code) = try await runTool(["batch", planPath])
-        #expect(code == 0, "\(out)")
+        #expect(code != 0, "a batch whose operation missed must not exit 0: \(out)")
         let results = parsedJSON(out)["results"] as? [[String: Any]] ?? []
         #expect(results.first?["warning"] as? String == "no line containing 'NOPE' found", "\(out)")
+        #expect(results.first?["status"] as? String == "missed", "\(out)")
     }
 
     // MARK: - CLI contract (bugs: format silently ignored most output formats,

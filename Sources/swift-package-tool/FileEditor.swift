@@ -35,7 +35,12 @@ extension EditCommand {
     }
 
     /// encode a single EditResult honoring --output-format (default: pretty
-    /// JSON, backward compatible with the former hardcoded JSONEncoder).
+    /// JSON, backward compatible with the former hardcoded JSONEncoder), then
+    /// make the process exit code tell the same story the payload does: an
+    /// edit that missed its selector, was blocked by verification, or failed
+    /// exits 1 AFTER the payload is printed — the same print-then-throw shape
+    /// `validate`, `clean` and `build` use. usage errors stay exit 64
+    /// (ArgumentParser's ValidationError).
     func emitEditResult(_ result: EditResult) throws {
         let fmt: OutputFormat = outputFormat ?? .json
         switch fmt {
@@ -55,10 +60,32 @@ extension EditCommand {
             let out = try formatOutput([result], format: fmt)
             print(out)
         }
+        if result.status.isFailure {
+            throw ExitCode(1)
+        }
     }
 }
 
 // MARK: - Edit result
+
+/// the machine-readable outcome of an edit. the process exit code mirrors it
+/// for the failure cases, so a caller that only reads `$?` still knows the
+/// edit did not happen.
+enum EditStatus: String, Codable, Sendable {
+    /// the edit applied (or, under --dry-run, would apply).
+    case applied
+    /// the file already satisfies the requested edit; nothing to do.
+    case alreadyCurrent
+    /// the selector matched nothing — the edit could not be applied.
+    case missed
+    /// the write was withheld: re-parse found syntax errors and --force was not set.
+    case blocked
+    /// the operation errored before it could apply (batch: unreadable file, unknown command).
+    case failed
+
+    /// failure statuses print the payload and then exit non-zero.
+    var isFailure: Bool { self == .missed || self == .blocked || self == .failed }
+}
 
 struct EditResult: Codable, Sendable {
     let file: String
@@ -66,6 +93,7 @@ struct EditResult: Codable, Sendable {
     let diff: String?
     let verified: Bool
     let warning: String?
+    let status: EditStatus
 
     static let jsonSchema = """
     {
@@ -77,9 +105,10 @@ struct EditResult: Codable, Sendable {
         "modified": { "type": "boolean", "description": "Whether the file changed" },
         "diff":     { "type": ["string", "null"], "description": "Unified diff when shown" },
         "verified": { "type": "boolean", "description": "Whether the edit passed syntactic re-validation" },
-        "warning":  { "type": ["string", "null"], "description": "Diagnostic note: why an edit selected nothing, or the verification warning when the write was blocked or forced" }
+        "warning":  { "type": ["string", "null"], "description": "Diagnostic note: why an edit selected nothing, or the verification warning when the write was blocked or forced" },
+        "status":   { "type": "string", "enum": ["applied", "alreadyCurrent", "missed", "blocked", "failed"], "description": "Machine-readable outcome: exit 0 for applied/alreadyCurrent; exit 1 after this payload for missed/blocked/failed" }
       },
-      "required": ["file", "modified", "verified"]
+      "required": ["file", "modified", "verified", "status"]
     }
     """
 }
@@ -88,8 +117,19 @@ struct EditResult: Codable, Sendable {
 
 enum FileEditor {
 
+    /// why a transform changed nothing. the transform is the one place that
+    /// knows whether its selector missed or the file already satisfied the
+    /// request — the two are not the same outcome.
+    enum NoChange {
+        /// the requested edit could not be applied — its selector matched nothing.
+        case missed(String)
+        /// the file already satisfies the requested edit.
+        case alreadyCurrent(String)
+    }
+
     /// Read a file, apply a transform, optionally verify, optionally write.
-    /// Returns an EditResult describing what happened.
+    /// Returns an EditResult describing what happened, including the
+    /// machine-readable status the process exit code mirrors.
     static func edit(
         file: String,
         dryRun: Bool,
@@ -98,7 +138,7 @@ enum FileEditor {
         showDiff: Bool,
         outputPath: String,
         force: Bool,
-        transform: (inout String) throws -> String
+        transform: (inout String) throws -> NoChange?
     ) throws -> EditResult {
         let resolved = NSString(string: file).standardizingPath
         guard FileManager.default.fileExists(atPath: resolved) else {
@@ -107,16 +147,31 @@ enum FileEditor {
 
         let original = try String(contentsOfFile: resolved, encoding: .utf8)
         var modified = original
-        let transformNote = try transform(&modified)
+        let noChange = try transform(&modified)
 
         guard modified != original else {
             // a transform that changed nothing may still have something to say
             // — an anchor that did not match, a range that selected no lines.
-            // surface it instead of reporting a silent no-op.
-            return EditResult(
-                file: resolved, modified: false, diff: nil, verified: true,
-                warning: transformNote.isEmpty ? nil : transformNote
-            )
+            // surface it instead of reporting a silent no-op. a miss is a
+            // failure (exit 1); an already-satisfied state is a benign skip
+            // (exit 0).
+            switch noChange {
+            case .some(.missed(let note)):
+                return EditResult(
+                    file: resolved, modified: false, diff: nil, verified: true,
+                    warning: note, status: .missed
+                )
+            case .some(.alreadyCurrent(let note)):
+                return EditResult(
+                    file: resolved, modified: false, diff: nil, verified: true,
+                    warning: note, status: .alreadyCurrent
+                )
+            case .none:
+                return EditResult(
+                    file: resolved, modified: false, diff: nil, verified: true,
+                    warning: nil, status: .alreadyCurrent
+                )
+            }
         }
 
         // Verify syntactic validity if requested
@@ -141,12 +196,20 @@ enum FileEditor {
         }
 
         if dryRun {
-            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: verifyWarning)
+            // the preview mirrors the real run's verdict: what would land,
+            // and whether verification would let it land
+            return EditResult(
+                file: resolved, modified: true, diff: diff, verified: verified,
+                warning: verifyWarning, status: verified ? .applied : .blocked
+            )
         }
 
         // Block the write when verification fails unless --force is set
         if !verified && !force {
-            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: verifyWarning)
+            return EditResult(
+                file: resolved, modified: false, diff: diff, verified: false,
+                warning: verifyWarning, status: .blocked
+            )
         }
 
         // Backup
@@ -158,7 +221,10 @@ enum FileEditor {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: verifyWarning)
+        return EditResult(
+            file: resolved, modified: true, diff: diff, verified: verified,
+            warning: verifyWarning, status: .applied
+        )
     }
 
     /// copy `path` to `<path>.bak`, replacing any previous backup. a stale
@@ -171,12 +237,13 @@ enum FileEditor {
         try FileManager.default.copyItem(atPath: path, toPath: backupPath)
     }
 
-    // notes a transform returns when it selected nothing. they are surfaced as
-    // the result's `warning` so a no-op edit is never silent.
-    static func noLineContaining(_ pattern: String) -> String { "no line containing '\(pattern)' found" }
-    static func noOccurrenceOf(_ text: String) -> String { "no occurrence of '\(text)' found" }
-    static func alreadyImported(_ module: String) -> String { "module '\(module)' already imported" }
-    static func rangeSelectsNoLines(_ range: String) -> String { "line range '\(range)' selects no lines" }
+    // notes a transform returns when it changed nothing. a `missed` note is a
+    // failure (exit 1); an `alreadyCurrent` note is a benign skip (exit 0).
+    static func noLineContaining(_ pattern: String) -> NoChange { .missed("no line containing '\(pattern)' found") }
+    static func noOccurrenceOf(_ text: String) -> NoChange { .missed("no occurrence of '\(text)' found") }
+    static func alreadyImported(_ module: String) -> NoChange { .alreadyCurrent("module '\(module)' already imported") }
+    static func rangeSelectsNoLines(_ range: String) -> NoChange { .missed("line range '\(range)' selects no lines") }
+    static func noTypeNamed(_ name: String) -> NoChange { .missed("no type '\(name)' found") }
 
     /// Generate a simple unified diff between two strings.
     static func makeDiff(original: String, modified: String) -> String {

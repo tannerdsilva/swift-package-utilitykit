@@ -55,10 +55,12 @@ struct SortCommand: ParsableCommand, EditCommand {
         let modifiedTree = rewriter.rewrite(tree)
 
         guard rewriter.didModify else {
-            let warning = rewriter.notFound
-                ? "no type '\(typeName)' found"
-                : "only one member; nothing to sort"
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: warning)
+            if rewriter.notFound {
+                let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed)
+                try emitEditResult(result)
+                return
+            }
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "only one member; nothing to sort", status: .alreadyCurrent)
             try emitEditResult(result)
             return
         }
@@ -66,6 +68,12 @@ struct SortCommand: ParsableCommand, EditCommand {
         let modified = modifiedTree.description
 
         let original = source
+        if modified == original {
+            // a sort whose output is byte-identical changed nothing
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "members of '\(typeName)' are already sorted", status: .alreadyCurrent)
+            try emitEditResult(result)
+            return
+        }
         var warning: String? = nil
         var verified = true
         if verify {
@@ -81,14 +89,14 @@ struct SortCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
             try emitEditResult(result)
             return
         }
@@ -100,7 +108,7 @@ struct SortCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
         try emitEditResult(result)
     }
 }

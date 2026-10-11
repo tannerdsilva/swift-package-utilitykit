@@ -55,11 +55,11 @@ struct PrependCommand: ParsableCommand, EditCommand {
                     newLines.insert("", at: lastImport + 1)
                     newLines.insert(contentsOf: processedContent.components(separatedBy: "\n"), at: lastImport + 2)
                     source = newLines.joined(separator: "\n")
-                    return ""
+                    return nil
                 }
             }
             source = processedContent + "\n" + source
-            return ""
+            return nil
         }
 
         try emitEditResult(result)
@@ -111,7 +111,7 @@ struct AppendCommand: ParsableCommand, EditCommand {
         ) { source in
             let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
             source = trimmed + "\n" + processedContent + "\n"
-            return ""
+            return nil
         }
 
         try emitEditResult(result)

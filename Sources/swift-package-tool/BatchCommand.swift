@@ -96,15 +96,8 @@ struct BatchCommand: ParsableCommand, EditCommand {
             do {
                 let result = try executeOperation(op)
                 results.append(result)
-                if failFast, !result.verified, let warning = result.warning {
-                    // Record a synthetic failure result and stop
-                    results.append(EditResult(
-                        file: op.file,
-                        modified: false,
-                        diff: nil,
-                        verified: false,
-                        warning: "batch stopped at operation \(index + 1): \(warning)"
-                    ))
+                if failFast, result.status.isFailure {
+                    // stop at the first operation that could not apply
                     break
                 }
             } catch {
@@ -113,7 +106,8 @@ struct BatchCommand: ParsableCommand, EditCommand {
                     modified: false,
                     diff: nil,
                     verified: false,
-                    warning: "operation \(index + 1) failed: \(error.localizedDescription)"
+                    warning: "operation \(index + 1) failed: \(error.localizedDescription)",
+                    status: .failed
                 ))
                 if failFast { break }
             }
@@ -121,6 +115,12 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
         let output = BatchResult(results: results)
         try emitBatchResult(output, format: outputFormat ?? .json)
+
+        // print-then-throw: the process exit code mirrors the per-op statuses,
+        // so a batch whose operations missed or failed cannot exit 0
+        if results.contains(where: { $0.status.isFailure }) {
+            throw ExitCode(1)
+        }
     }
 
     private func executeOperation(_ op: BatchOperation) throws -> EditResult {
@@ -175,7 +175,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
                 newLines.insert("", at: insertIdx)
                 newLines.insert(importLine, at: insertIdx)
                 source = newLines.joined(separator: "\n")
-                return ""
+                return nil
             }
 
             var insertIdx = lines.count
@@ -191,7 +191,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             var newLines = lines
             newLines.insert(importLine, at: insertIdx)
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
     }
 
@@ -229,7 +229,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             }
 
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
     }
 
@@ -244,7 +244,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         ) { source in
             guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
             source = source.replacingOccurrences(of: old, with: processedNew)
-            return ""
+            return nil
         }
     }
 
@@ -259,7 +259,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         ) { source in
             let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
             source = trimmed + "\n" + processedContent + "\n"
-            return ""
+            return nil
         }
     }
 
@@ -279,11 +279,11 @@ struct BatchCommand: ParsableCommand, EditCommand {
                     newLines.insert("", at: lastImport + 1)
                     newLines.insert(contentsOf: processedContent.components(separatedBy: "\n"), at: lastImport + 2)
                     source = newLines.joined(separator: "\n")
-                    return ""
+                    return nil
                 }
             }
             source = processedContent + "\n" + source
-            return ""
+            return nil
         }
     }
 
@@ -314,7 +314,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             }
 
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
     }
 
@@ -358,7 +358,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         ) { source in
             let lines = source.components(separatedBy: "\n")
             guard let typeIdx = lines.firstIndex(where: { $0.contains("\(typeName):") || $0.contains("\(typeName) {") }) else {
-                return "type '\(typeName)' not found"
+                return FileEditor.noTypeNamed(typeName)
             }
 
             // Find the closing brace of the type
@@ -377,7 +377,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             var newLines = lines
             newLines.insert(memberDecl, at: insertIdx)
             source = newLines.joined(separator: "\n")
-            return ""
+            return nil
         }
     }
 
@@ -394,10 +394,10 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let modifiedTree = rewriter.rewrite(tree)
 
         guard rewriter.didModify else {
-            let warning = rewriter.alreadyConforms
-                ? "'\(typeName)' already conforms to '\(protocolName)'"
-                : "no type '\(typeName)' found"
-            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: warning)
+            if rewriter.alreadyConforms {
+                return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent)
+            }
+            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed)
         }
 
         let modified = modifiedTree.description
@@ -417,12 +417,12 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
         }
 
         if backup {
@@ -432,7 +432,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
     }
 }
 

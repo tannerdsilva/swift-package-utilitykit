@@ -83,7 +83,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
                 var newLines = lines
                 newLines.removeSubrange(startIdx..<endIdx)
                 source = newLines.joined(separator: "\n")
-                return ""
+                return nil
             }
 
             if let pattern = self.matching {
@@ -92,10 +92,10 @@ struct DeleteCommand: ParsableCommand, EditCommand {
                     return FileEditor.noLineContaining(pattern)
                 }
                 source = kept.joined(separator: "\n")
-                return ""
+                return nil
             }
 
-            return ""
+            return nil
         }
 
         try emitEditResult(result)
@@ -111,7 +111,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         let modifiedTree = rewriter.rewrite(tree)
 
         guard rewriter.didDelete else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no declaration '\(name)' found")
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no declaration '\(name)' found", status: .missed)
             try emitEditResult(result)
             return
         }
@@ -134,14 +134,14 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
             try emitEditResult(result)
             return
         }
@@ -153,7 +153,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
         try emitEditResult(result)
     }
 }
