@@ -731,3 +731,130 @@ struct InspectorToolSurfacePortTests {
         #expect(FileManager.default.fileExists(atPath: root + "/.build"), "a tool call never destroys the real build")
     }
 }
+
+// MARK: - the failure channel over the real MCP transport
+
+/// D1 ruling: a non-zero subcommand exit makes the tool throw, so over the real
+/// MCP transport the router emits `isError:true` with the structured payload
+/// still present in the text. This suite drives the built binary's `plugin`
+/// subcommand as a subprocess with raw JSON-RPC frames (the same shape
+/// `probe_mcp2.py` uses) and asserts the failure is signalled by the
+/// framework's own isError flag — a consumer never has to parse prose.
+@Suite("Failure channel over MCP JSON-RPC", .serialized)
+struct FailureChannelTransportTests {
+
+    /// Drives `plugin` with newline-delimited JSON-RPC frames on stdin and
+    /// returns `{id: parsed envelope}` for every `tools/call` reply.
+    private func driveTransport(_ calls: [[String: Any]]) async throws -> [Int: [String: Any]] {
+        var frames: [[String: Any]] = [
+            ["jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                        "clientInfo": ["name": "w2-test", "version": "1"]]],
+            ["jsonrpc": "2.0", "method": "notifications/initialized"],
+        ]
+        frames += calls
+        var stdinText = ""
+        for frame in frames {
+            let data = try JSONSerialization.data(withJSONObject: frame)
+            stdinText += String(decoding: data, as: UTF8.self) + "\n"
+        }
+
+        let outcome = try await Subprocess.capture(
+            absoluteToolPath(), ["plugin"], stdin: stdinText, timeout: .seconds(240))
+        var replies: [Int: [String: Any]] = [:]
+        for line in outcome.stdout.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = obj["id"] as? Int, id != 1 else { continue }
+            replies[id] = obj
+        }
+        return replies
+    }
+
+    private func call(_ id: Int, _ name: String, _ path: String) -> [String: Any] {
+        ["jsonrpc": "2.0", "id": id, "method": "tools/call",
+         "params": ["name": name, "arguments": ["path": path]]]
+    }
+
+    /// Extracts the text content of a tools/call reply and parses it as a JSON
+    /// array (build/test/validate verdicts and validate diagnostics).
+    @discardableResult
+    private func payloadArray(from reply: [String: Any]) throws -> [[String: Any]] {
+        let result = try #require(reply["result"] as? [String: Any])
+        let content = try #require(result["content"] as? [[String: Any]])
+        let text = try #require(content.first?["text"] as? String)
+        let data = try #require(text.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                            "expected a JSON array payload: \(text.prefix(160))")
+    }
+
+    private func isError(of reply: [String: Any]) throws -> Bool {
+        let result = try #require(reply["result"] as? [String: Any])
+        return result["isError"] as? Bool ?? false
+    }
+
+    @Test("pkg_build and pkg_test report failure with succeeded:false through isError:true")
+    func buildAndTestFailureIsError() async throws {
+        let broken = try makeInspectorFixture("uk-fail-mcp")
+        defer { try? FileManager.default.removeItem(atPath: broken) }
+        try writeFixture(manifestFixture("BrokenM", targets: "        .target(name: \"BrokenM\")"), to: broken + "/Package.swift")
+        try writeFixture("func broken( {\n", to: broken + "/Sources/BrokenM/BrokenM.swift")
+
+        let replies = try await driveTransport([
+            call(100, "pkg_build", broken),
+            call(101, "pkg_test", broken),
+        ])
+
+        let build = try #require(replies[100])
+        #expect(try isError(of: build) == true, "a failed build must be isError:true")
+        let buildObj = try #require(payloadArray(from: build).first)
+        #expect(buildObj["succeeded"] as? Bool == false)
+        #expect(buildObj["exitCode"] as? Int == 1)
+
+        let test = try #require(replies[101])
+        #expect(try isError(of: test) == true, "a failing test run must be isError:true")
+        let testObj = try #require(payloadArray(from: test).first)
+        #expect(testObj["succeeded"] as? Bool == false)
+        #expect(testObj["exitCode"] as? Int == 1)
+    }
+
+    @Test("pkg_validate reports failure as isError:true and keeps its diagnostics payload")
+    func validateFailureIsError() async throws {
+        let broken = try makeInspectorFixture("uk-validate-mcp")
+        defer { try? FileManager.default.removeItem(atPath: broken) }
+        try writeFixture(manifestFixture("ValidateM", targets: "        .target(name: \"ValidateM\")"), to: broken + "/Package.swift")
+        try writeFixture("func broken( {\n", to: broken + "/Sources/ValidateM/ValidateM.swift")
+
+        let replies = try await driveTransport([call(200, "pkg_validate", broken)])
+        let reply = try #require(replies[200])
+        #expect(try isError(of: reply) == true, "a failed validation must be isError:true")
+        let diags = try payloadArray(from: reply)
+        #expect(!diags.isEmpty, "the diagnostics array must survive")
+        #expect(diags.contains { ($0["severity"] as? String) == "error" })
+    }
+
+    @Test("the healthy fixture stays isError:false with a succeeded:true payload (no regression)")
+    func healthyIsNotError() async throws {
+        let healthy = try makeInspectorFixture("uk-healthy-mcp")
+        defer { try? FileManager.default.removeItem(atPath: healthy) }
+        try writeFixture(manifestFixture("HealthyM", targets: "        .target(name: \"HealthyM\")"), to: healthy + "/Package.swift")
+        try writeFixture("public func f() -> Int { 42 }\n", to: healthy + "/Sources/HealthyM/HealthyM.swift")
+
+        let replies = try await driveTransport([
+            call(300, "pkg_build", healthy),
+            call(301, "pkg_validate", healthy),
+        ])
+
+        let build = try #require(replies[300])
+        #expect(try isError(of: build) == false, "a clean build must stay isError:false")
+        let buildObj = try #require(payloadArray(from: build).first)
+        #expect(buildObj["succeeded"] as? Bool == true)
+        #expect(buildObj["exitCode"] as? Int == 0)
+
+        let validate = try #require(replies[301])
+        #expect(try isError(of: validate) == false, "a clean validate must stay isError:false")
+        #expect(try payloadArray(from: validate).isEmpty, "no diagnostics on a clean fixture")
+    }
+}

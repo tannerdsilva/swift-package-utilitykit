@@ -129,7 +129,7 @@ struct PluginCommandTests {
         #expect(run.stderr.contains("no dialect recognized the first frame"))
     }
 
-    @Test("pkg_validate carries the pass/fail verdict through as a result")
+    @Test("pkg_validate reports a negative verdict through the isError channel with the payload intact")
     func validateVerdict() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("uk-plugin-validate-\(UUID().uuidString)", isDirectory: true)
@@ -141,7 +141,88 @@ struct PluginCommandTests {
         let stdin = #"{"tool": "pkg_validate", "args": {"path": "\#(dir.path)"}}"#
         let response = try await runPluginTool(["plugin"], stdin: stdin).stdoutJSON()
         let result = response["result"] as? String ?? ""
-        #expect(result.contains("error"), "diagnostics must survive the rc=1 exit: \(result.prefix(200))")
-        #expect(!result.hasPrefix("Error"), "a negative verdict is a result, not an error")
+        // D1 ruling: a negative verdict is a real failure and must surface
+        // through the framework's isError channel (the `Error: ` prefix), not
+        // hide as a plain result a model would have to parse.
+        #expect(result.hasPrefix("Error: "), "a failed validation must throw: \(result.prefix(160))")
+        // the diagnostics payload survives verbatim after the prefix
+        let payload = String(result.dropFirst("Error: ".count))
+        let data = try #require(payload.data(using: .utf8))
+        let diags = try #require(try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                                 "validate payload must stay a JSON diagnostics array: \(payload.prefix(200))")
+        #expect(!diags.isEmpty, "the broken fixture must emit diagnostics")
+        #expect(diags.contains { ($0["severity"] as? String) == "error" })
+    }
+
+    @Test("pkg_build throws on a failing build and stays a plain result on a clean build")
+    func buildFailureChannel() async throws {
+        let broken = breakoutPackage(manifest: "Broken", source: "func broken( {\n")
+        defer { try? FileManager.default.removeItem(atPath: broken) }
+        let healthy = breakoutPackage(manifest: "Warn", source: "public func f() {\n    let unused = 1\n}\n")
+        defer { try? FileManager.default.removeItem(atPath: healthy) }
+
+        // --- the broken fixture: must throw (Error: prefix), payload intact ---
+        let brokenRun = try await runPluginTool(
+            ["plugin"], stdin: #"{"tool":"pkg_build","args":{"path":"\#(broken)"}}"#).stdoutJSON()
+        let brokenResult = brokenRun["result"] as? String ?? ""
+        #expect(brokenResult.hasPrefix("Error: "), "a failed build must throw: \(brokenResult.prefix(160))")
+        let brokenObj = try payloadArray(String(brokenResult.dropFirst("Error: ".count)))
+        #expect(brokenObj["succeeded"] as? Bool == false)
+        #expect(brokenObj["exitCode"] as? Int == 1)
+        #expect(brokenObj["ok"] as? Bool == true, "ok is a payload-internal fact; the verdict rides isError")
+
+        // --- the healthy fixture: must NOT throw, full payload byte-path intact ---
+        let healthyRun = try await runPluginTool(
+            ["plugin"], stdin: #"{"tool":"pkg_build","args":{"path":"\#(healthy)"}}"#).stdoutJSON()
+        let healthyResult = healthyRun["result"] as? String ?? ""
+        #expect(!healthyResult.hasPrefix("Error: "), "a clean build must not throw: \(healthyResult.prefix(160))")
+        let healthyObj = try payloadArray(healthyResult)
+        #expect(healthyObj["succeeded"] as? Bool == true)
+        #expect(healthyObj["exitCode"] as? Int == 0)
+    }
+
+    @Test("pkg_test throws on a failing test run via the isError channel")
+    func testFailureChannel() async throws {
+        let broken = breakoutPackage(manifest: "BrokenT", source: "func broken( {\n")
+        defer { try? FileManager.default.removeItem(atPath: broken) }
+
+        let run = try await runPluginTool(
+            ["plugin"], stdin: #"{"tool":"pkg_test","args":{"path":"\#(broken)"}}"#).stdoutJSON()
+        let result = run["result"] as? String ?? ""
+        #expect(result.hasPrefix("Error: "), "a failing test run must throw: \(result.prefix(160))")
+        let obj = try payloadArray(String(result.dropFirst("Error: ".count)))
+        #expect(obj["succeeded"] as? Bool == false)
+        #expect(obj["exitCode"] as? Int == 1)
+    }
+
+    /// Builds a throwaway package under the temp dir with the given manifest
+    /// name and a single broken/healthy `Sources/<Name>/<Name>.swift` file.
+    private func breakoutPackage(manifest: String, source: String) -> String {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uk-fail-\(manifest.lowercased())-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let srcDir = root.appendingPathComponent("Sources/\(manifest)")
+        try? FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        let pkg = """
+        // swift-tools-version: 5.9
+        import PackageDescription
+        let package = Package(
+            name: "\(manifest)",
+            products: [.library(name: "\(manifest)", targets: ["\(manifest)"])],
+            targets: [.target(name: "\(manifest)")]
+        )
+        """
+        try? pkg.write(to: root.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        try? source.write(to: srcDir.appendingPathComponent("\(manifest).swift"), atomically: true, encoding: .utf8)
+        return root.path
+    }
+
+    /// Parses a one-element JSON payload array (build/test/validate verdicts)
+    /// after the `Error: ` prefix has been removed, returning that object.
+    private func payloadArray(_ payload: String) throws -> [String: Any] {
+        let data = try #require(payload.data(using: .utf8))
+        let array = try #require(try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                                 "expected a JSON array payload: \(payload.prefix(200))")
+        return try #require(array.first, "payload array must not be empty")
     }
 }
