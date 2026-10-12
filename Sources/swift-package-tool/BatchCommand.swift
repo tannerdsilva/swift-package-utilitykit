@@ -52,7 +52,7 @@ import SwiftParserDiagnostics
 /// - `add-conformance`: `typeName`, `protocolName`
 ///
 /// These keys are the plan's own vocabulary and do not always match the
-/// standalone command's flags: the plan spells `--type` as `typeName`, because
+/// edit verb's flags: the plan spells `--type` as `typeName`, because
 /// `type` is reserved. An unrecognized key decodes to nil rather than failing,
 /// so a mistyped field surfaces as that command's "requires ..." error — read
 /// the field list above before assuming a command is broken.

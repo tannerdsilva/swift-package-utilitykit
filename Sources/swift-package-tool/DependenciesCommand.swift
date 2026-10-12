@@ -6,8 +6,8 @@ import SwiftParser
 /// list all import statements across source files.
 struct DependenciesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "dependencies",
-        abstract: "List all imports across source files."
+        commandName: "imports",
+        abstract: "List import statements across Swift source files."
     )
 
     @Argument(help: "Files or directories to analyze.")

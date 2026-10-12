@@ -17,19 +17,21 @@ import ArgumentParser
 /// A thin shim over the one-shot stdin host built by `PluginHost.run()`
 /// (see `PluginTools.swift`):
 ///
-///     stdin:  {"tool": "pkg_scan", "args": {"path": "/abs/path/to/pkg"}}
+///     stdin:  {"tool": "pkg_security_scan", "args": {"path": "/abs/path/to/pkg"}}
 ///     stdout: {"result": "<the subcommand's output>"}
 ///
-/// The surface is the full package-inspector set — `pkg_inspector`,
-/// `pkg_scan`, `pkg_list_targets`, `pkg_list_dependencies`, `pkg_build`,
-/// `pkg_test`, `pkg_clean`, `pkg_docc_check`, `pkg_api`, `pkg_force_unwraps`,
-/// `pkg_validate` — one `@MCPCommand` each in `PluginTools.swift`, plus the
-/// `pkg_edit_*` editing family in `PluginEditTools.swift` (replace, rename,
-/// insert, delete, prepend, append, add-import, add-conformance, add-member,
-/// wrap, sort, batch), which lets an agent edit Swift source over the same
-/// stdio transport. Build, test and clean are the audit-safe faces of their
-/// subcommands (isolated scratch, non-destructive sweep), so an agent cannot
-/// destroy a consumer's build products through this surface.
+/// The surface is the eleven read-only/audit tools — `pkg_overview`,
+/// `pkg_security_scan`, `pkg_targets`, `pkg_dependencies`, `pkg_doc_coverage`,
+/// `pkg_public_api`, `pkg_force_unwraps`, `pkg_validate`, `pkg_build`,
+/// `pkg_test`, `pkg_clean` — one `@MCPCommand` each in `PluginTools.swift`,
+/// plus the twelve `pkg_edit_*` editing family in `PluginEditTools.swift`
+/// (replace, rename, insert, delete, prepend, append, add-import,
+/// add-conformance, add-member, wrap, sort, batch), which lets an agent edit
+/// Swift source over the same stdio transport. Every tool name carries the
+/// CLI verb's words (the edit family maps onto the CLI's `edit` group), so the
+/// two surfaces are one vocabulary. Build, test and clean are the audit-safe
+/// faces of their subcommands (isolated scratch, non-destructive sweep), so an
+/// agent cannot destroy a consumer's build products through this surface.
 ///
 /// `plugin --mcp-manifest arc` renders the harness plugin manifest (tools +
 /// schemas) instead; `install --adapter arc` writes it into

@@ -80,13 +80,13 @@ extension SwiftPackageToolTestsRoot {
             #expect(run.status == 0)
             let manifest = try run.stdoutJSON()
             #expect(manifest["name"] as? String == "swift-package-utilitykit")
-            #expect(manifest["version"] as? String == "2.1.0")
+            #expect(manifest["version"] as? String == "3.0.0")
 
             let tools = manifest["tools"] as? [[String: Any]] ?? []
             let names = tools.compactMap { $0["name"] as? String }
-            #expect(names == ["pkg_build", "pkg_scan", "pkg_list_dependencies", "pkg_list_targets",
-                              "pkg_test", "pkg_clean", "pkg_docc_check", "pkg_inspector",
-                              "pkg_api", "pkg_force_unwraps", "pkg_validate",
+            #expect(names == ["pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
+                              "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
+                              "pkg_public_api", "pkg_force_unwraps", "pkg_validate",
                               "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
                               "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
                               "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
@@ -103,9 +103,9 @@ extension SwiftPackageToolTestsRoot {
             }
         }
 
-        @Test("pkg_api returns the subcommand's JSON through the result envelope")
+        @Test("pkg_public_api returns the subcommand's JSON through the result envelope")
         func apiInvoke() async throws {
-            let stdin = #"{"tool": "pkg_api", "args": {"path": "\#(repoRoot)/Sources/NormalizerCore", "limit": 3}}"#
+            let stdin = #"{"tool": "pkg_public_api", "args": {"path": "\#(repoRoot)/Sources/NormalizerCore", "limit": 3}}"#
             let run = try await runPluginTool(["plugin"], stdin: stdin)
             #expect(run.status == 0)
             let response = try run.stdoutJSON()
@@ -119,10 +119,10 @@ extension SwiftPackageToolTestsRoot {
             let unknown = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_nope", "args": {}}"#).stdoutJSON()
             #expect((unknown["result"] as? String)?.contains("Unknown tool: pkg_nope") == true)
 
-            let missing = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {}}"#).stdoutJSON()
+            let missing = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_public_api", "args": {}}"#).stdoutJSON()
             #expect((missing["result"] as? String)?.contains("path") == true)
 
-            let relative = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_api", "args": {"path": "Sources"}}"#).stdoutJSON()
+            let relative = try await runPluginTool(["plugin"], stdin: #"{"tool": "pkg_public_api", "args": {"path": "Sources"}}"#).stdoutJSON()
             #expect((relative["result"] as? String)?.contains("must be an absolute path") == true)
         }
 

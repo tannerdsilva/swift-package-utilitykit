@@ -8,8 +8,8 @@ import SwiftParser
 /// interface without the implementation.
 struct ApiCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "api",
-        abstract: "Extract the public API surface of a project."
+        commandName: "public-api",
+        abstract: "Extract the public API surface (declarations + conformances) of a package or source dir."
     )
 
     @Argument(help: "Files or directories to analyze.")

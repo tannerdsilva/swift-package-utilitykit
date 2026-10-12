@@ -64,17 +64,17 @@ extension NormalizerCoreTestsRoot {
         func everySelectorMissExitsNonZero() async throws {
             let fixture = "let a = 1\n\nstruct S {\n    var b: Int\n    var a: Int\n}\n"
             let cases: [(String, [String])] = [
-                ("replace-text", ["replace", "{f}", "--old", "NOT-THERE", "--new", "x"]),
-                ("replace-symbol", ["replace", "{f}", "--symbol", "Nope", "--rename", "X"]),
-                ("insert-after", ["insert", "{f}", "--content", "let c = 3", "--after", "NOPE"]),
-                ("insert-before", ["insert", "{f}", "--content", "let c = 3", "--before", "NOPE"]),
-                ("delete-matching", ["delete", "{f}", "--matching", "NOPE"]),
-                ("delete-lines", ["delete", "{f}", "--lines", "100-200"]),
-                ("delete-symbol", ["delete", "{f}", "--symbol", "Nope"]),
-                ("wrap-lines", ["wrap", "{f}", "--lines", "100-200", "--in", "do"]),
-                ("add-member", ["add-member", "{f}", "--type", "Nope", "--property", "var x: Int"]),
-                ("add-conformance", ["add-conformance", "{f}", "--type", "Nope", "--protocol", "Sendable"]),
-                ("sort", ["sort", "{f}", "--type", "Nope"]),
+                ("replace-text", ["edit", "replace", "{f}", "--old", "NOT-THERE", "--new", "x"]),
+                ("rename-miss", ["edit", "rename", "{f}", "--old-name", "Nope", "--new-name", "X"]),
+                ("insert-after", ["edit", "insert", "{f}", "--content", "let c = 3", "--after", "NOPE"]),
+                ("insert-before", ["edit", "insert", "{f}", "--content", "let c = 3", "--before", "NOPE"]),
+                ("delete-matching", ["edit", "delete", "{f}", "--matching", "NOPE"]),
+                ("delete-lines", ["edit", "delete", "{f}", "--lines", "100-200"]),
+                ("delete-symbol", ["edit", "delete", "{f}", "--symbol", "Nope"]),
+                ("wrap-lines", ["edit", "wrap", "{f}", "--lines", "100-200", "--in", "do"]),
+                ("add-member", ["edit", "add-member", "{f}", "--type", "Nope", "--property", "var x: Int"]),
+                ("add-conformance", ["edit", "add-conformance", "{f}", "--type", "Nope", "--protocol", "Sendable"]),
+                ("sort", ["edit", "sort", "{f}", "--type", "Nope"]),
             ]
             for (name, template) in cases {
                 let path = try makeTempFile(fixture, "\(name).swift")
@@ -93,7 +93,7 @@ extension NormalizerCoreTestsRoot {
                 let path = try makeTempFile("let a = 1\n", "fmt-\(fmt).swift")
                 defer { cleanup(path) }
                 let (out, code) = try await runTool(
-                    ["replace", path, "--old", "NOT-THERE", "--new", "x", "--output-format", fmt]
+                    ["edit", "replace", path, "--old", "NOT-THERE", "--new", "x", "--output-format", fmt]
                 )
                 #expect(code != 0, "\(fmt) must exit non-zero: \(out)")
                 #expect(readFile(path) == "let a = 1\n", "\(fmt) must not modify the file")
@@ -106,16 +106,16 @@ extension NormalizerCoreTestsRoot {
         func everyHitExitsZero() async throws {
             let fixture = "let a = 1\n\nstruct S {\n    var b: Int\n    var a: Int\n}\n"
             let cases: [(String, [String])] = [
-                ("replace-text", ["replace", "{f}", "--old", "let a = 1", "--new", "let a = 9"]),
-                ("replace-symbol", ["replace", "{f}", "--symbol", "a", "--rename", "z"]),
-                ("insert-at-line", ["insert", "{f}", "--content", "let c = 3", "--at-line", "1"]),
-                ("delete-lines", ["delete", "{f}", "--lines", "1-1"]),
-                ("delete-symbol", ["delete", "{f}", "--symbol", "S"]),
-                ("wrap-lines", ["wrap", "{f}", "--lines", "1-1", "--in", "do"]),
-                ("add-import", ["add-import", "{f}", "--module", "Foundation"]),
-                ("add-member", ["add-member", "{f}", "--type", "S", "--property", "var z: Int"]),
-                ("add-conformance", ["add-conformance", "{f}", "--type", "S", "--protocol", "Sendable"]),
-                ("sort", ["sort", "{f}", "--type", "S"]),
+                ("replace-text", ["edit", "replace", "{f}", "--old", "let a = 1", "--new", "let a = 9"]),
+                ("rename-hit", ["edit", "rename", "{f}", "--old-name", "a", "--new-name", "z"]),
+                ("insert-at-line", ["edit", "insert", "{f}", "--content", "let c = 3", "--at-line", "1"]),
+                ("delete-lines", ["edit", "delete", "{f}", "--lines", "1-1"]),
+                ("delete-symbol", ["edit", "delete", "{f}", "--symbol", "S"]),
+                ("wrap-lines", ["edit", "wrap", "{f}", "--lines", "1-1", "--in", "do"]),
+                ("add-import", ["edit", "add-import", "{f}", "--module", "Foundation"]),
+                ("add-member", ["edit", "add-member", "{f}", "--type", "S", "--property", "var z: Int"]),
+                ("add-conformance", ["edit", "add-conformance", "{f}", "--type", "S", "--protocol", "Sendable"]),
+                ("sort", ["edit", "sort", "{f}", "--type", "S"]),
             ]
             for (name, template) in cases {
                 let path = try makeTempFile(fixture, "\(name).swift")
@@ -137,7 +137,7 @@ extension NormalizerCoreTestsRoot {
             // blocked: the edit would not parse and --force was not set
             let path = try makeTempFile(fixture, "blocked.swift")
             defer { cleanup(path) }
-            let (out, code) = try await runTool(["replace", path, "--old", "}", "--new", ""])
+            let (out, code) = try await runTool(["edit", "replace", path, "--old", "}", "--new", ""])
             #expect(code != 0, "a blocked write must not exit 0: \(out)")
             let json = parsedJSON(out)
             #expect(json["status"] as? String == "blocked", "\(out)")
@@ -145,7 +145,7 @@ extension NormalizerCoreTestsRoot {
             #expect(readFile(path) == fixture, "blocked write must not touch the file")
 
             // --force applies the same edit and exits 0
-            let (forcedOut, forcedCode) = try await runTool(["replace", path, "--old", "}", "--new", "", "--force"])
+            let (forcedOut, forcedCode) = try await runTool(["edit", "replace", path, "--old", "}", "--new", "", "--force"])
             #expect(forcedCode == 0, "a forced write must exit 0: \(forcedOut)")
             #expect(parsedJSON(forcedOut)["status"] as? String == "applied", "\(forcedOut)")
             #expect(readFile(path) != fixture, "forced write must change the file")
@@ -159,21 +159,21 @@ extension NormalizerCoreTestsRoot {
 
             let missPath = try makeTempFile(fixture, "dry-miss.swift")
             defer { cleanup(missPath) }
-            let (missOut, missCode) = try await runTool(["replace", missPath, "--old", "NOPE", "--new", "x", "--dry-run"])
+            let (missOut, missCode) = try await runTool(["edit", "replace", missPath, "--old", "NOPE", "--new", "x", "--dry-run"])
             #expect(missCode != 0, "a dry-run miss must not exit 0: \(missOut)")
             #expect(parsedJSON(missOut)["status"] as? String == "missed", "\(missOut)")
             #expect(readFile(missPath) == fixture, "dry-run must not write")
 
             let hitPath = try makeTempFile(fixture, "dry-hit.swift")
             defer { cleanup(hitPath) }
-            let (hitOut, hitCode) = try await runTool(["replace", hitPath, "--old", "let a = 1", "--new", "let a = 2", "--dry-run"])
+            let (hitOut, hitCode) = try await runTool(["edit", "replace", hitPath, "--old", "let a = 1", "--new", "let a = 2", "--dry-run"])
             #expect(hitCode == 0, "a dry-run hit must exit 0: \(hitOut)")
             #expect(parsedJSON(hitOut)["status"] as? String == "applied", "\(hitOut)")
             #expect(readFile(hitPath) == fixture, "dry-run must not write")
 
             let blockedPath = try makeTempFile("struct S {\n  var value: Int\n}\n", "dry-blocked.swift")
             defer { cleanup(blockedPath) }
-            let (blockedOut, blockedCode) = try await runTool(["replace", blockedPath, "--old", "}", "--new", "", "--dry-run"])
+            let (blockedOut, blockedCode) = try await runTool(["edit", "replace", blockedPath, "--old", "}", "--new", "", "--dry-run"])
             #expect(blockedCode != 0, "a dry-run of a blocked edit must not exit 0: \(blockedOut)")
             #expect(parsedJSON(blockedOut)["status"] as? String == "blocked", "\(blockedOut)")
         }
@@ -185,30 +185,30 @@ extension NormalizerCoreTestsRoot {
             // add-import twice: the second run is a skip, not a failure
             let importPath = try makeTempFile("let q = 0\n", "dup-import.swift")
             defer { cleanup(importPath) }
-            let (_, firstCode) = try await runTool(["add-import", importPath, "--module", "Foundation"])
+            let (_, firstCode) = try await runTool(["edit", "add-import", importPath, "--module", "Foundation"])
             #expect(firstCode == 0, "first add-import must apply")
-            let (dupOut, dupCode) = try await runTool(["add-import", importPath, "--module", "Foundation"])
+            let (dupOut, dupCode) = try await runTool(["edit", "add-import", importPath, "--module", "Foundation"])
             #expect(dupCode == 0, "an already-imported module must stay exit 0: \(dupOut)")
             #expect(parsedJSON(dupOut)["status"] as? String == "alreadyCurrent", "\(dupOut)")
 
             // add-conformance on an already-conforming type
             let confPath = try makeTempFile("struct U: Sendable {\n}\n", "dup-conformance.swift")
             defer { cleanup(confPath) }
-            let (confOut, confCode) = try await runTool(["add-conformance", confPath, "--type", "U", "--protocol", "Sendable"])
+            let (confOut, confCode) = try await runTool(["edit", "add-conformance", confPath, "--type", "U", "--protocol", "Sendable"])
             #expect(confCode == 0, "an already-conforming type must stay exit 0: \(confOut)")
             #expect(parsedJSON(confOut)["status"] as? String == "alreadyCurrent", "\(confOut)")
 
             // sort: one member is nothing to sort; an already-sorted type is a no-op
             let onePath = try makeTempFile("struct S {\n    var value: Int\n}\n", "sort-one.swift")
             defer { cleanup(onePath) }
-            let (oneOut, oneCode) = try await runTool(["sort", onePath, "--type", "S"])
+            let (oneOut, oneCode) = try await runTool(["edit", "sort", onePath, "--type", "S"])
             #expect(oneCode == 0, "nothing-to-sort must stay exit 0: \(oneOut)")
             #expect(parsedJSON(oneOut)["status"] as? String == "alreadyCurrent", "\(oneOut)")
 
             let sortedFixture = "struct S {\n    var a: Int\n    var b: Int\n}\n"
             let sortedPath = try makeTempFile(sortedFixture, "sort-sorted.swift")
             defer { cleanup(sortedPath) }
-            let (sortedOut, sortedCode) = try await runTool(["sort", sortedPath, "--type", "S"])
+            let (sortedOut, sortedCode) = try await runTool(["edit", "sort", sortedPath, "--type", "S"])
             #expect(sortedCode == 0, "an already-sorted type must stay exit 0: \(sortedOut)")
             let sortedJSON = parsedJSON(sortedOut)
             #expect(sortedJSON["status"] as? String == "alreadyCurrent", "\(sortedOut)")
@@ -218,7 +218,7 @@ extension NormalizerCoreTestsRoot {
             // replace with identical text satisfies the request trivially
             let identityPath = try makeTempFile("let x = 1\n", "identity.swift")
             defer { cleanup(identityPath) }
-            let (idOut, idCode) = try await runTool(["replace", identityPath, "--old", "let x = 1", "--new", "let x = 1"])
+            let (idOut, idCode) = try await runTool(["edit", "replace", identityPath, "--old", "let x = 1", "--new", "let x = 1"])
             #expect(idCode == 0, "an identity replace must stay exit 0: \(idOut)")
             #expect(parsedJSON(idOut)["status"] as? String == "alreadyCurrent", "\(idOut)")
         }
@@ -240,7 +240,7 @@ extension NormalizerCoreTestsRoot {
                 "plan-miss.json"
             )
             defer { cleanup(planPath) }
-            let (out, code) = try await runTool(["batch", planPath])
+            let (out, code) = try await runTool(["edit", "batch", planPath])
             #expect(code != 0, "a batch with a missed operation must not exit 0: \(out)")
             let results = parsedJSON(out)["results"] as? [[String: Any]] ?? []
             #expect(results.count == 2, "without --fail-fast every operation is still attempted: \(out)")
@@ -258,7 +258,7 @@ extension NormalizerCoreTestsRoot {
                 "plan-ff.json"
             )
             defer { cleanup(ffPlanPath) }
-            let (ffOut, ffCode) = try await runTool(["batch", ffPlanPath, "--fail-fast"])
+            let (ffOut, ffCode) = try await runTool(["edit", "batch", ffPlanPath, "--fail-fast"])
             #expect(ffCode != 0, "a fail-fast batch with a miss must not exit 0: \(ffOut)")
             let ffResults = parsedJSON(ffOut)["results"] as? [[String: Any]] ?? []
             #expect(ffResults.count == 1, "--fail-fast must stop at the miss: \(ffOut)")
@@ -276,7 +276,7 @@ extension NormalizerCoreTestsRoot {
                 "plan-ok.json"
             )
             defer { cleanup(okPlanPath) }
-            let (okOut, okCode) = try await runTool(["batch", okPlanPath])
+            let (okOut, okCode) = try await runTool(["edit", "batch", okPlanPath])
             #expect(okCode == 0, "an all-hit batch must exit 0: \(okOut)")
         }
 
@@ -286,7 +286,7 @@ extension NormalizerCoreTestsRoot {
         func schemaCarriesStatus() async throws {
             let path = try makeTempFile("let a = 1\n", "schema.swift")
             defer { cleanup(path) }
-            let (out, code) = try await runTool(["replace", path, "--schema"])
+            let (out, code) = try await runTool(["edit", "replace", path, "--schema"])
             #expect(code == 0, "\(out)")
             #expect(out.contains("\"status\""), "the schema must document status: \(out)")
             #expect(out.contains("\"missed\"") && out.contains("\"blocked\""), "\(out)")
@@ -301,7 +301,7 @@ extension NormalizerCoreTestsRoot {
             defer { cleanup(path) }
 
             let (out, code) = try await runTool(
-                ["wrap", path, "--lines", "2-3", "--in", "guard-let", "--variable", "x", "--else", "return"])
+                ["edit", "wrap", path, "--lines", "2-3", "--in", "guard-let", "--variable", "x", "--else", "return"])
             #expect(code == 0, "\(out)")
             let content = readFile(path)
             // a guard conditions the code that FOLLOWS it, so the selected lines
@@ -320,7 +320,7 @@ extension NormalizerCoreTestsRoot {
             let path = try makeTempFile(fixture, "wrap-docatch.swift")
             defer { cleanup(path) }
 
-            let (out, code) = try await runTool(["wrap", path, "--lines", "2-3", "--in", "do-catch"])
+            let (out, code) = try await runTool(["edit", "wrap", path, "--lines", "2-3", "--in", "do-catch"])
             #expect(code == 0, "do-catch must apply, not block on a placeholder: \(out)")
             #expect(parsedJSON(out)["status"] as? String == "applied", "\(out)")
 
@@ -339,7 +339,7 @@ extension NormalizerCoreTestsRoot {
             // `guard let x else {}` parses, so the syntax gate cannot catch it —
             // the command refuses it instead of writing code that cannot compile.
             let (out, code) = try await runTool(
-                ["wrap", path, "--lines", "2-2", "--in", "guard-let", "--variable", "x"])
+                ["edit", "wrap", path, "--lines", "2-2", "--in", "guard-let", "--variable", "x"])
             #expect(code != 0, "\(out)")
             #expect(readFile(path) == fixture, "a refused wrap must not touch the file")
         }
@@ -352,7 +352,7 @@ extension NormalizerCoreTestsRoot {
             let expanded = try makeTempFile("// top\n", "escape-expand.swift")
             defer { cleanup(expanded) }
             let (eOut, eCode) = try await runTool(
-                ["insert", expanded, "--after", "// top", "--content", #"let a = 1\nlet b = 2"#])
+                ["edit", "insert", expanded, "--after", "// top", "--content", #"let a = 1\nlet b = 2"#])
             #expect(eCode == 0, "\(eOut)")
             #expect(readFile(expanded).contains("let a = 1\nlet b = 2"), "\(readFile(expanded))")
 
@@ -360,7 +360,7 @@ extension NormalizerCoreTestsRoot {
             let literal = try makeTempFile("// top\n", "escape-literal.swift")
             defer { cleanup(literal) }
             let (lOut, lCode) = try await runTool(
-                ["insert", literal, "--after", "// top", "--content", #"print("x\\ny")"#])
+                ["edit", "insert", literal, "--after", "// top", "--content", #"print("x\\ny")"#])
             #expect(lCode == 0, "\(lOut)")
             #expect(readFile(literal).contains(#"print("x\ny")"#),
                     "a Swift string-literal escape must be writable: \(readFile(literal))")
@@ -370,7 +370,7 @@ extension NormalizerCoreTestsRoot {
             let raw = try makeTempFile("// top\n", "escape-raw.swift")
             defer { cleanup(raw) }
             let (rOut, rCode) = try await runTool(
-                ["insert", raw, "--after", "// top", "--content", #"print("x\ny")"#, "--literal-content"])
+                ["edit", "insert", raw, "--after", "// top", "--content", #"print("x\ny")"#, "--literal-content"])
             #expect(rCode == 0, "\(rOut)")
             #expect(readFile(raw).contains(#"print("x\ny")"#),
                     "--literal-content must not reinterpret the bytes: \(readFile(raw))")
@@ -401,7 +401,7 @@ extension NormalizerCoreTestsRoot {
                 "batch-delete-symbol.json")
             defer { cleanup(planPath) }
 
-            let (out, code) = try await runTool(["batch", planPath])
+            let (out, code) = try await runTool(["edit", "batch", planPath])
             #expect(code == 0, "\(out)")
             let content = readFile(path)
             #expect(!content.contains("struct Drop"), "the named declaration must go: \(content)")
@@ -422,7 +422,7 @@ extension NormalizerCoreTestsRoot {
                 "batch-add-member.json")
             defer { cleanup(planPath) }
 
-            let (out, code) = try await runTool(["batch", planPath])
+            let (out, code) = try await runTool(["edit", "batch", planPath])
             #expect(code == 0, "\(out)")
             let content = readFile(path)
             // the old form inserted the raw declaration with no indentation
@@ -443,7 +443,7 @@ extension NormalizerCoreTestsRoot {
             // `afterImports` belongs to prepend; the CLI's append has no such flag.
             // decoding it and writing at the end anyway would be a silent wrong
             // edit, so the operation must fail loudly instead.
-            let (out, code) = try await runTool(["batch", planPath])
+            let (out, code) = try await runTool(["edit", "batch", planPath])
             #expect(code != 0, "\(out)")
             #expect(readFile(path) == fixture, "a refused plan must not touch the file")
         }
@@ -459,7 +459,7 @@ extension NormalizerCoreTestsRoot {
                 "batch-keys.json")
             defer { cleanup(planPath) }
 
-            let (out, code) = try await runTool(["batch", planPath])
+            let (out, code) = try await runTool(["edit", "batch", planPath])
             #expect(code != 0, "\(out)")
             #expect(out.contains("typeName"), "the plan's own key must be named: \(out)")
         }

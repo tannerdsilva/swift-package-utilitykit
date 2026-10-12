@@ -146,7 +146,7 @@ extension NormalizerCoreTestsRoot {
 
         @Test("all commands support --schema")
         func schemaFlag() async throws {
-            for cmd in ["complexity", "api", "conformances", "callgraph", "query", "dependencies", "index", "members", "find"] {
+            for cmd in ["complexity", "public-api", "conformances", "callgraph", "declarations", "imports", "index", "members", "find"] {
                 let output = try await runCommand([cmd, "--schema"])
                 #expect(output.contains("\"$schema\""), "\(cmd) --schema should return valid JSON Schema")
             }
@@ -155,7 +155,7 @@ extension NormalizerCoreTestsRoot {
         @Test("--version flag works")
         func versionFlag() async throws {
             let output = try await runCommand(["--version"])
-            #expect(output.contains("2.1.0"))
+            #expect(output.contains("3.0.0"))
         }
 
         // MARK: - comment handling
@@ -636,7 +636,7 @@ extension NormalizerCoreTestsRoot {
 
         // MARK: - docc-check command
 
-        @Test("docc-check finds invalid symbol references")
+        @Test("doc-reference-check finds invalid symbol references")
         func doccCheckFindsInvalidRefs() async throws {
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("docc_test_\(UUID().uuidString).swift")
@@ -648,12 +648,12 @@ extension NormalizerCoreTestsRoot {
             """.write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["docc-check", tmp.path])
+            let output = try await runCommand(["doc-reference-check", tmp.path])
             #expect(output.contains("NonExistentType"))
             #expect(output.contains("AlsoMissing"))
         }
 
-        @Test("docc-check passes for valid references")
+        @Test("doc-reference-check passes for valid references")
         func doccCheckValidRefs() async throws {
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("docc_valid_\(UUID().uuidString).swift")
@@ -665,11 +665,11 @@ extension NormalizerCoreTestsRoot {
             """.write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["docc-check", tmp.path])
+            let output = try await runCommand(["doc-reference-check", tmp.path])
             #expect(output.hasPrefix("[]"))
         }
 
-        @Test("docc-check --pretty-print works")
+        @Test("doc-reference-check --pretty-print works")
         func doccCheckPrettyPrint() async throws {
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("docc_pp_\(UUID().uuidString).swift")
@@ -679,7 +679,7 @@ extension NormalizerCoreTestsRoot {
             """.write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["docc-check", tmp.path, "--pretty-print"])
+            let output = try await runCommand(["doc-reference-check", tmp.path, "--pretty-print"])
             #expect(output.contains("MissingType"))
         }
 
@@ -724,14 +724,14 @@ extension NormalizerCoreTestsRoot {
 
         // MARK: - editing commands
 
-        @Test("replace --old/--new works")
+        @Test("edit replace --old/--new works")
         func replaceText() async throws {
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("replace_\(UUID().uuidString).swift")
             try "let x = \"hello\"\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["replace", tmp.path, "--old", "hello", "--new", "world", "--dry-run"])
+            let output = try await runCommand(["edit", "replace", tmp.path, "--old", "hello", "--new", "world", "--dry-run"])
             #expect(output.contains("world"))
             #expect(output.contains("modified"))
         }
@@ -743,7 +743,7 @@ extension NormalizerCoreTestsRoot {
             try "func foo() {}\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["insert", tmp.path, "--content", "func bar() {}", "--after", "foo", "--dry-run"])
+            let output = try await runCommand(["edit", "insert", tmp.path, "--content", "func bar() {}", "--after", "foo", "--dry-run"])
             #expect(output.contains("bar"))
         }
 
@@ -754,7 +754,7 @@ extension NormalizerCoreTestsRoot {
             try "line1\nline2\nline3\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["delete", tmp.path, "--lines", "2-2", "--dry-run"])
+            let output = try await runCommand(["edit", "delete", tmp.path, "--lines", "2-2", "--dry-run"])
             #expect(output.contains("\"modified\" : true"))
         }
 
@@ -765,7 +765,7 @@ extension NormalizerCoreTestsRoot {
             try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["prepend", tmp.path, "--content", "newfirst", "--dry-run"])
+            let output = try await runCommand(["edit", "prepend", tmp.path, "--content", "newfirst", "--dry-run"])
             // LCS diff shows only the added line at the top; unchanged lines stay out of the diff
             #expect(output.contains("newfirst"))
             let content = try String(contentsOf: tmp, encoding: .utf8)
@@ -779,7 +779,7 @@ extension NormalizerCoreTestsRoot {
             try "existing\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["append", tmp.path, "--content", "newlast", "--dry-run"])
+            let output = try await runCommand(["edit", "append", tmp.path, "--content", "newlast", "--dry-run"])
             #expect(output.contains("newlast"))
         }
 
@@ -790,7 +790,7 @@ extension NormalizerCoreTestsRoot {
             try "import Foundation\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["add-import", tmp.path, "--module", "SwiftUI", "--dry-run"])
+            let output = try await runCommand(["edit", "add-import", tmp.path, "--module", "SwiftUI", "--dry-run"])
             #expect(output.contains("SwiftUI"))
         }
 
@@ -801,7 +801,7 @@ extension NormalizerCoreTestsRoot {
             try "struct Foo: Codable {}\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["add-conformance", tmp.path, "--type", "Foo", "--protocol", "Hashable", "--dry-run"])
+            let output = try await runCommand(["edit", "add-conformance", tmp.path, "--type", "Foo", "--protocol", "Hashable", "--dry-run"])
             #expect(output.contains("Hashable"))
         }
 
@@ -812,7 +812,7 @@ extension NormalizerCoreTestsRoot {
             try "struct Foo {}\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["add-member", tmp.path, "--type", "Foo", "--property", "var x: Int", "--dry-run"])
+            let output = try await runCommand(["edit", "add-member", tmp.path, "--type", "Foo", "--property", "var x: Int", "--dry-run"])
             #expect(output.contains("x: Int"))
         }
 
@@ -823,7 +823,7 @@ extension NormalizerCoreTestsRoot {
             try "func test() {\n    let x = 1\n}\n".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["wrap", tmp.path, "--lines", "2-2", "--in", "do", "--dry-run"])
+            let output = try await runCommand(["edit", "wrap", tmp.path, "--lines", "2-2", "--in", "do", "--dry-run"])
             #expect(output.contains("do {"))
         }
 
@@ -839,7 +839,7 @@ extension NormalizerCoreTestsRoot {
             """.write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let output = try await runCommand(["sort", tmp.path, "--type", "Foo", "--by", "name"])
+            let output = try await runCommand(["edit", "sort", tmp.path, "--type", "Foo", "--by", "name"])
             #expect(output.contains("\"modified\" : true"))
         }
 
@@ -989,34 +989,34 @@ extension NormalizerCoreTestsRoot {
 
         // MARK: - query
 
-        @Test("query returns declarations")
+        @Test("declarations returns the declaration list")
         func queryReturnsDeclarations() async throws {
-            let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all"])
+            let output = try await runCommand(["declarations", "Sources/NormalizerCore/NormalizationOptions.swift", "--all"])
             #expect(output.contains("CommentMode"))
             #expect(output.contains("NormalizationOptions"))
         }
 
-        @Test("query filters by kind")
+        @Test("declarations filters by kind")
         func queryFiltersByKind() async throws {
-            let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--enums"])
+            let output = try await runCommand(["declarations", "Sources/NormalizerCore/NormalizationOptions.swift", "--enums"])
             #expect(output.contains("CommentMode"))
             // all results should have kind "enum"
             #expect(output.contains("\"kind\":\"enum\""))
             #expect(!output.contains("\"kind\":\"struct\""))
         }
 
-        @Test("query supports --count")
+        @Test("declarations supports --count")
         func queryCount() async throws {
-            let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--count"])
+            let output = try await runCommand(["declarations", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--count"])
             // --count returns just the number
             let count = Int(output.trimmingCharacters(in: .whitespacesAndNewlines))
             #expect(count != nil)
             #expect(count! > 0)
         }
 
-        @Test("query supports --pretty-print")
+        @Test("declarations supports --pretty-print")
         func queryPrettyPrint() async throws {
-            let output = try await runCommand(["query", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--pretty-print"])
+            let output = try await runCommand(["declarations", "Sources/NormalizerCore/NormalizationOptions.swift", "--all", "--pretty-print"])
             #expect(output.contains("CommentMode"))
             #expect(output.contains("kind"))
         }
@@ -1058,15 +1058,15 @@ extension NormalizerCoreTestsRoot {
 
         // MARK: - dependencies
 
-        @Test("dependencies lists imports")
+        @Test("imports lists import statements")
         func dependenciesListsImports() async throws {
-            let output = try await runCommand(["dependencies", "Sources/NormalizerCore"])
+            let output = try await runCommand(["imports", "Sources/NormalizerCore"])
             #expect(output.contains("Foundation"))
         }
 
-        @Test("dependencies supports --grouped")
+        @Test("imports supports --grouped")
         func dependenciesGrouped() async throws {
-            let output = try await runCommand(["dependencies", "Sources/NormalizerCore", "--grouped"])
+            let output = try await runCommand(["imports", "Sources/NormalizerCore", "--grouped"])
             #expect(output.contains("Foundation"))
         }
 
@@ -1091,16 +1091,16 @@ extension NormalizerCoreTestsRoot {
 
         // MARK: - api
 
-        @Test("api extracts public API surface")
+        @Test("public-api extracts the public API surface")
         func apiExtractsPublic() async throws {
-            let output = try await runCommand(["api", "Sources/NormalizerCore"])
+            let output = try await runCommand(["public-api", "Sources/NormalizerCore"])
             #expect(output.contains("Normalizer"))
             #expect(output.contains("NormalizationOptions"))
         }
 
-        @Test("api supports --include-internal")
+        @Test("public-api supports --include-internal")
         func apiIncludeInternal() async throws {
-            let output = try await runCommand(["api", "Sources/NormalizerCore", "--include-internal"])
+            let output = try await runCommand(["public-api", "Sources/NormalizerCore", "--include-internal"])
             #expect(output.contains("lineEnding"))
         }
 

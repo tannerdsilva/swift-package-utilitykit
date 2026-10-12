@@ -26,8 +26,8 @@ import SubprocessCore
 /// the static picture is wanted.
 struct InspectorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "inspector",
-        abstract: "One-call orientation: project shape, audit triage, build/test/docs verdicts."
+        commandName: "overview",
+        abstract: "One-call overview of a package: shape, audit triage, build/test/docs verdicts."
     )
 
     @Argument(help: "Package directory or any path inside it.")

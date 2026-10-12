@@ -58,8 +58,7 @@ extension SwiftPackageToolTestsRoot {
             try "// TARGET".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let json = try await runTool(
-                "insert", tmp.path,
+            let json = try await runTool("edit", "insert", tmp.path,
                 "--after", "// TARGET",
                 "--content", "// LINE 1\n// LINE 2\n// LINE 3",
                 "--dry-run", "--show-diff"
@@ -78,8 +77,7 @@ extension SwiftPackageToolTestsRoot {
             try "// TARGET".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let json = try await runTool(
-                "insert", tmp.path,
+            let json = try await runTool("edit", "insert", tmp.path,
                 "--after", "// TARGET",
                 "--content", "// SINGLE LINE",
                 "--dry-run", "--show-diff"
@@ -102,8 +100,7 @@ extension SwiftPackageToolTestsRoot {
             try "let x = 1\nlet y = 2".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let json = try await runTool(
-                "replace", tmp.path,
+            let json = try await runTool("edit", "replace", tmp.path,
                 "--old", "let x = 1",
                 "--new", "let a = 10\nlet b = 20",
                 "--dry-run", "--show-diff"
@@ -150,7 +147,7 @@ extension SwiftPackageToolTestsRoot {
             try planData.write(to: planPath)
             defer { try? FileManager.default.removeItem(at: planPath) }
 
-            let json = try await runTool("batch", planPath.path, "--dry-run", "--show-diff")
+            let json = try await runTool("edit", "batch", planPath.path, "--dry-run", "--show-diff")
 
             let results = json["results"] as? [[String: Any]] ?? []
             #expect(results.count == 2)
@@ -183,7 +180,7 @@ extension SwiftPackageToolTestsRoot {
             try planData.write(to: planPath)
             defer { try? FileManager.default.removeItem(at: planPath) }
 
-            let json = try await runTool("batch", planPath.path, "--dry-run", "--fail-fast")
+            let json = try await runTool("edit", "batch", planPath.path, "--dry-run", "--fail-fast")
 
             let results = json["results"] as? [[String: Any]] ?? []
             // With --fail-fast, the batch stops after the first failure.
@@ -212,7 +209,7 @@ extension SwiftPackageToolTestsRoot {
             try planData.write(to: planPath)
             defer { try? FileManager.default.removeItem(at: planPath) }
 
-            let json = try await runTool("batch", planPath.path, "--dry-run", "--show-diff")
+            let json = try await runTool("edit", "batch", planPath.path, "--dry-run", "--show-diff")
 
             let results = json["results"] as? [[String: Any]] ?? []
             #expect(results.count == 1)
@@ -235,8 +232,7 @@ extension SwiftPackageToolTestsRoot {
             try "let x = 1".write(to: tmp, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmp) }
 
-            let json = try await runTool(
-                "replace", tmp.path,
+            let json = try await runTool("edit", "replace", tmp.path,
                 "--old", "let x = 1",
                 "--new", "let x = 42",
                 "--dry-run"

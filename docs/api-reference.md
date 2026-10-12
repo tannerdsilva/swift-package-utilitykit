@@ -2,7 +2,8 @@
 
 ## Overview
 
-`swift-package-tool` is a Swift source code analysis and editing tool with 42 subcommands.
+`swift-package-tool` is a Swift source code analysis and editing tool with 43 subcommands (the twelve `edit` verbs are grouped
+under one `edit` entry).
 All output is compact JSON by default (single-line, no whitespace) for
 token-efficient consumption by LLMs. Use `--pretty-print` for human-readable
 output.
@@ -60,12 +61,12 @@ swift-package-tool find <symbol> [<paths>...] [--exact] [--case-sensitive]
 
 ---
 
-### `query`
+### `declarations`
 
 List declarations with kind/signature filters.
 
 ```
-swift-package-tool query [<paths>...] [--kind <kinds>] [--name <pattern>]
+swift-package-tool declarations [<paths>...] [--kind <kinds>] [--name <pattern>]
     [--all] [--count] [--sort <field>] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--limit <n>] [--schema]
@@ -193,12 +194,12 @@ swift-package-tool references <symbol> [<paths>...] [--output-format <format>]
 
 ---
 
-### `dependencies`
+### `imports`
 
 List all import statements across source files.
 
 ```
-swift-package-tool dependencies [<paths>...] [--output-format <format>]
+swift-package-tool imports [<paths>...] [--output-format <format>]
     [--pretty-print] [--grouped] [--include <exts>] [--exclude <exts>]
     [--schema]
 ```
@@ -239,12 +240,12 @@ swift-package-tool index [<paths>...] [--output-format <format>]
 
 ---
 
-### `api`
+### `public-api`
 
 Extract the public API surface of a project.
 
 ```
-swift-package-tool api [<paths>...] [--include-internal] [--output-format <format>]
+swift-package-tool public-api [<paths>...] [--include-internal] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
     [--output-path <file>] [--schema]
 ```
@@ -480,6 +481,20 @@ swift-package-tool build [<target>] [--test] [--schema]
 
 ---
 
+### `test`
+
+Run a package's test suite and return the same structured verdict `build --test` produces (isolated scratch, non-destructive).
+
+```
+swift-package-tool test [<path>] [--filter <pattern>] [--isolated]
+    [--timeout <seconds>] [--output-format <format>] [--pretty-print]
+    [--output <file>] [--schema]
+```
+
+**Output type:** `BuildResult` — `{ok, succeeded, exitCode, duration, phases, diagnostics, summary, rawLog, testsTotal, testsFailed}`
+
+---
+
 ### `force-unwraps`
 
 Scan Swift source files for force-unwrap operations (`!`), classifying each occurrence as a force-unwrap, force-try, or force-cast. Uses AST-based detection.
@@ -500,12 +515,12 @@ swift-package-tool force-unwraps [<paths>...] [--output-format <format>]
 
 ---
 
-### `docc-check`
+### `doc-reference-check`
 
 Validate docc documentation comments by checking that symbol references (backtick-enclosed names in `///` comments) point to declarations that actually exist in the project. Catches stale or misspelled symbol paths. Does not resolve qualified names, module references, or external symbols.
 
 ```
-swift-package-tool docc-check [<paths>...] [--output-format <format>]
+swift-package-tool doc-reference-check [<paths>...] [--output-format <format>]
     [--pretty-print] [--include <exts>] [--exclude <exts>]
 ```
 
@@ -520,9 +535,9 @@ swift-package-tool docc-check [<paths>...] [--output-format <format>]
 
 ---
 
-### `replace`
+### `edit replace`
 
-Find and replace text, or rename a symbol in a file.
+Find and replace literal text in a file (every occurrence).
 
 **Arguments:**
 
@@ -534,10 +549,8 @@ Find and replace text, or rename a symbol in a file.
 
 | Option | Description |
 |---|---|
-| `--old <text>` | Text to find (text mode) |
-| `--new <text>` | Replacement text (text mode) |
-| `--symbol <name>` | Symbol name to rename (AST mode) |
-| `--rename <name>` | New name for the symbol (AST mode) |
+| `--old <text>` | Text to find |
+| `--new <text>` | Replacement text |
 
 **Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
 
@@ -547,7 +560,30 @@ Find and replace text, or rename a symbol in a file.
 
 ---
 
-### `insert`
+### `edit rename`
+
+Rename a symbol and every reference to it in one file (AST-aware: the token tree is rewritten, not the text). this is the home of the `--symbol/--rename` transform that used to be a mode of `replace`.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--old-name <name>` | The current name of the symbol to rename |
+| `--new-name <name>` | The new name for the symbol |
+
+**Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
+
+**Output type:** `EditResult` — `{file, modified, diff, verified, warning, status}`
+
+---
+
+### `edit insert`
 
 Insert code at a precise location in a file.
 
@@ -570,7 +606,7 @@ Content is auto-indented to match the target line.
 
 ---
 
-### `delete`
+### `edit delete`
 
 Remove code by line range, symbol, or pattern.
 
@@ -590,7 +626,7 @@ Remove code by line range, symbol, or pattern.
 
 ---
 
-### `prepend`
+### `edit prepend`
 
 Add code at the beginning of a file.
 
@@ -609,7 +645,7 @@ Add code at the beginning of a file.
 
 ---
 
-### `append`
+### `edit append`
 
 Add code at the end of a file.
 
@@ -627,7 +663,7 @@ Add code at the end of a file.
 
 ---
 
-### `add-import`
+### `edit add-import`
 
 Add an import statement to a file. Inserts alphabetically among existing imports. Skips if already present.
 
@@ -645,7 +681,7 @@ Add an import statement to a file. Inserts alphabetically among existing imports
 
 ---
 
-### `add-conformance`
+### `edit add-conformance`
 
 Add a protocol conformance to a type. AST-aware — finds the type's inheritance clause and appends the protocol.
 
@@ -664,7 +700,7 @@ Add a protocol conformance to a type. AST-aware — finds the type's inheritance
 
 ---
 
-### `add-member`
+### `edit add-member`
 
 Add a property, method, or enum case to a type. AST-aware — finds the type's member block and inserts before the closing brace.
 
@@ -689,7 +725,7 @@ Add a property, method, or enum case to a type. AST-aware — finds the type's m
 
 ---
 
-### `wrap`
+### `edit wrap`
 
 Wrap selected lines in a syntactic container.
 
@@ -710,7 +746,7 @@ Wrap selected lines in a syntactic container.
 
 ---
 
-### `sort`
+### `edit sort`
 
 Sort members of a type alphabetically or by kind.
 

@@ -64,7 +64,7 @@ private func fixtureTool(_ args: String..., timeout: Duration = .seconds(180)) a
     return json
 }
 
-/// the same, for a tool whose payload is a JSON array (`pkg_api`).
+/// the same, for a tool whose payload is a JSON array (`pkg_public_api`).
 private func fixtureToolArray(_ args: [String], timeout: Duration = .seconds(180)) async throws -> [[String: Any]] {
     let outcome = try await Subprocess.capture(absoluteToolPath(), args, timeout: timeout)
     guard let json = try JSONSerialization.jsonObject(with: Data(outcome.stdout.utf8)) as? [[String: Any]] else {
@@ -267,7 +267,7 @@ extension SwiftPackageToolTestsRoot {
             }
             """, to: root + "/Sources/F/F.swift")
 
-            let report = try await fixtureTool("scan", root, "--categories", "force_unwraps", "--output-format", "json")
+            let report = try await fixtureTool("security-scan", root, "--categories", "force_unwraps", "--output-format", "json")
             let byCategory = report["by_category"] as? [String: Any] ?? [:]
             let forceCategory = byCategory["force_unwraps"] as? [String: Any] ?? [:]
             #expect(forceCategory["count"] as? Int == 3, "plain + try! + as!, `!=` ignored")
@@ -300,7 +300,7 @@ extension SwiftPackageToolTestsRoot {
             }
             """, to: root + "/Sources/R/R.swift")
 
-            let report = try await fixtureTool("scan", root, "--categories", "force_unwraps", "--output-format", "json")
+            let report = try await fixtureTool("security-scan", root, "--categories", "force_unwraps", "--output-format", "json")
             let findings = (report["by_category"] as? [String: Any])
                 .flatMap { $0["force_unwraps"] as? [String: Any] }
                 .flatMap { $0["findings"] as? [[String: Any]] } ?? []
@@ -335,7 +335,7 @@ extension SwiftPackageToolTestsRoot {
             }
             """, to: root + "/Tests/TTests/TTests.swift")
 
-            let report = try await fixtureTool("scan", root, "--categories", "force_unwraps", "--output-format", "json")
+            let report = try await fixtureTool("security-scan", root, "--categories", "force_unwraps", "--output-format", "json")
             let findings = (report["by_category"] as? [String: Any])
                 .flatMap { $0["force_unwraps"] as? [String: Any] }
                 .flatMap { $0["findings"] as? [[String: Any]] } ?? []
@@ -359,7 +359,7 @@ extension SwiftPackageToolTestsRoot {
             }
             """, to: root + "/Sources/P/P.swift")
 
-            let report = try await fixtureTool("scan", root, "--categories", "process_safety", "--output-format", "json")
+            let report = try await fixtureTool("security-scan", root, "--categories", "process_safety", "--output-format", "json")
             let findings = (report["by_category"] as? [String: Any])
                 .flatMap { $0["process_safety"] as? [String: Any] }
                 .flatMap { $0["findings"] as? [[String: Any]] } ?? []
@@ -381,7 +381,7 @@ extension SwiftPackageToolTestsRoot {
             let password = "hunter2secret"
             """, to: root + "/Sources/S/S.swift")
 
-            let report = try await fixtureTool("scan", root, "--categories", "secrets", "--output-format", "json")
+            let report = try await fixtureTool("security-scan", root, "--categories", "secrets", "--output-format", "json")
             let findings = (report["by_category"] as? [String: Any])
                 .flatMap { $0["secrets"] as? [String: Any] }
                 .flatMap { $0["findings"] as? [[String: Any]] } ?? []
@@ -449,7 +449,7 @@ extension SwiftPackageToolTestsRoot {
     @Suite("Inspector port: orientation")
     struct InspectorOrientationPortTests {
 
-        @Test("inspector returns the orientation payload and a one-line summary")
+        @Test("overview returns the orientation payload and a one-line summary")
         func inspectorPayload() async throws {
             let root = try makeInspectorFixture("uk-inspector")
             defer { try? FileManager.default.removeItem(atPath: root) }
@@ -489,7 +489,7 @@ extension SwiftPackageToolTestsRoot {
 
             // --skip-build/--skip-test keep the shape assertions fast; the verdict
             // path itself is covered by the isolated-build suite below.
-            let report = try await fixtureTool("inspector", root, "--skip-build", "--skip-test", "--output-format", "json")
+            let report = try await fixtureTool("overview", root, "--skip-build", "--skip-test", "--output-format", "json")
             #expect(report["ok"] as? Bool == true)
             // the orientation name is the package DIRECTORY name (python parity),
             // not the manifest's declared package name
@@ -523,7 +523,7 @@ extension SwiftPackageToolTestsRoot {
             #expect(summary.contains("doc coverage"))
 
             // compact payload: the orientation counts + verdicts only
-            let compact = try await fixtureTool("inspector", root, "--skip-build", "--skip-test", "--compact", "--output-format", "json")
+            let compact = try await fixtureTool("overview", root, "--skip-build", "--skip-test", "--compact", "--output-format", "json")
             #expect(compact["target_count"] as? Int == 2)
             #expect(compact["dep_count"] as? Int == 0)
             #expect(compact["finding_count"] is Int)
@@ -632,9 +632,9 @@ extension SwiftPackageToolTestsRoot {
             let tools = manifest["tools"] as? [[String: Any]] ?? []
             let names = Set(tools.compactMap { $0["name"] as? String })
             #expect(names == [
-                "pkg_build", "pkg_scan", "pkg_list_dependencies", "pkg_list_targets",
-                "pkg_test", "pkg_clean", "pkg_docc_check", "pkg_inspector",
-                "pkg_api", "pkg_force_unwraps", "pkg_validate",
+                "pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
+                "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
+                "pkg_public_api", "pkg_force_unwraps", "pkg_validate",
                 "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
                 "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
                 "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
@@ -658,7 +658,7 @@ extension SwiftPackageToolTestsRoot {
             }
 
             // scan's categories is a real array with its enum values
-            let scan = try #require(tools.first { $0["name"] as? String == "pkg_scan" })
+            let scan = try #require(tools.first { $0["name"] as? String == "pkg_security_scan" })
             let scanSchema = scan["schema"] as? [String: Any] ?? [:]
             let categories = (scanSchema["properties"] as? [String: Any])?["categories"] as? [String: Any] ?? [:]
             #expect(categories["type"] as? String == "array")
@@ -704,26 +704,26 @@ extension SwiftPackageToolTestsRoot {
             }
 
             // read-only tools
-            let targets = try json(try await pluginTool("pkg_list_targets", ["path": root]))
+            let targets = try json(try await pluginTool("pkg_targets", ["path": root]))
             #expect(targets["count"] as? Int == 2)
-            let compactTargets = try json(try await pluginTool("pkg_list_targets", ["path": root, "compact": true]))
+            let compactTargets = try json(try await pluginTool("pkg_targets", ["path": root, "compact": true]))
             #expect((compactTargets["targets"] as? [[String: Any]])?.count == 2)
 
-            let deps = try json(try await pluginTool("pkg_list_dependencies", ["path": root]))
+            let deps = try json(try await pluginTool("pkg_dependencies", ["path": root]))
             #expect(deps["count"] as? Int == 0)
 
-            let scan = try json(try await pluginTool("pkg_scan", ["path": root]))
+            let scan = try json(try await pluginTool("pkg_security_scan", ["path": root]))
             #expect((scan["by_category"] as? [String: Any])?.count == 4, "all four categories by default")
 
             let compactScan = try json(try await pluginTool(
-                "pkg_scan", ["path": root, "categories": ["force_unwraps"], "compact": true]))
+                "pkg_security_scan", ["path": root, "categories": ["force_unwraps"], "compact": true]))
             let scanCategories = try #require(compactScan["by_category"] as? [String: Any])
             #expect(scanCategories.keys.sorted() == ["force_unwraps"], "the array argument narrows the run")
 
-            let docc = try json(try await pluginTool("pkg_docc_check", ["path": root]))
+            let docc = try json(try await pluginTool("pkg_doc_coverage", ["path": root]))
             #expect((docc["coverage"] as? [String: Any])?["declarations"] as? Int == 2)
 
-            let api = try array(try await pluginTool("pkg_api", ["path": root]))
+            let api = try array(try await pluginTool("pkg_public_api", ["path": root]))
             #expect(api.contains { $0["name"] as? String == "Surface" })
 
             #expect(try await array(try pluginTool("pkg_force_unwraps", ["path": root])).isEmpty,
@@ -739,7 +739,7 @@ extension SwiftPackageToolTestsRoot {
             #expect(testRun.contains { $0["succeeded"] as? Bool == true }, "\(testRun.map { $0["summary"] ?? "" })")
             #expect(testRun.contains { $0["testsTotal"] as? Int == 1 })
 
-            let inspector = try json(try await pluginTool("pkg_inspector", ["path": root, "compact": true]))
+            let inspector = try json(try await pluginTool("pkg_overview", ["path": root, "compact": true]))
             #expect(inspector["target_count"] as? Int == 2)
             #expect(inspector["build_succeeded"] as? Bool == true, "the composed verdict rides the envelope too")
 

@@ -66,7 +66,7 @@ Payloads are the CLI's compact single-line `EditResult` JSON.
 
 **Cost.** The read-only `pkg_*` tools answer in seconds. `pkg_build` and
 `pkg_test` perform a real cold compile (and, for `pkg_test`, run the suite) and
-are much slower — treat them as expensive, rare calls. One `pkg_inspector` call
+are much slower — treat them as expensive, rare calls. One `pkg_overview` call
 returns the broad picture — targets, dependencies, findings, build/test
 verdicts, doc coverage — in a single round-trip, worth it when you don't yet
 know what you need; the granular `pkg_*` tools cost one call each but let you
@@ -82,17 +82,18 @@ one — always close stdin when you are done writing frames.
 
 | tool | what it does |
 | --- | --- |
-| `pkg_inspector` | one-call orientation: targets, dependencies, findings, build/test verdicts, doc coverage, README intent, git state, summary |
-| `pkg_scan` | security + code-quality findings (unsafe pointers, force unwraps, process safety, secrets) |
-| `pkg_list_targets` | targets with resolved paths, file/line counts, symbol heatmaps |
-| `pkg_list_dependencies` | resolved dependencies with requirement kinds and pins |
-| `pkg_docc_check` | DocC catalog inventory + `///` coverage and the uncovered-symbol list |
+| `pkg_overview` | one-call overview: targets, dependencies, findings, build/test verdicts, doc coverage, README intent, git state, summary |
+| `pkg_security_scan` | security + quality findings (unsafe pointers, force unwraps, process safety, secrets) |
+| `pkg_targets` | targets with resolved paths, file/line counts, symbol heatmaps |
+| `pkg_dependencies` | external package dependencies with requirement kinds and pins |
+| `pkg_doc_coverage` | DocC catalog inventory + `///` coverage and the uncovered-symbol list |
+| `pkg_public_api` | public API surface of the package or a source directory |
 | `pkg_build`, `pkg_test` | structured build/test verdicts (isolated, non-destructive) |
 | `pkg_clean` | sweep stale audit scratch (never real build products) |
-| `pkg_api` | public API surface of the package or a source directory |
 | `pkg_force_unwraps` | force-unwrap usage, classified by subkind |
 | `pkg_validate` | syntax-validation gate |
-| `pkg_edit_replace`, `pkg_edit_rename` | find/replace text, or AST-rename a symbol and its references |
+| `pkg_edit_replace` | replace literal text (every occurrence) |
+| `pkg_edit_rename` | AST-rename a symbol and every reference to it in the file |
 | `pkg_edit_insert`, `pkg_edit_delete` | insert at a line/pattern, or delete by line range / symbol / pattern |
 | `pkg_edit_prepend`, `pkg_edit_append` | add code at the top (optionally after the imports) or the bottom |
 | `pkg_edit_add_import`, `pkg_edit_add_conformance`, `pkg_edit_add_member` | AST-aware: import (alphabetical, idempotent), protocol conformance, member |
@@ -197,7 +198,7 @@ hermes mcp remove utilitykit          # if it was registered as an MCP server
 ### Verify
 
 ```bash
-swift-package-tool --version         # e.g. 2.0.0+f8aedbd.dirty — see "build provenance" below
+swift-package-tool --version         # e.g. 3.0.0+f8aedbd.dirty — see "build provenance" below
 swift-package-tool plugin --mcp-list # the 23-tool surface this binary serves
 hermes mcp list | grep utilitykit    # when registered with Hermes
 ```
@@ -206,88 +207,98 @@ hermes mcp list | grep utilitykit    # when registered with Hermes
 
 ### `swift-package-tool`
 
-Query, inspect, search, and index Swift source code.  Designed for agent
-consumption — analysis subcommands produce JSON by default (compact), with
-multiple output formats optimized for different model sizes.  `tree` and
-`format` produce text by design (a symbol hierarchy / formatting status);
-edit commands report a JSON `EditResult`.
+Inspect, audit, build, edit, and document Swift packages and source files.
+Designed for agent consumption — analysis subcommands produce JSON by default
+(compact), with multiple output formats optimized for different model sizes.
+`tree` and `format` produce text by design (a symbol hierarchy / formatting
+status); the `edit` group reports a JSON `EditResult`.
 
 ```
 swift-package-tool find <symbol> [<paths>...] [--exact] [--pretty-print]
                                   [--limit <n>]
-swift-package-tool query <paths>... [--functions] [--structs] [--classes]
+swift-package-tool declarations <paths>... [--functions] [--structs] [--classes]
                                   [--enums] [--protocols] [--all]
                                   [--output-format json|compact|csv|short]
                                   [--pretty-print]
                                   [--count] [--sort name|kind|file|line]
                                   [--name <pattern>] [--limit <n>]
                                   [--include <exts>] [--exclude <exts>]
-swift-package-tool inspect <file> --symbol <name> [--pretty-print]
-swift-package-tool format <file>... [--minify] [--dry-run]
 swift-package-tool search <pattern> <paths>... [--regex] [--ignore-case]
                                   [--context <n>] [--pretty-print]
                                   [--limit <n>]
+swift-package-tool inspect <file> --symbol <name> [--pretty-print]
 swift-package-tool references <symbol> <paths>... [--pretty-print]
-swift-package-tool dependencies <paths>... [--grouped] [--pretty-print]
-swift-package-tool index <paths>... [--output <file>] [--pretty-print]
-swift-package-tool api <paths>... [--include-internal] [--pretty-print]
+swift-package-tool members <type> <paths>... [--pretty-print]
+swift-package-tool tree [<paths>...] [--include <exts>] [--exclude <exts>]
+                                  [--output <file>]
+swift-package-tool callgraph <paths>... [--include-unknown] [--pretty-print]
                                   [--schema]
 swift-package-tool conformances <paths>... [--include-extensions]
                                   [--pretty-print] [--schema]
-swift-package-tool callgraph <paths>... [--include-unknown] [--pretty-print]
+swift-package-tool complexity <paths>... [--pretty-print] [--schema]
+swift-package-tool index <paths>... [--output <file>] [--pretty-print]
+swift-package-tool diff <old> <new> [--pretty-print]
+swift-package-tool format <file>... [--minify] [--dry-run]
+swift-package-tool macro-expand [<paths>...] [--output-format <format>]
+                                  [--pretty-print]
+
+swift-package-tool overview [<path>] [--compact] [--skip-build] [--skip-test]
                                   [--schema]
-swift-package-tool scan [<path>] [--categories <list>] [--compact] [--schema]
 swift-package-tool targets [<path>] [--compact] [--schema]
 swift-package-tool package-dependencies [<path>] [--compact] [--schema]
-swift-package-tool doc-coverage [<path>] [--limit <n>] [--schema]
-swift-package-tool inspector [<path>] [--compact] [--skip-build] [--skip-test]
+swift-package-tool security-scan [<path>] [--categories <list>] [--compact]
                                   [--schema]
+swift-package-tool doc-coverage [<path>] [--limit <n>] [--schema]
+swift-package-tool doc-reference-check [<paths>...] [--output-format <format>]
+                                  [--pretty-print]
+swift-package-tool public-api <paths>... [--include-internal] [--pretty-print]
+                                  [--schema]
+swift-package-tool force-unwraps [<paths>...] [--pretty-print]
+swift-package-tool validate [<paths>...] [--warnings] [--output-format <format>]
+                                  [--pretty-print]
 swift-package-tool build [<path>] [--test] [--filter <pattern>]
                                   [--target <name>] [--isolated]
                                   [--timeout <seconds>] [--schema]
-swift-package-tool force-unwraps [<paths>...] [--pretty-print]
-swift-package-tool tree [<paths>...] [--include <exts>] [--exclude <exts>]
-                                  [--output <file>]
-swift-package-tool validate [<paths>...] [--warnings] [--output-format <format>]
+swift-package-tool test [<path>] [--filter <pattern>] [--isolated]
+                                  [--timeout <seconds>] [--schema]
+swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies | --audit]
                                   [--pretty-print]
-swift-package-tool macro-expand [<paths>...] [--output-format <format>]
-                                  [--pretty-print]
-swift-package-tool docc-check [<paths>...] [--output-format <format>]
-                                  [--pretty-print]
-swift-package-tool sort [<file>] --type <name> [--by name|kind]
+
+swift-package-tool edit replace <file> --old <text> --new <text>
                                   [--dry-run] [--backup] [--verify] [--show-diff]
-swift-package-tool replace <file> --old <text> --new <text>
+swift-package-tool edit rename <file> --old-name <name> --new-name <name>
                                   [--dry-run] [--backup] [--verify] [--show-diff]
-swift-package-tool replace <file> --symbol <name> --rename <name>
-                                  [--dry-run] [--backup] [--verify] [--show-diff]
-swift-package-tool insert <file> --content <text> --after <pattern>
+swift-package-tool edit insert <file> --content <text> --after <pattern>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool insert <file> --content <text> --before <pattern>
+swift-package-tool edit insert <file> --content <text> --before <pattern>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool insert <file> --content <text> --at-line <n>
+swift-package-tool edit insert <file> --content <text> --at-line <n>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool delete <file> --lines <start>-<end>
+swift-package-tool edit delete <file> --lines <start>-<end>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool delete <file> --symbol <name>
+swift-package-tool edit delete <file> --symbol <name>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool delete <file> --matching <pattern>
+swift-package-tool edit delete <file> --matching <pattern>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool prepend <file> --content <text>
+swift-package-tool edit prepend <file> --content <text>
                                   [--after-imports] [--dry-run] [--backup]
-swift-package-tool append <file> --content <text>
+swift-package-tool edit append <file> --content <text>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool add-import <file> --module <name>
+swift-package-tool edit add-import <file> --module <name>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool add-conformance <file> --type <name> --protocol <name>
+swift-package-tool edit add-conformance <file> --type <name> --protocol <name>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool add-member <file> --type <name> --property <decl>
+swift-package-tool edit add-member <file> --type <name> --property <decl>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool add-member <file> --type <name> --method <sig> [--body <code>]
+swift-package-tool edit add-member <file> --type <name> --method <sig>
+                                  [--body <code>] [--dry-run] [--backup]
+swift-package-tool edit add-member <file> --type <name> --case <name>
                                   [--dry-run] [--backup] [--verify]
-swift-package-tool add-member <file> --type <name> --case <name>
-                                  [--dry-run] [--backup] [--verify]
-swift-package-tool wrap <file> --lines <start>-<end> --in <container>
+swift-package-tool edit wrap <file> --lines <start>-<end> --in <container>
                                   [--variable <name>] [--dry-run] [--backup]
+swift-package-tool edit sort <file> --type <name> [--by name|kind]
+                                  [--dry-run] [--backup] [--verify] [--show-diff]
+swift-package-tool edit batch <plan.json> [--fail-fast] [--dry-run] [--force]
 
 swift-package-tool clean [<path>] [--purge-all | --destroy-dependencies | --audit]
                                   [--pretty-print]
@@ -311,16 +322,16 @@ are host-management commands — check `--help` for what each supports.)
 
 ```bash
 # list all functions in compact JSON (default for agent use)
-swift-package-tool query Sources/ --functions
+swift-package-tool declarations Sources/ --functions
 
 # pretty-printed JSON for human review
-swift-package-tool query Sources/ --functions --pretty-print
+swift-package-tool declarations Sources/ --functions --pretty-print
 
 # all declaration kinds, sorted by file, limited to 20
-swift-package-tool query Sources/ --all --sort file --limit 20
+swift-package-tool declarations Sources/ --all --sort file --limit 20
 
 # just the count
-swift-package-tool query Sources/ --all --count
+swift-package-tool declarations Sources/ --all --count
 ```
 
 Output is a JSON array of `DeclarationInfo` objects:
@@ -375,13 +386,13 @@ source context for each reference.
 
 ```bash
 # flat list
-swift-package-tool dependencies Sources/
+swift-package-tool imports Sources/
 
 # grouped by file
-swift-package-tool dependencies Sources/ --grouped
+swift-package-tool imports Sources/ --grouped
 
 # CSV for spreadsheet analysis
-swift-package-tool dependencies Sources/ --output-format csv
+swift-package-tool imports Sources/ --output-format csv
 ```
 
 **index** — build a comprehensive project index combining all declarations,
@@ -472,13 +483,13 @@ the tools, the manifest can never drift from the compiled surface.
 | Tool | Engine |
 |---|---|
 | ``pkg_build`` | ``swift build`` in a fresh ephemeral scratch dir under ``.build/swift-package-audit/run-*``, removed when the run finishes — no persistent build state, real ``.build`` products untouched |
-| ``pkg_scan`` | the Swift scanner (unsafe pointers, force unwraps, process safety, secrets) with reachability-aware severity and scope clustering |
-| ``pkg_list_dependencies`` | ``swift package show-dependencies --format json`` |
-| ``pkg_list_targets`` | ``swift package describe --type json`` |
+| ``pkg_security_scan`` | the Swift scanner (unsafe pointers, force unwraps, process safety, secrets) with reachability-aware severity and scope clustering |
+| ``pkg_dependencies`` | ``swift package show-dependencies --format json`` |
+| ``pkg_targets`` | ``swift package describe --type json`` |
 | ``pkg_test`` | ``swift test`` — same ephemeral scratch isolation as ``pkg_build`` |
 | ``pkg_clean`` | scratch sweep (no ``swift package clean`` subprocess) — sweeps crashed-run scratch dirs under ``.build/`` (stale-only) and legacy ``.build-audit`` residue |
-| ``pkg_docc_check`` | DocC catalog walk + ``///`` coverage over the AST |
-| ``pkg_inspector`` | composes all of the above into one orientation payload + summary |
+| ``pkg_doc_coverage`` | DocC catalog walk + ``///`` coverage over the AST |
+| ``pkg_overview`` | composes all of the above into one orientation payload + summary |
 
 All analysis logic lives in the ``swift-package-tool`` binary; the tool layer
 is a one-line argv mapper per tool, so the CLI stays the contract. The tool
@@ -494,16 +505,16 @@ implementation — an entire codebase in ~500 tokens vs. 50K+ for raw source.
 
 ```bash
 # public API surface (default: public declarations only)
-swift-package-tool api Sources/
+swift-package-tool public-api Sources/
 
 # include internal declarations too
-swift-package-tool api Sources/ --include-internal
+swift-package-tool public-api Sources/ --include-internal
 
 # pretty-print for human review
-swift-package-tool api Sources/ --pretty-print
+swift-package-tool public-api Sources/ --pretty-print
 
 # see the JSON Schema for the output type
-swift-package-tool api --schema
+swift-package-tool public-api --schema
 ```
 
 Output includes `access` (public/internal/package), `conformsTo` (protocol
@@ -623,18 +634,18 @@ Output is structured JSON with file, line, column, macro name, kind (declaration
 **docc-check** — validate docc documentation comments by checking that symbol references (backtick-enclosed names in `///` comments) point to declarations that actually exist in the project. Catches stale or misspelled symbol paths in documentation. Does not resolve qualified names, module references, or external symbols.
 
 ```bash
-# check all source files for invalid docc references
-swift-package-tool docc-check Sources/
+# check all source files for invalid doc references
+swift-package-tool doc-reference-check Sources/
 
 # pretty-printed output
-swift-package-tool docc-check Sources/ --pretty-print
+swift-package-tool doc-reference-check Sources/ --pretty-print
 ```
 
 Output: `{file, line, column, severity, message, referencedSymbol}`
 
-## Editing Commands
+## Editing Commands (the `edit` group)
 
-All editing commands share a common safety interface:
+Every verb lives under `swift-package-tool edit <verb>` (one help page: `swift-package-tool help edit`), and all of them share a common safety interface:
 
 | Flag | Description |
 |---|---|
@@ -660,11 +671,13 @@ the payload is always printed before the exit tells its story, so a caller
 that only reads `$?` cannot mistake a silent no-op for a successful edit.
 `--dry-run` mirrors the real run's exit code.
 
-**replace** — find and replace text, or rename a symbol.
+**replace** — find and replace literal text (every occurrence).
 
-Two modes:
-- `--old <text> --new <text>` — simple text replacement
-- `--symbol <name> --rename <name>` — AST-aware rename of all occurrences in the file
+- `--old <text> --new <text>` — the exact text to find and its replacement
+
+**rename** — rename a symbol and every reference to it (AST-aware: the token tree is rewritten, not the text).
+
+- `--old-name <name> --new-name <name>` — the current name and the new name
 
 Output: `EditResult — {file, modified, diff, verified, warning, status}`
 
@@ -718,9 +731,9 @@ rest unless `--fail-fast` is set; the process exits 1 when any operation
 missed or failed, and `--fail-fast` stops at the first failure.
 
 ```bash
-swift-package-tool batch plan.json                # apply all operations
-swift-package-tool batch plan.json --dry-run      # preview without writing
-swift-package-tool batch plan.json --fail-fast    # stop on first failure
+swift-package-tool edit batch plan.json                # apply all operations
+swift-package-tool edit batch plan.json --dry-run      # preview without writing
+swift-package-tool edit batch plan.json --fail-fast    # stop on first failure
 ```
 
 Plan format (field names mirror the CLI flags, camelCased):
@@ -959,7 +972,7 @@ Sources/
   normalizer-tool/                         CLI tool invoked by the plugin (and standalone)
     main.swift                             argument parsing + file processing
   swift-package-tool/                        agentic code query/inspect/search/index tool (50 files)
-    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 42 subcommands)
+    SwiftCodeQuery.swift                   @main entry point (ArgumentParser, 43 subcommands, the edit family under `edit`)
     FindCommand.swift                      find symbol by name across all kinds
     QueryCommand.swift                     list declarations via swift-syntax SyntaxVisitor
     InspectCommand.swift                   show detailed symbol info

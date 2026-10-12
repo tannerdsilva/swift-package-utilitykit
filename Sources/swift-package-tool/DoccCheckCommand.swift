@@ -13,8 +13,8 @@ import SwiftParser
 /// references, or external symbols.
 struct DoccCheckCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "docc-check",
-        abstract: "Validate docc documentation symbol references."
+        commandName: "doc-reference-check",
+        abstract: "Check that symbol references in doc comments point to real declarations."
     )
 
     @Argument(help: "Files or directories to check.")

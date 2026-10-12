@@ -23,7 +23,7 @@ import SubprocessCore
 struct PackageDependenciesCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "package-dependencies",
-        abstract: "List resolved package dependencies with requirement kinds."
+        abstract: "List external package dependencies with requirement kinds and pinned versions."
     )
 
     @Argument(help: "Package directory or any path inside it.")

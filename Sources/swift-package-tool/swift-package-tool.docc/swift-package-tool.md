@@ -1,6 +1,6 @@
 # swift-package-tool
 
-A Swift source code analysis tool with 42 subcommands for code intelligence,
+A Swift source code analysis tool with 43 subcommands for code intelligence,
 security auditing, and LLM-optimized formatting.
 
 ## Overview

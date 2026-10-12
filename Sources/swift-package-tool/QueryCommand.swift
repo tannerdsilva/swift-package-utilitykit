@@ -6,8 +6,8 @@ import SwiftParser
 /// list declarations (functions, types, etc.) from one or more Swift source files.
 struct QueryCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "query",
-        abstract: "List declarations from Swift source files."
+        commandName: "declarations",
+        abstract: "List declarations (types, functions, properties, ...) in Swift source files."
     )
 
     @Argument(help: "Files or directories to query.")

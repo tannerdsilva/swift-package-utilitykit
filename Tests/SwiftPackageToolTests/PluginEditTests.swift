@@ -107,7 +107,7 @@ extension SwiftPackageToolTestsRoot {
             let path = try makeTempSwift("let a = 1\nlet b = 2\n")
             defer { cleanup(path) }
 
-            let run = try await callEditTool("pkg_edit_replace", ["path": path, "old": "let a = 1", "new": "let a = 9"])
+            let run = try await callEditTool("pkg_edit_replace", ["path": path, "old_text": "let a = 1", "new_text": "let a = 9"])
             #expect(run.status == 0, "\(run.stderr)")
             #expect(!run.result.hasPrefix("Error: "), "\(run.result)")
             #expect(!run.result.contains("\n"), "the MCP payload is compact single-line JSON: \(run.result)")
@@ -124,7 +124,7 @@ extension SwiftPackageToolTestsRoot {
             let path = try makeTempSwift(fixture)
             defer { cleanup(path) }
 
-            let run = try await callEditTool("pkg_edit_rename", ["path": path, "symbol": "value", "rename": "count", "dry_run": true])
+            let run = try await callEditTool("pkg_edit_rename", ["path": path, "old_name": "value", "new_name": "count", "dry_run": true])
             #expect(run.status == 0, "\(run.stderr)")
             let edit = try run.editResult()
             #expect(edit["status"] as? String == "applied")
@@ -138,7 +138,7 @@ extension SwiftPackageToolTestsRoot {
             let path = try makeTempSwift(fixture)
             defer { cleanup(path) }
 
-            let run = try await callEditTool("pkg_edit_replace", ["path": path, "old": "NOT-THERE", "new": "x"])
+            let run = try await callEditTool("pkg_edit_replace", ["path": path, "old_text": "NOT-THERE", "new_text": "x"])
             #expect(run.status == 0, "a tool-level failure is a result, never an exit code: \(run.stderr)")
             #expect(run.result.hasPrefix("Error: "), "\(run.result)")
 
@@ -152,7 +152,7 @@ extension SwiftPackageToolTestsRoot {
             let path = try makeTempSwift("struct S {\n    var count: Int\n    func total() -> Int { count }\n}\n")
             defer { cleanup(path) }
 
-            let run = try await callEditTool("pkg_edit_rename", ["path": path, "symbol": "count", "rename": "value"])
+            let run = try await callEditTool("pkg_edit_rename", ["path": path, "old_name": "count", "new_name": "value"])
             #expect(run.status == 0, "\(run.stderr)")
             let edit = try run.editResult()
             #expect(edit["status"] as? String == "applied")
@@ -253,14 +253,14 @@ extension SwiftPackageToolTestsRoot {
             let path = try makeTempSwift(fixture)
             defer { cleanup(path) }
 
-            let blocked = try await callEditTool("pkg_edit_replace", ["path": path, "old": "}", "new": ""])
+            let blocked = try await callEditTool("pkg_edit_replace", ["path": path, "old_text": "}", "new_text": ""])
             #expect(blocked.result.hasPrefix("Error: "), "\(blocked.result)")
             let blockedEdit = try blocked.editResult()
             #expect(blockedEdit["status"] as? String == "blocked")
             #expect(blockedEdit["verified"] as? Bool == false)
             #expect(readSource(path) == fixture, "a blocked write must not touch the file")
 
-            let forced = try await callEditTool("pkg_edit_replace", ["path": path, "old": "}", "new": "", "force": true])
+            let forced = try await callEditTool("pkg_edit_replace", ["path": path, "old_text": "}", "new_text": "", "force": true])
             #expect(!forced.result.hasPrefix("Error: "), "\(forced.result)")
             let forcedEdit = try forced.editResult()
             #expect(forcedEdit["status"] as? String == "applied")
@@ -279,7 +279,7 @@ extension SwiftPackageToolTestsRoot {
             let schema = try #require(replace["inputSchema"] as? [String: Any])
             #expect(schema["required"] as? [String] == ["path"])
             let props = try #require(schema["properties"] as? [String: Any])
-            #expect(Set(props.keys) == Set(["path", "old", "new", "dry_run", "force"]), "\(props.keys)")
+            #expect(Set(props.keys) == Set(["path", "old_text", "new_text", "dry_run", "force"]), "\(props.keys)")
 
             let wrap = try #require(byName["pkg_edit_wrap"])
             let wrapSchema = try #require(wrap["inputSchema"] as? [String: Any])
@@ -298,7 +298,7 @@ extension SwiftPackageToolTestsRoot {
             let missing = try await callEditTool("pkg_edit_add_import", ["path": "/tmp/uk-nonexistent.swift"])
             #expect(missing.result.hasPrefix("Error: "), "\(missing.result)")
             #expect(missing.result.lowercased().contains("module"), "\(missing.result)")
-            let relative = try await callEditTool("pkg_edit_replace", ["path": "Sources", "old": "a", "new": "b"])
+            let relative = try await callEditTool("pkg_edit_replace", ["path": "Sources", "old_text": "a", "new_text": "b"])
             #expect(relative.result.contains("absolute path"), "\(relative.result)")
         }
 

@@ -29,11 +29,11 @@ import SwiftParser
 /// - internal utility code caps high-consequence operators at `medium`
 struct ScanCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "scan",
-        abstract: "Unified security/code-quality scan: unsafe pointers, force unwraps, process safety, secrets.",
+        commandName: "security-scan",
+        abstract: "Scan source for security and quality problems: unsafe pointers, force unwraps, process safety, secrets.",
         discussion: """
         Runs one or more scan categories and returns unified findings with \
-        severity counts. Categories: unsafe_ptrs, force_unwraps, \
+        severity counts. Categories: unsafe_pointers, force_unwraps, \
         process_safety, secrets (default: all). Use --compact for a quick \
         triage pass (counts and top-5 findings per category).
         """
@@ -42,7 +42,7 @@ struct ScanCommand: ParsableCommand {
     @Argument(help: "Package directory or source path to scan.")
     var path: String = "."
 
-    @Option(name: .long, help: "Comma-separated categories: unsafe_ptrs, force_unwraps, process_safety, secrets, all. Default: all.")
+    @Option(name: .long, help: "Comma-separated categories: unsafe_pointers, force_unwraps, process_safety, secrets, all. Default: all.")
     var categories: String?
 
     @Flag(name: .customLong("compact"), help: "Return counts and top-5 findings only per category.")
@@ -84,7 +84,7 @@ struct ScanCommand: ParsableCommand {
 
 /// the scan categories the unified scanner understands.
 enum ScanCategory: String, CaseIterable, Sendable {
-    case unsafePtrs = "unsafe_ptrs"
+    case unsafePtrs = "unsafe_pointers"
     case forceUnwraps = "force_unwraps"
     case processSafety = "process_safety"
     case secrets = "secrets"
@@ -97,7 +97,7 @@ enum ScanCategory: String, CaseIterable, Sendable {
         var result: [ScanCategory] = []
         for name in names {
             guard let category = ScanCategory(rawValue: name) else {
-                throw ValidationError("unknown scan category '\(name)' (expected: unsafe_ptrs, force_unwraps, process_safety, secrets, all)")
+                throw ValidationError("unknown scan category '\(name)' (expected: unsafe_pointers, force_unwraps, process_safety, secrets, all)")
             }
             if !result.contains(category) { result.append(category) }
         }
@@ -138,7 +138,7 @@ struct ScanCategoryResult: Codable, Sendable {
     let findings: [ScanFinding]
 }
 
-/// the unified scan report — the shape the `pkg_scan` agent tool returns.
+/// the unified scan report — the shape the `pkg_security_scan` agent tool returns.
 struct ScanReport: Codable, Sendable {
     let ok: Bool
     let target: String

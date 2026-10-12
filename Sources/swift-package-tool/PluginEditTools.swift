@@ -16,8 +16,9 @@ import MCP
 // One `@MCPCommand` per edit verb: the surface that lets an agent EDIT Swift
 // source over stdio/MCP, where the rest of the tool set only inspects. Each
 // `run()` maps its typed parameters onto the CLI subcommand that implements
-// it, through the same `PluginToolRunner` the read-only tools use — the CLI
-// stays the contract, and no editing logic is duplicated here.
+// it (the CLI keeps the verbs under its `edit` group), through the same
+// `PluginToolRunner` the read-only tools use — the CLI stays the contract, and
+// no editing logic is duplicated here.
 //
 // `path` is the absolute path to the Swift source file to edit (for
 // `pkg_edit_batch` it is the plan file instead — the one verb whose subject is
@@ -46,7 +47,7 @@ import MCP
 // `print("a\nb")` would be rewritten into a line break.
 
 @MCPCommand(
-    description: "replace literal text in a Swift source file (every occurrence). a selector miss or a result that would not parse is a real failure, reported through the MCP isError flag; set dry_run to preview the change (diff included) without writing.",
+    description: "replace exact text in a Swift source file (every occurrence). a selector that matches nothing, or a result that would not parse, is a real failure, reported through the MCP isError flag; set dry_run to preview the change (diff included) without writing.",
     name: "pkg_edit_replace"
 )
 struct PkgEditReplace {
@@ -54,10 +55,10 @@ struct PkgEditReplace {
     var path: String = ""
 
     @Option(description: "the exact text to find")
-    var old: String? = nil
+    var old_text: String? = nil
 
     @Option(description: "the replacement text (taken verbatim: real newlines land as newlines and backslashes as backslashes)")
-    var new: String? = nil
+    var new_text: String? = nil
 
     @Flag(description: "preview the change without writing")
     var dry_run: Bool = false
@@ -66,9 +67,9 @@ struct PkgEditReplace {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["replace", try requiredAbsolutePath(path)]
-        if let old { argv += ["--old", old] }
-        if let new { argv += ["--new", new] }
+        var argv = ["edit", "replace", try requiredAbsolutePath(path)]
+        if let old_text { argv += ["--old", old_text] }
+        if let new_text { argv += ["--new", new_text] }
         argv.append("--literal-content")
         if dry_run { argv.append("--dry-run") }
         if force { argv.append("--force") }
@@ -85,11 +86,11 @@ struct PkgEditRename {
     @Argument(description: "absolute path to the Swift source file to edit")
     var path: String = ""
 
-    @Option(description: "the symbol name to rename")
-    var symbol: String? = nil
+    @Option(description: "the current name of the symbol to rename")
+    var old_name: String? = nil
 
     @Option(description: "the new name for the symbol")
-    var rename: String? = nil
+    var new_name: String? = nil
 
     @Flag(description: "preview the change without writing")
     var dry_run: Bool = false
@@ -98,9 +99,9 @@ struct PkgEditRename {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["replace", try requiredAbsolutePath(path)]
-        if let symbol { argv += ["--symbol", symbol] }
-        if let rename { argv += ["--rename", rename] }
+        var argv = ["edit", "rename", try requiredAbsolutePath(path)]
+        if let old_name { argv += ["--old-name", old_name] }
+        if let new_name { argv += ["--new-name", new_name] }
         if dry_run { argv.append("--dry-run") }
         if force { argv.append("--force") }
         argv += ["--output-format", "compact"]
@@ -135,7 +136,7 @@ struct PkgEditInsert {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["insert", try requiredAbsolutePath(path)]
+        var argv = ["edit", "insert", try requiredAbsolutePath(path)]
         if let content { argv += ["--content", content] }
         if let after { argv += ["--after", after] }
         if let before { argv += ["--before", before] }
@@ -172,7 +173,7 @@ struct PkgEditDelete {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["delete", try requiredAbsolutePath(path)]
+        var argv = ["edit", "delete", try requiredAbsolutePath(path)]
         if let lines { argv += ["--lines", lines] }
         if let symbol { argv += ["--symbol", symbol] }
         if let matching { argv += ["--matching", matching] }
@@ -204,7 +205,7 @@ struct PkgEditPrepend {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["prepend", try requiredAbsolutePath(path)]
+        var argv = ["edit", "prepend", try requiredAbsolutePath(path)]
         if let content { argv += ["--content", content] }
         if after_imports { argv.append("--after-imports") }
         argv.append("--literal-content")
@@ -233,7 +234,7 @@ struct PkgEditAppend {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["append", try requiredAbsolutePath(path)]
+        var argv = ["edit", "append", try requiredAbsolutePath(path)]
         if let content { argv += ["--content", content] }
         argv.append("--literal-content")
         if dry_run { argv.append("--dry-run") }
@@ -261,7 +262,7 @@ struct PkgEditAddImport {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["add-import", try requiredAbsolutePath(path)]
+        var argv = ["edit", "add-import", try requiredAbsolutePath(path)]
         if let module { argv += ["--module", module] }
         if dry_run { argv.append("--dry-run") }
         if force { argv.append("--force") }
@@ -291,7 +292,7 @@ struct PkgEditAddConformance {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["add-conformance", try requiredAbsolutePath(path)]
+        var argv = ["edit", "add-conformance", try requiredAbsolutePath(path)]
         if let type { argv += ["--type", type] }
         if let protocol_name { argv += ["--protocol", protocol_name] }
         if dry_run { argv.append("--dry-run") }
@@ -340,7 +341,7 @@ struct PkgEditAddMember {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["add-member", try requiredAbsolutePath(path)]
+        var argv = ["edit", "add-member", try requiredAbsolutePath(path)]
         if let type { argv += ["--type", type] }
         if let property { argv += ["--property", property] }
         if let method { argv += ["--method", method] }
@@ -387,7 +388,7 @@ struct PkgEditWrap {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["wrap", try requiredAbsolutePath(path)]
+        var argv = ["edit", "wrap", try requiredAbsolutePath(path)]
         if let lines { argv += ["--lines", lines] }
         if let container { argv += ["--in", container] }
         if let variable { argv += ["--variable", variable] }
@@ -420,7 +421,7 @@ struct PkgEditSort {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["sort", try requiredAbsolutePath(path)]
+        var argv = ["edit", "sort", try requiredAbsolutePath(path)]
         if let type { argv += ["--type", type] }
         if let by { argv += ["--by", by] }
         if dry_run { argv.append("--dry-run") }
@@ -448,7 +449,7 @@ struct PkgEditBatch {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["batch", try requiredAbsolutePath(path)]
+        var argv = ["edit", "batch", try requiredAbsolutePath(path)]
         argv.append("--literal-content")
         if fail_fast { argv.append("--fail-fast") }
         if dry_run { argv.append("--dry-run") }

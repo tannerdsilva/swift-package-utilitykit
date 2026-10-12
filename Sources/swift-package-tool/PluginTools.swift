@@ -47,11 +47,16 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 // parameters onto the CLI subcommand that implements it — the CLI stays the
 // contract, and no analysis logic is duplicated here.
 //
-// The surface is the package-inspector contract: the eight `pkg_*` tools a
-// harness already consumes, plus three read-only extras (`pkg_api`,
-// `pkg_force_unwraps`, `pkg_validate`) that the CLI has always offered, plus
-// the `pkg_edit_*` family (see `PluginEditTools.swift`) that lets an agent
-// EDIT Swift source over the same stdio transport the read-only tools use.
+// The surface is ONE vocabulary with the CLI: the eleven read-only/audit tools
+// (`pkg_overview`, `pkg_security_scan`, `pkg_targets`, `pkg_dependencies`,
+// `pkg_doc_coverage`, `pkg_force_unwraps`, `pkg_validate`, `pkg_public_api`,
+// plus `pkg_build`/`pkg_test`/`pkg_clean`), plus the twelve `pkg_edit_*` tools
+// (see `PluginEditTools.swift`). Every name carries the words the request will
+// use: "give me an overview" → `pkg_overview`, "scan for security problems" →
+// `pkg_security_scan`, "documentation coverage" → `pkg_doc_coverage`, "the
+// public API" → `pkg_public_api`. The rename set is pinned by the surface test
+// and was validated against small models before shipping (see
+// `.hermes/plans/*-v3-clarity.md`).
 //
 // Build/test/clean are the audit-safe faces of their subcommands: `pkg_build`
 // and `pkg_test` run isolated (fresh ephemeral scratch, the package's real
@@ -59,7 +64,7 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 // never destroy a consumer's build products through this surface.
 
 @MCPCommand(
-    description: "build a Swift package (or one target) in an isolated scratch dir. performs a real cold compile - the slowest tool, seconds to minutes. a failed build reports through the MCP isError flag; the structured verdict (pass/fail, warning/error counts, exit status) is always returned. the package's real .build is never touched.",
+    description: "build a Swift package (or one target) and return a structured verdict: pass/fail, error/warning counts with diagnostics, exit status. a real cold compile in an isolated scratch dir - the slowest tool, seconds to minutes. a failed build reports through the MCP isError flag; the package's real .build is never touched.",
     name: "pkg_build"
 )
 struct PkgBuild {
@@ -89,16 +94,16 @@ struct PkgBuild {
 }
 
 @MCPCommand(
-    description: "scan a Swift package for security and code-quality issues (unsafe pointers, force unwraps, process safety, hardcoded secrets). returns unified findings with severity counts; use compact=true for a quick triage pass. read-only; answers in seconds.",
-    name: "pkg_scan"
+    description: "scan a Swift package's source code for security problems and risky patterns: unsafe pointers, force unwraps, process safety, and hardcoded secrets. returns findings with severity counts, grouped by category. use compact=true for a quick triage. read-only; answers in seconds.",
+    name: "pkg_security_scan"
 )
-struct PkgScan {
+struct PkgSecurityScan {
     @Argument(description: "absolute path to the Swift package directory or source files to scan")
     var path: String = ""
 
     @Option(
         description: "scan categories to run. default: all.",
-        enumValues: ["unsafe_ptrs", "force_unwraps", "process_safety", "secrets", "all"]
+        enumValues: ["unsafe_pointers", "force_unwraps", "process_safety", "secrets", "all"]
     )
     var categories: [String]? = nil
 
@@ -106,7 +111,7 @@ struct PkgScan {
     var compact: Bool = false
 
     func run() async throws -> String {
-        var argv = ["scan", try requiredAbsolutePath(path)]
+        var argv = ["security-scan", try requiredAbsolutePath(path)]
         if let categories, !categories.isEmpty {
             argv += ["--categories", categories.joined(separator: ",")]
         }
@@ -116,10 +121,10 @@ struct PkgScan {
 }
 
 @MCPCommand(
-    description: "list a Swift package's resolved dependencies with requirement kinds and pinned versions. use compact=true for name/kind/version only. read-only; answers in seconds.",
-    name: "pkg_list_dependencies"
+    description: "list a Swift package's dependencies (the external packages it requires) with requirement kinds and pinned versions. use compact=true for name, kind, and version only. read-only; answers in seconds.",
+    name: "pkg_dependencies"
 )
-struct PkgListDependencies {
+struct PkgDependencies {
     @Argument(description: "absolute path to the Swift package directory or Package.swift")
     var path: String = ""
 
@@ -134,10 +139,10 @@ struct PkgListDependencies {
 }
 
 @MCPCommand(
-    description: "list a Swift package's targets with resolved source paths, file counts, line counts and symbol heatmaps. use compact=true for name/type/files/lines only. read-only; answers in seconds.",
-    name: "pkg_list_targets"
+    description: "list a Swift package's targets (its modules), with resolved source paths, file counts, line counts, and symbol heatmaps. use compact=true for names, types, files, and lines only. read-only; answers in seconds.",
+    name: "pkg_targets"
 )
-struct PkgListTargets {
+struct PkgTargets {
     @Argument(description: "absolute path to the Swift package directory or Package.swift")
     var path: String = ""
 
@@ -152,7 +157,7 @@ struct PkgListTargets {
 }
 
 @MCPCommand(
-    description: "run a Swift package's test suite in an isolated scratch dir - a real cold compile-and-run, seconds to minutes. a failed test run reports through the MCP isError flag; the structured verdict (pass/fail, executed/failed test counts, exit status) is always returned. the package's real .build is never touched.",
+    description: "run a Swift package's test suite and return a structured verdict: pass/fail, executed/failed test counts, exit status. a real cold compile-and-run in an isolated scratch dir, minutes. a failed run reports through the MCP isError flag; the package's real .build is never touched.",
     name: "pkg_test"
 )
 struct PkgTest {
@@ -166,7 +171,7 @@ struct PkgTest {
     var timeout_seconds: Int? = nil
 
     func run() async throws -> String {
-        var argv = ["build", try requiredAbsolutePath(path), "--test", "--isolated"]
+        var argv = ["test", try requiredAbsolutePath(path), "--isolated"]
         if let filter, !filter.isEmpty { argv += ["--filter", filter] }
         if let timeout_seconds { argv += ["--timeout", String(timeout_seconds)] }
         return try await PluginToolRunner.run(argv)
@@ -174,7 +179,7 @@ struct PkgTest {
 }
 
 @MCPCommand(
-    description: "sweep a Swift package's stale audit build scratch (crashed-run leftovers older than 1h and legacy .build-audit residue). non-destructive: the package's real build products and sources are never touched. answers in seconds.",
+    description: "delete a Swift package's stale audit scratch: temporary build folders left behind by crashed runs (older than 1h) plus legacy residue. non-destructive: the package's real build products and sources are never touched. answers in seconds.",
     name: "pkg_clean"
 )
 struct PkgClean {
@@ -188,28 +193,28 @@ struct PkgClean {
 }
 
 @MCPCommand(
-    description: "inventory a Swift package's DocC catalogs and measure /// doc-comment coverage, with the uncovered-symbol list. read-only; answers in seconds.",
-    name: "pkg_docc_check"
+    description: "measure how much of a Swift package is documented: /// doc-comment coverage over its declarations, the uncovered-symbol list, and an inventory of its DocC catalogs. read-only; answers in seconds.",
+    name: "pkg_doc_coverage"
 )
-struct PkgDoccCheck {
+struct PkgDocCoverage {
     @Argument(description: "absolute path to the package directory or source files to check")
     var path: String = ""
 
     @Option(description: "maximum number of uncovered symbols to list (the count is always the full total)")
-    var uncovered_limit: Int? = nil
+    var limit: Int? = nil
 
     func run() async throws -> String {
         var argv = ["doc-coverage", try requiredAbsolutePath(path)]
-        if let uncovered_limit { argv += ["--limit", String(uncovered_limit)] }
+        if let limit { argv += ["--limit", String(limit)] }
         return try await PluginToolRunner.run(argv)
     }
 }
 
 @MCPCommand(
-    description: "one-call orientation on a Swift package: targets, dependencies, security findings, build and test verdicts, doc coverage, README intent, AGENTS.md and git state, plus a one-line summary. the first tool to reach for on an unfamiliar package: one round-trip returns the broad picture, but it also runs a real build+test, so reach for a granular pkg_* tool when you can stop early (fat-call vs thin-call trade-off, see the README). use compact=true for the summary only.",
-    name: "pkg_inspector"
+    description: "get a complete overview of a Swift package in one call: targets, dependencies, security findings, build result, test result, documentation coverage, README, and git state, plus a one-line summary. use when starting work on an unfamiliar package, or when you need the big picture and do not yet know which specific check matters. slow: performs a real build and test run. use compact=true for the summary only.",
+    name: "pkg_overview"
 )
-struct PkgInspector {
+struct PkgOverview {
     @Argument(description: "absolute path to the Swift package directory to inspect")
     var path: String = ""
 
@@ -217,17 +222,17 @@ struct PkgInspector {
     var compact: Bool = false
 
     func run() async throws -> String {
-        var argv = ["inspector", try requiredAbsolutePath(path)]
+        var argv = ["overview", try requiredAbsolutePath(path)]
         if compact { argv.append("--compact") }
         return try await PluginToolRunner.run(argv)
     }
 }
 
 @MCPCommand(
-    description: "extract the public API surface of a Swift package or source directory (declarations + conformances, compact JSON). read-only; answers in seconds.",
-    name: "pkg_api"
+    description: "extract the public API surface of a Swift package or source directory: declarations plus their conformances. set include_internal=true to also include internal declarations. read-only; answers in seconds.",
+    name: "pkg_public_api"
 )
-struct PkgApi {
+struct PkgPublicApi {
     @Argument(description: "absolute path to the Swift package directory or source files to analyze")
     var path: String = ""
 
@@ -238,7 +243,7 @@ struct PkgApi {
     var limit: Int? = nil
 
     func run() async throws -> String {
-        var argv = ["api", try requiredAbsolutePath(path)]
+        var argv = ["public-api", try requiredAbsolutePath(path)]
         if include_internal { argv.append("--include-internal") }
         if let limit { argv += ["--limit", String(limit)] }
         return try await PluginToolRunner.run(argv)
@@ -246,7 +251,7 @@ struct PkgApi {
 }
 
 @MCPCommand(
-    description: "find force-unwrap `!` usage in Swift sources, classified by subkind. read-only; answers in seconds.",
+    description: "find force-unwrap `!` usage in Swift source files, classified by subkind. read-only; answers in seconds.",
     name: "pkg_force_unwraps"
 )
 struct PkgForceUnwraps {
@@ -264,7 +269,7 @@ struct PkgForceUnwraps {
 }
 
 @MCPCommand(
-    description: "shallow syntax validation of Swift sources via SwiftParser diagnostics - a pass/fail gate. read-only; answers in seconds. a failed validation (errors present) reports through the MCP isError flag.",
+    description: "syntax check: parse Swift source files and report parser diagnostics as a pass/fail gate. errors present is a failure, reported through the MCP isError flag. read-only; answers in seconds.",
     name: "pkg_validate"
 )
 struct PkgValidate {
@@ -292,20 +297,20 @@ struct PkgValidate {
 /// manifests keep the `plugin` entry argv.
 @MCPApplication(
     name: "swift-package-utilitykit",
-    version: "2.1.0",
-    description: "Swift package inspection and audit tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
+    version: "3.0.0",
+    description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
     interface: .oneShot
 )
 struct SwiftPackageUtilityKitPlugin {
     @Tool var build = PkgBuild()
-    @Tool var scan = PkgScan()
-    @Tool var listDependencies = PkgListDependencies()
-    @Tool var listTargets = PkgListTargets()
+    @Tool var securityScan = PkgSecurityScan()
+    @Tool var dependencies = PkgDependencies()
+    @Tool var targets = PkgTargets()
     @Tool var test = PkgTest()
     @Tool var clean = PkgClean()
-    @Tool var doccCheck = PkgDoccCheck()
-    @Tool var inspector = PkgInspector()
-    @Tool var api = PkgApi()
+    @Tool var docCoverage = PkgDocCoverage()
+    @Tool var overview = PkgOverview()
+    @Tool var publicApi = PkgPublicApi()
     @Tool var forceUnwraps = PkgForceUnwraps()
     @Tool var validate = PkgValidate()
     @Tool var editReplace = PkgEditReplace()
@@ -333,7 +338,7 @@ enum PluginHost {
         await MCPStdinHost(
             name: "swift-package-utilitykit",
             version: SwiftCodeQuery.packageVersion,
-            description: "Swift package inspection and audit tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
+            description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
             dispatcher: SwiftPackageUtilityKitPlugin(),
             configuration: configuration
         ).runMain()

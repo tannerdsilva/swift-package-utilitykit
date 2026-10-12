@@ -4,32 +4,26 @@ import SwiftSyntax
 import SwiftParserDiagnostics
 import SwiftParser
 
-/// find and replace text in a Swift source file, or rename a symbol.
+/// find and replace literal text in a Swift source file (every occurrence).
 ///
-/// two modes:
-///   --old / --new    simple text replacement (like sed, but with safety)
-///   --symbol / --rename    AST-aware rename of a declaration and all its
-///                          references in the same file
+/// text-only by design: the AST symbol rename that used to be a second mode of
+/// this verb is now `edit rename` — one verb, one behavior. the edit contract
+/// is the group's: the result is re-parsed and a write that would not parse is
+/// withheld unless `--force`; `--dry-run` previews the diff without writing.
 struct ReplaceCommand: ParsableCommand, EditCommand {
     static let configuration = CommandConfiguration(
         commandName: "replace",
-        abstract: "Find and replace text, or rename a symbol in a file."
+        abstract: "Find and replace text in a file (every occurrence)."
     )
 
     @Argument(help: "File to edit.")
     var file: String
 
-    @Option(name: .long, help: "Text to find (text mode).")
+    @Option(name: .long, help: "Text to find.")
     var old: String?
 
-    @Option(name: .long, help: "Replacement text (text mode).")
+    @Option(name: .long, help: "Replacement text.")
     var new: String?
-
-    @Option(name: .long, help: "Symbol name to rename (AST mode).")
-    var symbol: String?
-
-    @Option(name: .long, help: "New name for the symbol (AST mode).")
-    var rename: String?
 
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
@@ -60,27 +54,10 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
-        // Validate modes
-        let hasTextMode = old != nil || new != nil
-        let hasSymbolMode = symbol != nil || rename != nil
-        guard hasTextMode || hasSymbolMode else {
-            throw ValidationError("specify --old/--new (text mode) or --symbol/--rename (AST mode)")
+        guard let old, let new else {
+            throw ValidationError("--old and --new are both required")
         }
-        guard !(hasTextMode && hasSymbolMode) else {
-            throw ValidationError("use either --old/--new or --symbol/--rename, not both")
-        }
-
-        if hasTextMode {
-            guard let o = old, let n = new else {
-                throw ValidationError("--old and --new are both required in text mode")
-            }
-            try runTextReplace(old: o, new: n)
-        } else {
-            guard let s = symbol, let r = rename else {
-                throw ValidationError("--symbol and --rename are both required in AST mode")
-            }
-            try runSymbolRename(oldName: s, newName: r)
-        }
+        try runTextReplace(old: old, new: new)
     }
 
     private func runTextReplace(old: String, new: String) throws {
@@ -94,89 +71,6 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
         }
 
         try emitEditResult(result)
-    }
-
-    private func runSymbolRename(oldName: String, newName: String) throws {
-        let resolved = NSString(string: file).standardizingPath
-        let source = try String(contentsOfFile: resolved, encoding: .utf8)
-        let tree = Parser.parse(source: source)
-
-        // Use SyntaxRewriter to rename all matching identifiers
-        let rewriter = SymbolRenameRewriter(oldName: oldName, newName: newName)
-        let modifiedTree = rewriter.rewrite(tree)
-
-        guard rewriter.renameCount > 0 else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found", status: .missed)
-            try emitEditResult(result)
-            return
-        }
-
-        let modified = modifiedTree.description
-
-        let original = source
-        if modified == original {
-            // a rename to the same name reproduces the file byte-for-byte
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "rename produced no change", status: .alreadyCurrent)
-            try emitEditResult(result)
-            return
-        }
-        var warning: String? = nil
-        var verified = true
-        if verify {
-            let verifyTree = Parser.parse(source: modified)
-            let diags = ParseDiagnosticsGenerator.diagnostics(for: verifyTree)
-            let errors = diags.filter { $0.diagMessage.severity == .error }
-            if !errors.isEmpty {
-                verified = false
-                warning = "edit introduced \(errors.count) syntax error(s); use --force to write anyway"
-            }
-        }
-
-        let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
-
-        if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
-            try emitEditResult(result)
-            return
-        }
-
-        // block the write when verification fails unless --force is set
-        guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
-            try emitEditResult(result)
-            return
-        }
-
-        if backup {
-            try FileEditor.backupFile(resolved)
-        }
-
-        let target = outputPath.isEmpty ? resolved : outputPath
-        try modified.write(toFile: target, atomically: true, encoding: .utf8)
-
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
-        try emitEditResult(result)
-    }
-}
-
-/// SyntaxRewriter that renames all occurrences of a symbol in a file.
-class SymbolRenameRewriter: SyntaxRewriter {
-    let oldName: String
-    let newName: String
-    var renameCount = 0
-
-    init(oldName: String, newName: String) {
-        self.oldName = oldName
-        self.newName = newName
-        super.init(viewMode: .sourceAccurate)
-    }
-
-    override func visit(_ node: TokenSyntax) -> TokenSyntax {
-        guard case .identifier = node.tokenKind, node.text == oldName else {
-            return node
-        }
-        renameCount += 1
-        return node.with(\.tokenKind, .identifier(newName))
     }
 }
 

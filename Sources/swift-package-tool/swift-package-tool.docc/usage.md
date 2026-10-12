@@ -39,7 +39,7 @@ see `--help`):
 swift-package-tool find "decode" Sources/
 
 # List all public API
-swift-package-tool api Sources/ --include-internal
+swift-package-tool public-api Sources/ --include-internal
 
 # Build a project index
 swift-package-tool index Sources/ --output index.json

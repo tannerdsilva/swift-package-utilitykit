@@ -1,7 +1,7 @@
 import ArgumentParser
 
-/// a toolset for querying, inspecting, and formatting Swift source code,
-/// optimized for agentic consumption.
+/// a toolset for querying, inspecting, auditing, building, and editing Swift
+/// source code and packages, optimized for agentic consumption.
 @main
 struct SwiftCodeQuery: AsyncParsableCommand {
 
@@ -12,46 +12,41 @@ struct SwiftCodeQuery: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "swift-package-tool",
-        abstract: "Query, inspect, search, and index Swift source code.",
+        abstract: "Inspect, audit, build, edit, and document Swift packages and source files.",
         version: AppVersion.display,
         subcommands: [
+            // find + search: questions about the source
             FindCommand.self,
             QueryCommand.self,
-            InspectCommand.self,
-            FormatCommand.self,
             SearchCommand.self,
+            InspectCommand.self,
             ReferencesCommand.self,
             DependenciesCommand.self,
-            IndexCommand.self,
-            ApiCommand.self,
-            ConformancesCommand.self,
-            CallgraphCommand.self,
             MembersCommand.self,
+            TreeCommand.self,
+            CallgraphCommand.self,
+            ConformancesCommand.self,
             ComplexityCommand.self,
+            IndexCommand.self,
             DiffCommand.self,
-            ForceUnwrapsCommand.self,
-            ScanCommand.self,
+            FormatCommand.self,
+            MacroExpandCommand.self,
+            // the package: audit, build, document
+            InspectorCommand.self,
             TargetsCommand.self,
             PackageDependenciesCommand.self,
+            ScanCommand.self,
             DocCoverageCommand.self,
-            InspectorCommand.self,
-            BuildCommand.self,
-            TreeCommand.self,
-            ValidateCommand.self,
-            MacroExpandCommand.self,
             DoccCheckCommand.self,
+            ApiCommand.self,
+            ForceUnwrapsCommand.self,
+            ValidateCommand.self,
+            BuildCommand.self,
+            TestCommand.self,
             CleanCommand.self,
-            ReplaceCommand.self,
-            InsertCommand.self,
-            DeleteCommand.self,
-            PrependCommand.self,
-            AppendCommand.self,
-            AddImportCommand.self,
-            AddConformanceCommand.self,
-            AddMemberCommand.self,
-            WrapCommand.self,
-            SortCommand.self,
-            BatchCommand.self,
+            // edit: in-place source edits (one help page, one vocabulary)
+            EditGroup.self,
+            // harness + install
             InstallCommand.self,
             UninstallCommand.self,
             PathWireCommand.self,

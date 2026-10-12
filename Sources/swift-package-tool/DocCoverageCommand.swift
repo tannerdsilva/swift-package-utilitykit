@@ -25,7 +25,7 @@ import SwiftParser
 struct DocCoverageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doc-coverage",
-        abstract: "Inventory DocC catalogs and measure /// doc-comment coverage."
+        abstract: "Measure doc-comment (`///`) coverage and list undocumented declarations."
     )
 
     @Argument(help: "Package directory or any path inside it.")
