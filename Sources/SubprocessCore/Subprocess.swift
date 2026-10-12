@@ -31,7 +31,19 @@ public enum SubprocessError: Error, Equatable, CustomStringConvertible {
     /// so nothing is left running when this is thrown.
     case timedOut
 
-    public var description: String { "subprocess timed out" }
+    /// the path is not an executable file, so there was nothing to launch.
+    ///
+    /// caught before the spawn: handing such a path to the launch machinery
+    /// leaves `run()` awaiting a child that was never created, and it never
+    /// returns. `access(2)` is the last point where the failure is observable.
+    case notExecutable(String)
+
+    public var description: String {
+        switch self {
+        case .timedOut: return "subprocess timed out"
+        case .notExecutable(let path): return "not an executable file: \(path)"
+        }
+    }
 }
 
 /// runs a child process and captures its output.
@@ -41,6 +53,14 @@ public enum SubprocessError: Error, Equatable, CustomStringConvertible {
 /// pipes, file handles, or dispatch, and a child can never be left running —
 /// the timeout and task-cancellation paths both signal the child's process
 /// group and reap it before returning.
+///
+/// spawns are safe to run concurrently. swift-slash serializes every launch
+/// internally — its `launch` runs on the `SwiftSlashGlobalSerialization` global
+/// actor, whose own doc states "a process may only launch one child process at
+/// a time. no step in regards to producing a child process is reentrant safe"
+/// — and dispatches each child's io through one shared event trigger onto async
+/// tasks. there is deliberately no gate here: a concurrent `capture` is just
+/// another launch queued behind that actor.
 public enum Subprocess {
 
     /// runs `executable` to completion and returns its captured output.
@@ -60,8 +80,10 @@ public enum Subprocess {
     ///   - cancellationSignal: the signal sent to the child's process group when
     ///     the calling task is cancelled or the timeout elapses. the default is
     ///     swift-slash's ``SwiftSlash/ChildProcess/defaultCancellationSignal``.
-    /// - Throws: ``SubprocessError/timedOut`` on timeout, `CancellationError` when
-    ///   the calling task is cancelled, or a launch/reap error from swift-slash.
+    /// - Throws: ``SubprocessError/notExecutable(_:)`` when the path cannot be
+    ///   executed, ``SubprocessError/timedOut`` on timeout, `CancellationError`
+    ///   when the calling task is cancelled, or a launch/reap error from
+    ///   swift-slash.
     public static func capture(
         _ executable: String,
         _ arguments: [String] = [],
@@ -71,6 +93,13 @@ public enum Subprocess {
         timeout: Duration? = nil,
         cancellationSignal: Int32 = ChildProcess.defaultCancellationSignal
     ) async throws -> SubprocessOutcome {
+        // pre-flight: a path that cannot be executed must be refused HERE. the
+        // launch machinery reports it by never returning, not by throwing, so a
+        // caller that skipped this check would hang instead of seeing an error.
+        guard access(executable, X_OK) == 0 else {
+            throw SubprocessError.notExecutable(executable)
+        }
+
         let command = Command(
             absolutePath: Path(executable),
             arguments: arguments,
