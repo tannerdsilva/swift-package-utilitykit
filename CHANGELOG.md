@@ -1,5 +1,83 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- **the MCP stdio surface can now EDIT Swift source, not just inspect it.**
+  twelve `pkg_edit_*` tools join the eleven read-only / audit tools —
+  `pkg_edit_replace`, `pkg_edit_rename`, `pkg_edit_insert`, `pkg_edit_delete`,
+  `pkg_edit_prepend`, `pkg_edit_append`, `pkg_edit_add_import`,
+  `pkg_edit_add_conformance`, `pkg_edit_add_member`, `pkg_edit_wrap`,
+  `pkg_edit_sort`, and `pkg_edit_batch`. each maps its typed arguments onto the
+  existing CLI edit subcommand through the same `PluginToolRunner` the read-only
+  tools use — the CLI stays the contract and no editing logic is duplicated.
+  `path` is the absolute path to the file to edit (the plan file for
+  `pkg_edit_batch`). the verbs inherit the CLI safety contract verbatim: the
+  result is re-parsed and the write withheld when the edit would not parse
+  (unless `force`), `dry_run` previews the change — diff included — without
+  writing, and a selector miss or a blocked write reports through the MCP
+  `isError` flag. payloads are the compact single-line `EditResult` /
+  `BatchResult` JSON.
+
+### Fixed
+
+- **`wrap --in guard-let` deleted the code it was asked to guard.** the other
+  containers `wrap` offers replace the selected lines with a block that carries
+  them; a `guard` conditions what FOLLOWS it, so the selection is the body, not
+  the guard. reusing the replace shape deleted the protected lines outright —
+  and still reported `status: applied`, `verified: true`. the guard is now
+  inserted above the selection and the selection survives. an else-less
+  `guard let` is refused (it cannot compile, and it parses, so the syntax gate
+  could not catch it).
+- **`wrap --in do-catch` never applied.** the generated catch body carried the
+  editor placeholder `<#handle error#>`, so every do-catch wrap was blocked by
+  the re-parse gate. placeholders are now stripped before the file is written.
+- **literal `\n` inside a Swift string literal was rewritten into a line
+  break.** content arguments were always run through the shell-era `\n` → newline
+  expansion, so writing `print("a\nb")` corrupted the file. content is now
+  verbatim by default for the MCP surface (`--literal-content`), and a literal
+  backslash-n is expressible as `\\n`. `replace`, `insert`, `prepend`, `append`,
+  `add-member` and `batch` all carry the flag.
+- **`add-conformance` wrote `struct S : Sendable`.** inserting the inheritance
+  clause left the type name's own trailing space in place. only the trailing run
+  of horizontal whitespace is now dropped, so a comment in that trivia still
+  survives (`struct S /* note */: Sendable`).
+- **`batch` operations did not behave like the commands they name.** a plan's
+  `delete` by symbol removed every non-comment line containing the name instead
+  of the declaration, and `add-member` inserted the member with no indentation.
+  both now run the same AST transforms as the standalone `delete` / `add-member`.
+- **a failed `batch` operation reported nothing actionable.** the per-operation
+  warning read `operation 1 failed: The operation couldn't be completed.
+  (ArgumentParser.ValidationError error 1.)` — `localizedDescription` bridges a
+  non-`LocalizedError` to NSError and discards the authored message. all of them
+  now read `operation 1 failed: add-member requires the plan's 'typeName' field`.
+- **`batch` field errors named flags the plan does not have.** the plan spells
+  `--type` as `typeName`; a plan that mistyped it was told to pass `--type`,
+  which no plan accepts. the errors now name the plan's own keys, and the field
+  list is documented in `batch`'s help and in `pkg_edit_batch`'s description.
+- **`batch` silently ignored `afterImports` on `append`.** the key is
+  prepend-only (`prepend --after-imports`); append wrote at the end of the file
+  anyway while the plan said otherwise. it is now refused.
+- **`install` announced sudo once per command instead of once.** `needSudo`
+  printed "using sudo for …" as a side effect and was called again for the
+  `mkdir` and for each `install`, so a non-writable prefix printed the same line
+  several times. the query is pure now, resolved once and reported once.
+- **`Subprocess.capture` never returned when the executable could not be run.**
+  a path that is absent — or present but not executable — left the launch
+  awaiting a child that was never created, so `capture` hung: no error, no
+  timeout, just a task suspended on a continuation nothing resumes. it now
+  refuses the path with `access(2)` before the spawn and throws
+  `SubprocessError.notExecutable(path)`. found while serializing the test suite,
+  where the guard test hung instead of failing.
+
+### Changed
+
+- the build is warning-free again: two deprecated swift-syntax node spellings
+  (`TypealiasDeclSyntax`, `IdentifierExprSyntax`) and seven bindings that were
+  never read are gone. the unused binding in `install` was the visible half of
+  the duplicate-sudo bug above, not a cosmetic one.
+
 ## 2.0.2
 
 ### Fixed
