@@ -52,9 +52,17 @@ with no plugin files at all.
 
 ### the tool surface
 
-Eleven tools, one per agent-facing verb. The read-only tools never write; the
-build/test tools run in an isolated scratch directory (the package's real
+Twenty-three tools, one per agent-facing verb. The read-only tools never write;
+the build/test tools run in an isolated scratch directory (the package's real
 `.build` is never touched) and `pkg_clean` sweeps only stale audit scratch.
+
+The `pkg_edit_*` family lets an agent **edit** Swift source over the same stdio
+transport the read-only tools use. Each verb maps onto the CLI edit subcommand
+and inherits its safety contract: the result is re-parsed and the write withheld
+when the edit would not parse (unless `force` is set), `dry_run` previews the
+change — diff included — without writing, and a selector that matched nothing,
+or a write withheld by verification, reports through the MCP `isError` flag.
+Payloads are the CLI's compact single-line `EditResult` JSON.
 
 **Cost.** The read-only `pkg_*` tools answer in seconds. `pkg_build` and
 `pkg_test` perform a real cold compile (and, for `pkg_test`, run the suite) and
@@ -84,6 +92,12 @@ one — always close stdin when you are done writing frames.
 | `pkg_api` | public API surface of the package or a source directory |
 | `pkg_force_unwraps` | force-unwrap usage, classified by subkind |
 | `pkg_validate` | syntax-validation gate |
+| `pkg_edit_replace`, `pkg_edit_rename` | find/replace text, or AST-rename a symbol and its references |
+| `pkg_edit_insert`, `pkg_edit_delete` | insert at a line/pattern, or delete by line range / symbol / pattern |
+| `pkg_edit_prepend`, `pkg_edit_append` | add code at the top (optionally after the imports) or the bottom |
+| `pkg_edit_add_import`, `pkg_edit_add_conformance`, `pkg_edit_add_member` | AST-aware: import (alphabetical, idempotent), protocol conformance, member |
+| `pkg_edit_wrap`, `pkg_edit_sort` | wrap lines in do-catch/if-let/guard-let, or sort a type's members |
+| `pkg_edit_batch` | apply a JSON edit plan across one or more files in one round-trip |
 
 ## quick start
 
@@ -184,7 +198,7 @@ hermes mcp remove utilitykit          # if it was registered as an MCP server
 
 ```bash
 swift-package-tool --version         # e.g. 2.0.0+f8aedbd.dirty — see "build provenance" below
-swift-package-tool plugin --mcp-list # the 11-tool surface this binary serves
+swift-package-tool plugin --mcp-list # the 23-tool surface this binary serves
 hermes mcp list | grep utilitykit    # when registered with Hermes
 ```
 

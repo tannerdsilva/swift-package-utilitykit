@@ -23,10 +23,13 @@ import ArgumentParser
 /// The surface is the full package-inspector set — `pkg_inspector`,
 /// `pkg_scan`, `pkg_list_targets`, `pkg_list_dependencies`, `pkg_build`,
 /// `pkg_test`, `pkg_clean`, `pkg_docc_check`, `pkg_api`, `pkg_force_unwraps`,
-/// `pkg_validate` — one `@MCPCommand` each in `PluginTools.swift`. Build, test
-/// and clean are the audit-safe faces of their subcommands (isolated scratch,
-/// non-destructive sweep), so an agent cannot destroy a consumer's build
-/// products through this surface.
+/// `pkg_validate` — one `@MCPCommand` each in `PluginTools.swift`, plus the
+/// `pkg_edit_*` editing family in `PluginEditTools.swift` (replace, rename,
+/// insert, delete, prepend, append, add-import, add-conformance, add-member,
+/// wrap, sort, batch), which lets an agent edit Swift source over the same
+/// stdio transport. Build, test and clean are the audit-safe faces of their
+/// subcommands (isolated scratch, non-destructive sweep), so an agent cannot
+/// destroy a consumer's build products through this surface.
 ///
 /// `plugin --mcp-manifest arc` renders the harness plugin manifest (tools +
 /// schemas) instead; `install --adapter arc` writes it into

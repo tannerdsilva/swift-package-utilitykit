@@ -49,7 +49,9 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 //
 // The surface is the package-inspector contract: the eight `pkg_*` tools a
 // harness already consumes, plus three read-only extras (`pkg_api`,
-// `pkg_force_unwraps`, `pkg_validate`) that the CLI has always offered.
+// `pkg_force_unwraps`, `pkg_validate`) that the CLI has always offered, plus
+// the `pkg_edit_*` family (see `PluginEditTools.swift`) that lets an agent
+// EDIT Swift source over the same stdio transport the read-only tools use.
 //
 // Build/test/clean are the audit-safe faces of their subcommands: `pkg_build`
 // and `pkg_test` run isolated (fresh ephemeral scratch, the package's real
@@ -306,6 +308,18 @@ struct SwiftPackageUtilityKitPlugin {
     @Tool var api = PkgApi()
     @Tool var forceUnwraps = PkgForceUnwraps()
     @Tool var validate = PkgValidate()
+    @Tool var editReplace = PkgEditReplace()
+    @Tool var editRename = PkgEditRename()
+    @Tool var editInsert = PkgEditInsert()
+    @Tool var editDelete = PkgEditDelete()
+    @Tool var editPrepend = PkgEditPrepend()
+    @Tool var editAppend = PkgEditAppend()
+    @Tool var editAddImport = PkgEditAddImport()
+    @Tool var editAddConformance = PkgEditAddConformance()
+    @Tool var editAddMember = PkgEditAddMember()
+    @Tool var editWrap = PkgEditWrap()
+    @Tool var editSort = PkgEditSort()
+    @Tool var editBatch = PkgEditBatch()
 }
 
 /// The one-shot host entry behind `swift-package-tool plugin`.
