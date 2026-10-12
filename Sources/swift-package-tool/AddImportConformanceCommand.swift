@@ -275,7 +275,11 @@ class AddConformanceRewriter: SyntaxRewriter {
                 ])
             )
             didModify = true
-            return node.with(\.inheritanceClause, newClause)
+            // the inserted `:` sits flush against the type name, whose own
+            // trailing space would otherwise leave `struct S : Sendable`.
+            // only horizontal whitespace goes — comments and newlines stay.
+            let bare = node.name.with(\.trailingTrivia, withoutTrailingHorizontalWhitespace(node.name.trailingTrivia))
+            return node.with(\.name, bare).with(\.inheritanceClause, newClause)
         }
     }
 
@@ -315,7 +319,11 @@ class AddConformanceRewriter: SyntaxRewriter {
                 ])
             )
             didModify = true
-            return node.with(\.inheritanceClause, newClause)
+            // the inserted `:` sits flush against the type name, whose own
+            // trailing space would otherwise leave `struct S : Sendable`.
+            // only horizontal whitespace goes — comments and newlines stay.
+            let bare = node.name.with(\.trailingTrivia, withoutTrailingHorizontalWhitespace(node.name.trailingTrivia))
+            return node.with(\.name, bare).with(\.inheritanceClause, newClause)
         }
     }
 
@@ -355,7 +363,11 @@ class AddConformanceRewriter: SyntaxRewriter {
                 ])
             )
             didModify = true
-            return node.with(\.inheritanceClause, newClause)
+            // the inserted `:` sits flush against the type name, whose own
+            // trailing space would otherwise leave `struct S : Sendable`.
+            // only horizontal whitespace goes — comments and newlines stay.
+            let bare = node.name.with(\.trailingTrivia, withoutTrailingHorizontalWhitespace(node.name.trailingTrivia))
+            return node.with(\.name, bare).with(\.inheritanceClause, newClause)
         }
     }
 
@@ -395,7 +407,11 @@ class AddConformanceRewriter: SyntaxRewriter {
                 ])
             )
             didModify = true
-            return node.with(\.inheritanceClause, newClause)
+            // the inserted `:` sits flush against the type name, whose own
+            // trailing space would otherwise leave `struct S : Sendable`.
+            // only horizontal whitespace goes — comments and newlines stay.
+            let bare = node.name.with(\.trailingTrivia, withoutTrailingHorizontalWhitespace(node.name.trailingTrivia))
+            return node.with(\.name, bare).with(\.inheritanceClause, newClause)
         }
     }
 
@@ -435,7 +451,11 @@ class AddConformanceRewriter: SyntaxRewriter {
                 ])
             )
             didModify = true
-            return node.with(\.inheritanceClause, newClause)
+            // the inserted `:` sits flush against the type name, whose own
+            // trailing space would otherwise leave `struct S : Sendable`.
+            // only horizontal whitespace goes — comments and newlines stay.
+            let bare = node.extendedType.with(\.trailingTrivia, withoutTrailingHorizontalWhitespace(node.extendedType.trailingTrivia))
+            return node.with(\.extendedType, bare).with(\.inheritanceClause, newClause)
         }
     }
 }
@@ -491,9 +511,9 @@ class TypeInheritanceFinder: SyntaxVisitor {
 
     private func extract(from clause: InheritanceClauseSyntax?, node: DeclSyntax) {
         guard let clause = clause else {
-            // No inheritance clause — find where to insert ':'
-            let nameEnd = node.position.utf8Offset + node.description.count
-            // This is approximate; for simplicity we note no clause exists
+            // the type has no inheritance clause, so there is no colon and no
+            // conformance to measure; the callers that ADD a clause locate the
+            // insertion point from the syntax tree themselves
             return
         }
 

@@ -150,6 +150,28 @@ public struct UsageError: Error, CustomStringConvertible {
     public var description: String { message }
 }
 
+// MARK: - error rendering
+
+/// the message an arbitrary thrown error actually carries.
+///
+/// `localizedDescription` is the wrong reader for this codebase's errors:
+/// `ArgumentParser.ValidationError` — which every edit command throws — is
+/// `CustomStringConvertible` but NOT `LocalizedError`, so bridging it to
+/// NSError discards the authored sentence and yields the useless
+/// "The operation couldn't be completed. (ArgumentParser.ValidationError
+/// error 1.)". Reading the conformances directly keeps what the command wrote.
+public func readableError(_ error: any Error) -> String {
+    if let localized = error as? any LocalizedError, let description = localized.errorDescription {
+        return description
+    }
+    // `String(describing:)` already prefers a `CustomStringConvertible`
+    // conformance when the error has one — which ArgumentParser's
+    // ValidationError does — and falls back to reflection when it does not.
+    // (A conditional cast to `any CustomStringConvertible` is emitted as
+    // always-succeeding, so it cannot be the step that decides.)
+    return String(describing: error)
+}
+
 // MARK: - package helpers
 
 /// resolve a possibly-relative path against the cwd and require it to exist —

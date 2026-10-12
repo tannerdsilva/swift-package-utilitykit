@@ -244,6 +244,7 @@ enum FileEditor {
     static func alreadyImported(_ module: String) -> NoChange { .alreadyCurrent("module '\(module)' already imported") }
     static func rangeSelectsNoLines(_ range: String) -> NoChange { .missed("line range '\(range)' selects no lines") }
     static func noTypeNamed(_ name: String) -> NoChange { .missed("no type '\(name)' found") }
+    static func noDeclarationNamed(_ name: String) -> NoChange { .missed("no declaration '\(name)' found") }
 
     /// Generate a simple unified diff between two strings.
     static func makeDiff(original: String, modified: String) -> String {
@@ -294,16 +295,54 @@ enum FileEditor {
         return result
     }
 
-    /// Process content string from CLI arguments, converting literal `\n`
-    /// sequences to actual newline characters.
+    /// Interpret the backslash escapes a shell leaves in edit content.
     ///
-    /// When a user passes `--content "line1\nline2"` from the shell, the
-    /// shell sends `\n` as two literal characters (backslash + n). This
-    /// helper converts them to real newlines so multi-line insertions work.
+    /// A shell passes `--content "line1\nline2"` as two literal characters
+    /// (backslash + n), so the content-bearing commands expand the escapes
+    /// here: `\n` becomes a newline and `\\` becomes a single backslash.
+    /// Every other backslash sequence passes through untouched — code being
+    /// edited routinely contains `\"`, `\t` or a regex `\d`, and none of those
+    /// may be rewritten.
     ///
-    /// To insert a literal backslash-n sequence, escape it: `"\\n"`.
+    /// To place a literal backslash-n in a file (a Swift string-literal
+    /// escape, say), escape the backslash: `\\n`.
+    ///
+    /// A caller whose content is already exact bytes — anything that builds
+    /// its arguments as data rather than through a shell — passes
+    /// `--literal-content` to skip this interpretation entirely (see
+    /// ``content(_:literal:)``).
     static func processMultilineContent(_ content: String) -> String {
-        content.replacingOccurrences(of: "\\n", with: "\n")
+        var out = ""
+        out.reserveCapacity(content.count)
+        var iterator = content.makeIterator()
+        var pending: Character? = nil
+        while let ch = pending ?? iterator.next() {
+            pending = nil
+            guard ch == "\\" else {
+                out.append(ch)
+                continue
+            }
+            guard let next = iterator.next() else {
+                // a trailing lone backslash is content, not an escape
+                out.append(ch)
+                break
+            }
+            switch next {
+            case "n": out.append("\n")
+            case "\\": out.append("\\")
+            default:
+                // an unrecognized sequence stays exactly as written
+                out.append(ch)
+                pending = next
+            }
+        }
+        return out
+    }
+
+    /// The CLI's escape expansion, skipped when the caller declares its bytes
+    /// already exact (`--literal-content`).
+    static func content(_ raw: String, literal: Bool) -> String {
+        literal ? raw : processMultilineContent(raw)
     }
 
     /// Compute indentation string from a source line.

@@ -123,7 +123,10 @@ struct InstallCommand: AsyncParsableCommand {
         // ---- install binaries -------------------------------------------------------
 
         InstPrinter.info("Installing binaries to \(installDir)...")
-        if let sudo = needSudo(for: installDir) {
+        // resolved ONCE: the query walks up to the nearest existing ancestor
+        // and its answer is the same for every command below.
+        let sudo = needSudo(for: installDir)
+        if sudo != nil {
             InstPrinter.info("using sudo for \(installDir) (not writable by current user)")
         }
         if interactive {
@@ -134,7 +137,7 @@ struct InstallCommand: AsyncParsableCommand {
             }
         }
         var mkdirCmd = [String]()
-        if let s = needSudo(for: installDir) { mkdirCmd.append(s) }
+        if let sudo { mkdirCmd.append(sudo) }
         mkdirCmd += ["mkdir", "-p", installDir]
         if await runProcess("/usr/bin/env", mkdirCmd) != 0 {
             throw ValidationError("failed to create install dir \(installDir)")
@@ -142,7 +145,7 @@ struct InstallCommand: AsyncParsableCommand {
 
         for bin in ["swift-package-tool", "normalizer-tool"] {
             var icmd = [String]()
-            if let s = needSudo(for: installDir) { icmd.append(s) }
+            if let sudo { icmd.append(sudo) }
             icmd += ["install", "\(buildSrcDir)/\(bin)", "\(installDir)/\(bin)"]
             if await runProcess("/usr/bin/env", icmd) != 0 {
                 throw ValidationError("failed to install \(bin) (\(buildSrcDir)/\(bin) -> \(installDir)/\(bin))")
@@ -259,8 +262,13 @@ enum InstPrinter {
     static func warn(_ s: String) { print("\u{001B}[33m  WARN\u{001B}[0m \(s)") }
 }
 
-/// true if the nearest existing ancestor of `dir` is not writable by the
-/// current user (mirrors the bash walk-up escalation).
+/// the `sudo` prefix to prepend when the nearest existing ancestor of `dir` is
+/// not writable by the current user, or nil when it can be written directly
+/// (mirrors the bash walk-up escalation).
+///
+/// a pure query — it reports nothing. the caller resolves it once and decides
+/// where to say so, so the escalation is announced exactly once per install
+/// instead of once per command that needs the prefix.
 func needSudo(for dir: String) -> String? {
     var ancestor = dir
     while ancestor != "/" && !FileManager.default.fileExists(atPath: ancestor) {
@@ -268,7 +276,6 @@ func needSudo(for dir: String) -> String? {
     }
     if ancestor.isEmpty { ancestor = "/" }
     guard FileManager.default.isWritableFile(atPath: ancestor) else {
-        InstPrinter.info("using sudo for \(dir) (not writable by current user)")
         return "sudo"
     }
     return nil

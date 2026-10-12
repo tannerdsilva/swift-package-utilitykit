@@ -62,6 +62,14 @@ struct WrapCommand: ParsableCommand, EditCommand {
             throw ValidationError("--variable is required for \(container)")
         }
 
+        // a guard's else block must exit its scope, so `guard let x else {}`
+        // is not a legal wrapping. the syntax re-parse cannot catch that (an
+        // empty else block parses), so it is refused here rather than written
+        // as code that will not compile.
+        if container == "guard-let" && (elseBody?.isEmpty ?? true) {
+            throw ValidationError("--else is required for guard-let (its else block must exit scope)")
+        }
+
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
@@ -80,23 +88,35 @@ struct WrapCommand: ParsableCommand, EditCommand {
                 line.isEmpty ? "" : innerIndent + line.drop(while: { $0 == " " || $0 == "\t" })
             }.joined(separator: "\n")
 
-            let wrapper: String
-            switch container {
-            case "do-catch":
-                wrapper = "\(baseIndent)do {\n\(indentedBody)\n\(baseIndent)} catch {\n\(baseIndent)    <#handle error#>\n\(baseIndent)}"
-            case "if-let":
-                wrapper = "\(baseIndent)if let \(variable!) {\n\(indentedBody)\n\(baseIndent)}"
-            case "guard-let":
-                let elseBlock = elseBody.map { "\n\(baseIndent)    \($0)" } ?? ""
-                wrapper = "\(baseIndent)guard let \(variable!) else {\(elseBlock)\n\(baseIndent)}"
-            case "do":
-                wrapper = "\(baseIndent)do {\n\(indentedBody)\n\(baseIndent)}"
-            default:
-                wrapper = ""
+            var newLines = lines
+
+            if container == "guard-let" {
+                // a guard conditions the code that FOLLOWS it: the selected
+                // lines stay where they are and the guard goes above them.
+                // replacing them (every other container's shape) silently
+                // deletes the very code the guard protects.
+                var guardLines = ["\(baseIndent)guard let \(variable!) else {"]
+                guardLines += (elseBody ?? "").components(separatedBy: "\n").map { "\(innerIndent)\($0)" }
+                guardLines.append("\(baseIndent)}")
+                newLines.insert(contentsOf: guardLines, at: startIdx)
+            } else {
+                let wrapper: String
+                switch container {
+                case "do-catch":
+                    // the catch body must be COMPILABLE source. an editor
+                    // placeholder (<#handle error#>) is not — it fails the
+                    // syntax re-parse, so every do-catch wrap was blocked.
+                    wrapper = "\(baseIndent)do {\n\(indentedBody)\n\(baseIndent)} catch {\n\(innerIndent)// handle the error\n\(baseIndent)}"
+                case "if-let":
+                    wrapper = "\(baseIndent)if let \(variable!) {\n\(indentedBody)\n\(baseIndent)}"
+                case "do":
+                    wrapper = "\(baseIndent)do {\n\(indentedBody)\n\(baseIndent)}"
+                default:
+                    wrapper = ""
+                }
+                newLines.replaceSubrange(startIdx..<endIdx, with: wrapper.components(separatedBy: "\n"))
             }
 
-            var newLines = lines
-            newLines.replaceSubrange(startIdx..<endIdx, with: wrapper.components(separatedBy: "\n"))
             source = newLines.joined(separator: "\n")
             return nil
         }

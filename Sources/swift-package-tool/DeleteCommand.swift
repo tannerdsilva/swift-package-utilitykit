@@ -102,58 +102,11 @@ struct DeleteCommand: ParsableCommand, EditCommand {
     }
 
     private func runSymbolDelete(name: String) throws {
-        let resolved = NSString(string: file).standardizingPath
-        let source = try String(contentsOfFile: resolved, encoding: .utf8)
-        let tree = Parser.parse(source: source)
-
-        // Use SyntaxRewriter to remove the declaration
-        let rewriter = DeclarationDeleteRewriter(targetName: name)
-        let modifiedTree = rewriter.rewrite(tree)
-
-        guard rewriter.didDelete else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no declaration '\(name)' found", status: .missed)
-            try emitEditResult(result)
-            return
+        let result = try FileEditor.edit(
+            file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
+        ) { source in
+            removeDeclaration(named: name, in: &source)
         }
-
-        let modified = modifiedTree.description
-
-        let original = source
-        var warning: String? = nil
-        var verified = true
-        if verify {
-            let verifyTree = Parser.parse(source: modified)
-            let diags = ParseDiagnosticsGenerator.diagnostics(for: verifyTree)
-            let errors = diags.filter { $0.diagMessage.severity == .error }
-            if !errors.isEmpty {
-                verified = false
-                warning = "edit introduced \(errors.count) syntax error(s); use --force to write anyway"
-            }
-        }
-
-        let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
-
-        if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
-            try emitEditResult(result)
-            return
-        }
-
-        // block the write when verification fails unless --force is set
-        guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
-            try emitEditResult(result)
-            return
-        }
-
-        if backup {
-            try FileEditor.backupFile(resolved)
-        }
-
-        let target = outputPath.isEmpty ? resolved : outputPath
-        try modified.write(toFile: target, atomically: true, encoding: .utf8)
-
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
         try emitEditResult(result)
     }
 }
@@ -211,9 +164,9 @@ class DeclarationDeleteRewriter: SyntaxRewriter {
         }
         if let t = decl.as(TypeAliasDeclSyntax.self) { return t.name.text == targetName }
         if let a = decl.as(AssociatedTypeDeclSyntax.self) { return a.name.text == targetName }
-        if let i = decl.as(InitializerDeclSyntax.self) { return targetName == "init" }
-        if let d = decl.as(DeinitializerDeclSyntax.self) { return targetName == "deinit" }
-        if let s = decl.as(SubscriptDeclSyntax.self) { return targetName == "subscript" }
+        if decl.is(InitializerDeclSyntax.self) { return targetName == "init" }
+        if decl.is(DeinitializerDeclSyntax.self) { return targetName == "deinit" }
+        if decl.is(SubscriptDeclSyntax.self) { return targetName == "subscript" }
         return false
     }
 }

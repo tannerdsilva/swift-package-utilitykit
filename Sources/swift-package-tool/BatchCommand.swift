@@ -39,6 +39,23 @@ import SwiftParserDiagnostics
 ///
 /// Supported commands: `add-import`, `insert`, `replace`, `append`, `prepend`,
 /// `delete`, `add-member`, `add-conformance`.
+///
+/// ## Fields per command
+///
+/// - `add-import`: `module`
+/// - `insert`: `content`, and exactly one anchor — `after`, `before`, `atLine`
+/// - `replace`: `old`, `new`
+/// - `append` / `prepend`: `content`; `afterImports` for `prepend`
+/// - `delete`: exactly one selector — `pattern`, `startLine` + `endLine`, `symbol`
+/// - `add-member`: `typeName`, and one of `property` / `method` / `caseName`
+///   (plus `body`, `associated`, `defaultValue`, `access` where they apply)
+/// - `add-conformance`: `typeName`, `protocolName`
+///
+/// These keys are the plan's own vocabulary and do not always match the
+/// standalone command's flags: the plan spells `--type` as `typeName`, because
+/// `type` is reserved. An unrecognized key decodes to nil rather than failing,
+/// so a mistyped field surfaces as that command's "requires ..." error — read
+/// the field list above before assuming a command is broken.
 struct BatchCommand: ParsableCommand, EditCommand {
     static let configuration = CommandConfiguration(
         commandName: "batch",
@@ -65,6 +82,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     @Flag(name: .long, help: "Write even if verification fails.")
     var force = false
+
+    @Flag(name: .customLong("literal-content"), help: "Take the plan's content fields literally: skip the \\n and \\\\ escape expansion.")
+    var literalContent = false
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Print JSON Schema for the output type and exit.")
     var schema = false
@@ -106,7 +126,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
                     modified: false,
                     diff: nil,
                     verified: false,
-                    warning: "operation \(index + 1) failed: \(error.localizedDescription)",
+                    warning: "operation \(index + 1) failed: \(readableError(error))",
                     status: .failed
                 ))
                 if failFast { break }
@@ -148,7 +168,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executeAddImport(_ op: BatchOperation) throws -> EditResult {
         guard let module = op.module else {
-            throw ValidationError("add-import requires --module")
+            throw ValidationError("add-import requires the plan's 'module' field")
         }
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -197,9 +217,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executeInsert(_ op: BatchOperation) throws -> EditResult {
         guard let content = op.content else {
-            throw ValidationError("insert requires --content")
+            throw ValidationError("insert requires the plan's 'content' field")
         }
-        let processedContent = FileEditor.processMultilineContent(content)
+        let processedContent = FileEditor.content(content, literal: literalContent)
 
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -235,9 +255,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executeReplace(_ op: BatchOperation) throws -> EditResult {
         guard let old = op.old, let new = op.new else {
-            throw ValidationError("replace requires --old and --new")
+            throw ValidationError("replace requires the plan's 'old' and 'new' fields")
         }
-        let processedNew = FileEditor.processMultilineContent(new)
+        let processedNew = FileEditor.content(new, literal: literalContent)
 
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -250,9 +270,15 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executeAppend(_ op: BatchOperation) throws -> EditResult {
         guard let content = op.content else {
-            throw ValidationError("append requires --content")
+            throw ValidationError("append requires the plan's 'content' field")
         }
-        let processedContent = FileEditor.processMultilineContent(content)
+        // `afterImports` has meaning for prepend only — the CLI's append has no
+        // such flag. a plan that sets it here is asking for something append
+        // cannot do, so refuse rather than silently writing at the end anyway.
+        guard op.afterImports != true else {
+            throw ValidationError("'afterImports' applies to prepend only; append always writes at the end of the file")
+        }
+        let processedContent = FileEditor.content(content, literal: literalContent)
 
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -265,9 +291,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executePrepend(_ op: BatchOperation) throws -> EditResult {
         guard let content = op.content else {
-            throw ValidationError("prepend requires --content")
+            throw ValidationError("prepend requires the plan's 'content' field")
         }
-        let processedContent = FileEditor.processMultilineContent(content)
+        let processedContent = FileEditor.content(content, literal: literalContent)
 
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -288,7 +314,18 @@ struct BatchCommand: ParsableCommand, EditCommand {
     }
 
     private func executeDelete(_ op: BatchOperation) throws -> EditResult {
-        // Reuse the existing DeleteCommand logic by calling FileEditor.edit
+        // the symbol form is AST-aware and shared with `delete --symbol`; the
+        // line-range and pattern forms are line-based by definition. they used
+        // to be one line-based branch, so a plan's symbol delete removed every
+        // line MENTIONING the name instead of the declaration.
+        if let symbol = op.symbol {
+            return try FileEditor.edit(
+                file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
+            ) { source in
+                removeDeclaration(named: symbol, in: &source)
+            }
+        }
+
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
@@ -308,9 +345,6 @@ struct BatchCommand: ParsableCommand, EditCommand {
                     return FileEditor.rangeSelectsNoLines("\(startLine)-\(endLine)")
                 }
                 newLines.removeSubrange(start..<end)
-            } else if let symbol = op.symbol {
-                // Simple line-based removal by symbol name
-                newLines.removeAll { $0.contains(symbol) && !$0.hasPrefix("//") }
             }
 
             source = newLines.joined(separator: "\n")
@@ -320,11 +354,11 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     private func executeAddMember(_ op: BatchOperation) throws -> EditResult {
         guard let typeName = op.typeName else {
-            throw ValidationError("add-member requires --type")
+            throw ValidationError("add-member requires the plan's 'typeName' field")
         }
         let memberOption: String? = op.property ?? op.method ?? op.caseName
-        guard let chosenMember = memberOption else {
-            throw ValidationError("add-member requires one of --property, --method, --case")
+        guard memberOption != nil else {
+            throw ValidationError("add-member requires one of the plan's 'property', 'method', or 'caseName' fields")
         }
 
         let memberDecl: String
@@ -334,7 +368,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
             memberDecl = "\(accessMod)\(prop)\(defaultVal)"
         } else if let meth = op.method {
             let accessMod = op.access.map { "\($0) " } ?? ""
-            let bodyContent = FileEditor.processMultilineContent(op.body ?? "")
+            let bodyContent = FileEditor.content(op.body ?? "", literal: literalContent)
             if bodyContent.isEmpty {
                 memberDecl = "\(accessMod)\(meth)"
             } else {
@@ -356,34 +390,13 @@ struct BatchCommand: ParsableCommand, EditCommand {
         return try FileEditor.edit(
             file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
-            let lines = source.components(separatedBy: "\n")
-            guard let typeIdx = lines.firstIndex(where: { $0.contains("\(typeName):") || $0.contains("\(typeName) {") }) else {
-                return FileEditor.noTypeNamed(typeName)
-            }
-
-            // Find the closing brace of the type
-            var braceDepth = 0
-            var insertIdx = lines.count
-            for i in typeIdx..<lines.count {
-                let line = lines[i]
-                braceDepth += line.filter { $0 == "{" }.count
-                braceDepth -= line.filter { $0 == "}" }.count
-                if braceDepth <= 0 && line.contains("}") {
-                    insertIdx = i
-                    break
-                }
-            }
-
-            var newLines = lines
-            newLines.insert(memberDecl, at: insertIdx)
-            source = newLines.joined(separator: "\n")
-            return nil
+            insertMember(memberDecl, intoType: typeName, in: &source)
         }
     }
 
     private func executeAddConformance(_ op: BatchOperation) throws -> EditResult {
         guard let typeName = op.typeName, let protocolName = op.protocolName else {
-            throw ValidationError("add-conformance requires --type and --protocol")
+            throw ValidationError("add-conformance requires the plan's 'typeName' and 'protocolName' fields")
         }
 
         let resolved = NSString(string: op.file).standardizingPath

@@ -81,7 +81,7 @@ struct ValidateCommand: ParsableCommand {
                 allDiagnostics.append(ValidateDiagnostic(
                     file: filePath, line: 1, column: 1,
                     severity: "error",
-                    message: "unable to read file: \(error.localizedDescription)",
+                    message: "unable to read file: \(readableError(error))",
                     diagnosticID: "read_error",
                     fixItCount: 0
                 ))

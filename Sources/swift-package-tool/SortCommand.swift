@@ -198,9 +198,9 @@ private func extractName(from decl: DeclSyntax) -> String {
     if let e = decl.as(EnumDeclSyntax.self) { return e.name.text }
     if let p = decl.as(ProtocolDeclSyntax.self) { return p.name.text }
     if let f = decl.as(FunctionDeclSyntax.self) { return f.name.text }
-    if let i = decl.as(InitializerDeclSyntax.self) { return "init" }
-    if let d = decl.as(DeinitializerDeclSyntax.self) { return "deinit" }
-    if let s = decl.as(SubscriptDeclSyntax.self) { return "subscript" }
+    if decl.is(InitializerDeclSyntax.self) { return "init" }
+    if decl.is(DeinitializerDeclSyntax.self) { return "deinit" }
+    if decl.is(SubscriptDeclSyntax.self) { return "subscript" }
     if let t = decl.as(TypeAliasDeclSyntax.self) { return t.name.text }
     if let a = decl.as(AssociatedTypeDeclSyntax.self) { return a.name.text }
     if let v = decl.as(VariableDeclSyntax.self) {
