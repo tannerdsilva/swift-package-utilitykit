@@ -82,9 +82,9 @@ public func declarationName(from node: some DeclSyntaxProtocol) -> String? {
     case let ext as ExtensionDeclSyntax:   return "extension \(ext.extendedType.description.trimmingCharacters(in: CharacterSet.whitespaces))"
     case let initDecl as InitializerDeclSyntax:
         return "init\(initDecl.optionalMark?.text ?? "")"
-    case let deinitDecl as DeinitializerDeclSyntax:
+    case is DeinitializerDeclSyntax:
         return "deinit"
-    case let sub as SubscriptDeclSyntax:   return "subscript"
+    case is SubscriptDeclSyntax:           return "subscript"
     case let op as OperatorDeclSyntax:     return op.name.text
     case let pg as PrecedenceGroupDeclSyntax: return pg.name.text
     case let m as MacroDeclSyntax:         return m.name.text
@@ -118,9 +118,9 @@ public func modifierNames(from node: some DeclSyntaxProtocol) -> [String] {
     case let n as SubscriptDeclSyntax:      modList = n.modifiers
     case let n as TypeAliasDeclSyntax:      modList = n.modifiers
     case let n as AssociatedTypeDeclSyntax: modList = n.modifiers
-    case let n as OperatorDeclSyntax:      modList = nil
-    case let n as PrecedenceGroupDeclSyntax:modList = nil
-    case let n as MacroDeclSyntax:         modList = nil
+    case is OperatorDeclSyntax:            modList = nil
+    case is PrecedenceGroupDeclSyntax:     modList = nil
+    case is MacroDeclSyntax:               modList = nil
     default:
         // fallback: try Mirror for unknown types
         let mirror = Mirror(reflecting: node)
@@ -197,7 +197,7 @@ public func signatureString(for node: some DeclSyntaxProtocol) -> String {
         let optMark = initDecl.optionalMark?.text ?? ""
         return "init\(optMark)(\(params))"
 
-    case let deinitDecl as DeinitializerDeclSyntax:
+    case is DeinitializerDeclSyntax:
         return "deinit"
 
     case let sub as SubscriptDeclSyntax:

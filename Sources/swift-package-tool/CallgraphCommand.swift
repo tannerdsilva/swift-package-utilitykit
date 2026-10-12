@@ -223,7 +223,7 @@ class CallEdgeCollector: SyntaxVisitor {
 
 /// extract the callee name from a called expression.
 private func extractCalleeName(from expr: ExprSyntax) -> String {
-    if let ident = expr.as(IdentifierExprSyntax.self) {
+    if let ident = expr.as(DeclReferenceExprSyntax.self) {
         return ident.baseName.text
     }
     if let member = expr.as(MemberAccessExprSyntax.self) {

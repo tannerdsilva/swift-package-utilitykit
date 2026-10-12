@@ -281,7 +281,7 @@ class DiffDeclarationCollector: SyntaxVisitor {
         return .visitChildren
     }
 
-    override func visit(_ node: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind {
+    override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind {
         let pos = node.positionAfterSkippingLeadingTrivia
         let (line, col) = lineColumn(at: pos.utf8Offset, in: source)
         declarations.append(DiffDeclaration(

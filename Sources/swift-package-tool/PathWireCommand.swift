@@ -154,7 +154,7 @@ enum PathWirer {
                 continue
             }
 
-            var lines = original.components(separatedBy: "\n")
+            let lines = original.components(separatedBy: "\n")
             var inBlock = false
             var output: [String] = []
             for line in lines {

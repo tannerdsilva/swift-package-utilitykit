@@ -231,8 +231,8 @@ public class ReferenceFinder: SyntaxVisitor {
     }
 
     // identifier expressions (variable/function references)
-    public override func visit(_ node: IdentifierExprSyntax) -> SyntaxVisitorContinueKind {
-        if node.identifier.text == targetName {
+    public override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        if node.baseName.text == targetName {
             addRef(node, role: "call")
         }
         return .visitChildren
