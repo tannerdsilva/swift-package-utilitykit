@@ -78,6 +78,21 @@ public func validateInputPathsExist(_ paths: [String]) throws {
     }
 }
 
+// MARK: - line ranges
+
+/// parse a 1-based inclusive line range like `10-20`.
+///
+/// the one range parser behind `edit wrap --lines` and `read --lines` — a
+/// second spelling would be a second contract. callers clamp to the file;
+/// this rejects only shapes that are not a range at all.
+public func parseLineRange(_ raw: String) throws -> (start: Int, end: Int) {
+    let parts = raw.split(separator: "-")
+    guard parts.count == 2, let start = Int(parts[0]), let end = Int(parts[1]) else {
+        throw ValidationError("invalid line range '\(raw)'; use format '10-20'")
+    }
+    return (start, end)
+}
+
 // MARK: - location helpers
 
 /// convert a utf-8 byte offset (the unit swift-syntax positions use) into a

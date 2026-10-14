@@ -14,7 +14,7 @@ struct InspectCommand: ParsableCommand {
     var paths: [String] = ["."]
 
     @Option(name: .long, help: "Symbol name to find.")
-    var symbol: String
+    var symbol: String? = nil
 
     @Option(name: .long, help: "Only include files with these extensions (comma-separated).")
     var include: String?
@@ -41,6 +41,9 @@ struct InspectCommand: ParsableCommand {
         if schema {
             print(SymbolDetail.jsonSchema)
             return
+        }
+        guard let symbol else {
+            throw ValidationError("Missing expected argument '--symbol <symbol>'")
         }
         // check for stdin path
         let stdinPaths = paths.filter(isStdinPath)

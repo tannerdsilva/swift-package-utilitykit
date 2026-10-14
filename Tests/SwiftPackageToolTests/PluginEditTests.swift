@@ -96,6 +96,20 @@ private func cleanup(_ path: String) {
     try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent)
 }
 
+/// one `edit <verb> …` invocation on the CLI arm, as a harness would run it —
+/// the near-miss contract is asserted against the compact JSON payload.
+private struct EditRun {
+    let status: Int32
+    let stdout: String
+    let stderr: String
+}
+
+private func runEdit(_ args: [String]) async throws -> EditRun {
+    let outcome = try await Subprocess.capture(
+        absoluteToolPath(), ["edit"] + args + ["--output-format", "compact"], timeout: .seconds(30))
+    return EditRun(status: outcome.exitCode, stdout: outcome.stdout, stderr: outcome.stderr)
+}
+
 // MARK: - the suite
 
 extension SwiftPackageToolTestsRoot {
@@ -115,6 +129,7 @@ extension SwiftPackageToolTestsRoot {
             let edit = try run.editResult()
             #expect(edit["status"] as? String == "applied")
             #expect(edit["modified"] as? Bool == true)
+            #expect(edit["dryRun"] as? Bool == false, "a real edit must not claim a preview")
             #expect(readSource(path).contains("let a = 9"))
         }
 
@@ -129,6 +144,7 @@ extension SwiftPackageToolTestsRoot {
             let edit = try run.editResult()
             #expect(edit["status"] as? String == "applied")
             #expect(edit["diff"] is String)
+            #expect(edit["dryRun"] as? Bool == true, "a preview must say so")
             #expect(readSource(path) == fixture, "a dry run must not write")
         }
 
@@ -341,6 +357,68 @@ extension SwiftPackageToolTestsRoot {
             #expect(edit["status"] as? String == "applied", "\(run.result)")
             #expect(readSource(path).contains(#"print("a\nb")"#),
                     "the escape must land verbatim: \(readSource(path))")
+        }
+    }
+}
+
+extension SwiftPackageToolTestsRoot {
+    /// the near-miss contract on the CLI arm: a missed selector must teach —
+    /// the closest numbered lines come back with the failure, capped.
+    @Suite("edit near-miss suggestions")
+    struct EditSuggestionTests {
+
+        @Test("a missed replace suggests the closest lines with numbers")
+        func missSuggests() async throws {
+            let path = try makeTempSwift("struct S {\n    let x = \"0\"\n    func f() -> Int { return \"0\" }\n}\n")
+            defer { cleanup(path) }
+
+            let out = try await runEdit(["replace", path, "--old", "return \"50\"", "--new", "return 50"])
+            #expect(out.status == 1, "\(out.stderr)")
+            #expect(out.stdout.contains("\"status\":\"missed\""), "\(out.stdout)")
+            #expect(out.stdout.contains("suggestions"), "\(out.stdout)")
+            #expect(out.stdout.contains("\"n\":3"), "\(out.stdout)")  // the closest line, numbered
+            #expect(out.stdout.contains("return"), "\(out.stdout)")
+        }
+
+        @Test("suggestions never leak the whole file and never exceed the cap")
+        func suggestionsCapped() async throws {
+            let path = try makeTempSwift((1...200).map { _ in "let value = 1" }.joined(separator: "\n"))
+            defer { cleanup(path) }
+
+            let out = try await runEdit(["replace", path, "--old", "let value = 2", "--new", "let value = 3"])
+            #expect(out.status == 1, "\(out.stderr)")
+            #expect(out.stdout.components(separatedBy: "\"n\":").count - 1 <= 3, "\(out.stdout)")
+        }
+    }
+}
+
+extension SwiftPackageToolTestsRoot {
+    /// the preview contract on the CLI arm: `modified` describes the transform,
+    /// `dryRun` says whether anything was written.
+    @Suite("edit dry-run honesty")
+    struct EditDryRunTests {
+
+        @Test("a dry-run replace says so and leaves the bytes untouched")
+        func dryRunSaysSo() async throws {
+            let fixture = "let a = 1\n"
+            let path = try makeTempSwift(fixture)
+            defer { cleanup(path) }
+
+            let out = try await runEdit(["replace", path, "--old", "let a = 1", "--new", "let a = 2", "--dry-run"])
+            #expect(out.status == 0, "\(out.stderr)")
+            #expect(out.stdout.contains("\"dryRun\":true"), "\(out.stdout)")
+            #expect(readSource(path) == fixture, "a dry run must not write")
+        }
+
+        @Test("a real replace changes the bytes and reports dryRun:false")
+        func realReplaceIsNotAPreview() async throws {
+            let path = try makeTempSwift("let a = 1\n")
+            defer { cleanup(path) }
+
+            let out = try await runEdit(["replace", path, "--old", "let a = 1", "--new", "let a = 2"])
+            #expect(out.status == 0, "\(out.stderr)")
+            #expect(out.stdout.contains("\"dryRun\":false"), "\(out.stdout)")
+            #expect(readSource(path).contains("let a = 2"))
         }
     }
 }

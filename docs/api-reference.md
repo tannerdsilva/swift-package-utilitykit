@@ -169,6 +169,31 @@ swift-package-tool search <pattern> [<paths>...] [--regex] [--ignore-case]
 
 ---
 
+### `read`
+
+Print a file's text with line numbers — the read-before-write material.
+
+```
+swift-package-tool read <file> [--lines <range>] [--max-lines <n>]
+    [--no-line-numbers] [--output-format <format>] [--output <path>]
+```
+
+| Argument | Description |
+|---|---|
+| `file` | File to read (any UTF-8 text file; relative resolves against the cwd) |
+
+| Flag/Option | Description |
+|---|---|
+| `--lines` | Line range to print (e.g. `10-20`); 1-based, inclusive |
+| `--max-lines` | Stop after this many lines (default 400) |
+| `--no-line-numbers` | Print bare lines without the number prefix |
+| `--output-format` | json (one compact `FileRead` object), jsonl (one line-object per row); omit for numbered text |
+| `--output` | Write output to file instead of stdout |
+
+**Output type:** `FileRead` — `{file, total_lines, range, lines:[{n, text}], truncated, note}`. Truncation is always reported in `note` with the `--lines` that reads on.
+
+---
+
 ### `references`
 
 Find every usage of a symbol (declarations + calls + accesses).

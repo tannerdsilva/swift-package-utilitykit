@@ -9,10 +9,10 @@ struct SearchCommand: ParsableCommand {
     )
 
     @Argument(help: "Search pattern (plain text or regex).")
-    var pattern: String
+    var pattern: String?
 
     @Argument(help: "Files or directories to search.")
-    var paths: [String]
+    var paths: [String] = []
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Interpret pattern as regex.")
     var regex = false
@@ -48,6 +48,9 @@ struct SearchCommand: ParsableCommand {
         if schema {
             print(SearchMatch.jsonSchema)
             return
+        }
+        guard let pattern else {
+            throw ValidationError("Missing expected argument '<pattern>'")
         }
         // validate regex upfront if --regex is set
         if regex {

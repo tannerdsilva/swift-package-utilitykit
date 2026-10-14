@@ -63,7 +63,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "Path to JSON plan file.")
-    var plan: String
+    var plan: String?
 
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
@@ -97,6 +97,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let plan else {
+            throw ValidationError("Missing expected argument '<plan>'")
+        }
         let resolved = NSString(string: plan).standardizingPath
         let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
         do {
@@ -127,7 +130,8 @@ struct BatchCommand: ParsableCommand, EditCommand {
                     diff: nil,
                     verified: false,
                     warning: "operation \(index + 1) failed: \(readableError(error))",
-                    status: .failed
+                    status: .failed,
+                    dryRun: dryRun
                 ))
                 if failFast { break }
             }
@@ -408,9 +412,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
 
         guard rewriter.didModify else {
             if rewriter.alreadyConforms {
-                return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent)
+                return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent, dryRun: dryRun)
             }
-            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed)
+            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed, dryRun: dryRun)
         }
 
         let modified = modifiedTree.description
@@ -430,12 +434,12 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
+            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked, dryRun: dryRun)
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
+            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked, dryRun: dryRun)
         }
 
         if backup {
@@ -445,7 +449,7 @@ struct BatchCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
+        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied, dryRun: dryRun)
     }
 }
 

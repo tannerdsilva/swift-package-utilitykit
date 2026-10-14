@@ -14,10 +14,10 @@ struct InsertCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "Content to insert. Use \\n for newlines.")
-    var content: String
+    var content: String? = nil
 
     @Option(name: .long, help: "Insert after the first line containing this text.")
     var after: String?
@@ -57,6 +57,12 @@ struct InsertCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let content else {
+            throw ValidationError("Missing expected argument '--content <content>'")
+        }
         let modes = [after != nil, before != nil, atLine != nil].filter { $0 }.count
         guard modes == 1 else {
             throw ValidationError("specify exactly one of --after, --before, or --at-line")

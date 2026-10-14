@@ -13,10 +13,10 @@ struct AddImportCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .customLong("module"), help: "Module name to import.")
-    var module: String
+    var module: String? = nil
 
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
@@ -44,6 +44,12 @@ struct AddImportCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let module else {
+            throw ValidationError("Missing expected argument '--module <module>'")
+        }
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in
@@ -105,13 +111,13 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .customLong("type"), help: "Type name to add conformance to.")
-    var typeName: String
+    var typeName: String? = nil
 
     @Option(name: .customLong("protocol"), help: "Protocol name to conform to.")
-    var protocolName: String
+    var protocolName: String? = nil
 
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
@@ -139,6 +145,15 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let typeName else {
+            throw ValidationError("Missing expected argument '--type <type>'")
+        }
+        guard let protocolName else {
+            throw ValidationError("Missing expected argument '--protocol <protocol>'")
+        }
         let resolved = NSString(string: file).standardizingPath
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
@@ -149,11 +164,11 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
 
         guard rewriter.didModify else {
             if rewriter.alreadyConforms {
-                let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent)
+                let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent, dryRun: dryRun)
                 try emitEditResult(result)
                 return
             }
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed)
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -176,14 +191,14 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -195,7 +210,7 @@ struct AddConformanceCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied, dryRun: dryRun)
         try emitEditResult(result)
     }
 }

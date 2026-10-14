@@ -1,5 +1,63 @@
 # Changelog
 
+## 3.1.0
+
+**Additive — the read half of read-before-write, near-miss teaching, and a
+dialected failure contract. No names break.** Motivation, method and raw
+numbers: `.hermes/plans/2026-10-13_185044-v3.1.0-agent-read-and-envelope.md`.
+Measured: over MCP, 50.5 % of edit attempts missed their selector and 27 of 28
+classifiable misses aimed at text that does not exist in the file at all — the
+surface had no verb that shows source text.
+
+### Added — `read`, `pkg_read`, `pkg_search` (23 -> 25 tools)
+
+- **new** `read <file> [--lines A-B] [--max-lines N]` — a file's text with line
+  numbers. Output is bounded (default 400) and **never silently truncated**:
+  the note says how many lines were withheld and which `--lines` reads on. Any
+  UTF-8 text file; a file that is not valid UTF-8 is a failed `EditResult`
+  (exit 1), never a crash. `--output-format json` emits one compact `FileRead`
+  object (`total_lines`, `range`, per-line `{n, text}`, `truncated`, `note`);
+  `jsonl` streams one line-object per row.
+- **new** `pkg_read` — the MCP tool over `read` (`lines`, `max_lines`).
+- **new** `pkg_search` — the MCP tool over `search`: locate, then read.
+- the loop the bench was missing: `pkg_search` -> `pkg_read` -> `pkg_edit_*`
+  -> `pkg_build` / `pkg_test`.
+
+### Changed — a missed selector now teaches
+
+- a miss returns `suggestions`: the closest lines to the selector, numbered,
+  best first, capped at 3 (text truncated at 160 chars), and names the first
+  one in `warning`. Ranking is dependency-free: normalise, token-set overlap,
+  ties by line order.
+- `EditResult` gains `dryRun`: `modified` describes the transform; `dryRun:
+  true` says the file on disk did not change. A `--dry-run` preview of a real
+  change is now `{"modified": true, "dryRun": true}` — before, it was only the
+  trap half.
+
+### Fixed — `--schema` never demands a subject
+
+- `edit <verb> --schema` (all twelve), `search --schema`, `inspect --schema`,
+  `references --schema`, `format --schema`: exit 0 and print the schema with no
+  other input (capturing them previously required a dummy file). Usage errors
+  are unchanged: exit 64, same messages. Pinned by
+  `allSchemasPrintWithoutInput` over the vocabulary's verb lists.
+
+### Changed — the descriptions say which dialect they mean
+
+- every description that claimed `isError` now names the dialect: JSON-RPC
+  carries `isError`; the one-shot plugin dialect folds the failure into
+  `result` prefixed `Error: `. The manifest states the contract once: exit
+  codes do not report tool outcomes — read `status` on an `EditResult`, the
+  `Error: ` prefix otherwise.
+- pinned by `descriptionsNameTheDialect`: a description that mentions `isError`
+  without naming the dialect fails the suite.
+
+### Docs
+
+- **new** `docs/agent-surface.md` — the harness author's page: the two
+  dialects and their exact frames, the `EditResult` contract, paths and the
+  no-shell rule, and the recommended loop.
+
 ## 3.0.0
 
 **Breaking — the public surface was renamed for clarity. No mechanics, payload

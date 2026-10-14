@@ -19,6 +19,7 @@ struct SwiftCodeQuery: AsyncParsableCommand {
             FindCommand.self,
             QueryCommand.self,
             SearchCommand.self,
+            ReadCommand.self,
             InspectCommand.self,
             ReferencesCommand.self,
             DependenciesCommand.self,

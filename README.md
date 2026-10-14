@@ -52,7 +52,7 @@ with no plugin files at all.
 
 ### the tool surface
 
-Twenty-three tools, one per agent-facing verb. The read-only tools never write;
+Twenty-five tools, one per agent-facing verb. The read-only tools never write;
 the build/test tools run in an isolated scratch directory (the package's real
 `.build` is never touched) and `pkg_clean` sweeps only stale audit scratch.
 
@@ -61,8 +61,10 @@ transport the read-only tools use. Each verb maps onto the CLI edit subcommand
 and inherits its safety contract: the result is re-parsed and the write withheld
 when the edit would not parse (unless `force` is set), `dry_run` previews the
 change — diff included — without writing, and a selector that matched nothing,
-or a write withheld by verification, reports through the MCP `isError` flag.
-Payloads are the CLI's compact single-line `EditResult` JSON.
+or a write withheld by verification, reports through `isError` on the JSON-RPC
+dialect (the one-shot plugin dialect folds the failure into `result` prefixed
+`Error: `). Payloads are the CLI's compact single-line `EditResult` JSON, and a
+miss includes `suggestions` — the closest lines, numbered.
 
 **Cost.** The read-only `pkg_*` tools answer in seconds. `pkg_build` and
 `pkg_test` perform a real cold compile (and, for `pkg_test`, run the suite) and
@@ -71,8 +73,8 @@ returns the broad picture — targets, dependencies, findings, build/test
 verdicts, doc coverage — in a single round-trip, worth it when you don't yet
 know what you need; the granular `pkg_*` tools cost one call each but let you
 stop as soon as you have the answer. A failed `pkg_build` / `pkg_test` /
-`pkg_validate` reports through the MCP `isError` flag rather than quietly in
-the payload.
+`pkg_validate` reports through `isError` on the JSON-RPC dialect rather than
+quietly in the payload (one-shot: `result` prefixed `Error: `).
 
 **stdin is a pipe, and it must close.** These tools read a JSON-RPC frame
 stream from **stdin** (via `plugin` or a native MCP stdio client), so stdin
@@ -92,6 +94,8 @@ one — always close stdin when you are done writing frames.
 | `pkg_clean` | sweep stale audit scratch (never real build products) |
 | `pkg_force_unwraps` | force-unwrap usage, classified by subkind |
 | `pkg_validate` | syntax-validation gate |
+| `pkg_search` | locate text across a package (every matching line with location and context) |
+| `pkg_read` | a file's text with line numbers — the exact text an edit needs (bounded; reports truncation) |
 | `pkg_edit_replace` | replace literal text (every occurrence) |
 | `pkg_edit_rename` | AST-rename a symbol and every reference to it in the file |
 | `pkg_edit_insert`, `pkg_edit_delete` | insert at a line/pattern, or delete by line range / symbol / pattern |
@@ -198,8 +202,8 @@ hermes mcp remove utilitykit          # if it was registered as an MCP server
 ### Verify
 
 ```bash
-swift-package-tool --version         # e.g. 3.0.0+f8aedbd.dirty — see "build provenance" below
-swift-package-tool plugin --mcp-list # the 23-tool surface this binary serves
+swift-package-tool --version         # e.g. 3.1.0+f8aedbd.dirty — see "build provenance" below
+swift-package-tool plugin --mcp-list # the 25-tool surface this binary serves
 hermes mcp list | grep utilitykit    # when registered with Hermes
 ```
 
@@ -371,6 +375,17 @@ swift-package-tool search "func (foo|bar)" Sources/ --regex --context 2
 
 # case-insensitive, compact output for small models
 swift-package-tool search "normalize" Sources/ --ignore-case --output-format compact
+```
+
+**read** — print a file's text with line numbers; the way to obtain the exact
+text an edit needs. Bounded (default 400 lines) and explicit when it truncates:
+
+```bash
+# the head of a file, numbered — the retry material for a missed edit
+swift-package-tool read Sources/Foo.swift
+
+# a range, machine-readable: total_lines, range, per-line {n, text}
+swift-package-tool read Sources/Foo.swift --lines 40-80 --output-format json
 ```
 
 **references** — find every usage of a symbol (declarations + calls + accesses):

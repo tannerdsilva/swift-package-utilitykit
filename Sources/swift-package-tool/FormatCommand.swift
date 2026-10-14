@@ -12,7 +12,7 @@ struct FormatCommand: ParsableCommand {
     )
 
     @Argument(help: "Swift source file(s) to format.")
-    var files: [String]
+    var files: [String] = []
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Minify for LLM consumption (strip all non-semantic whitespace).")
     var minify = false
@@ -36,6 +36,9 @@ struct FormatCommand: ParsableCommand {
         if schema {
             print(FormatResult.jsonSchema)
             return
+        }
+        guard !files.isEmpty else {
+            throw ValidationError("Missing expected argument '<files> ...'")
         }
         let useMinify = minify && !pretty
 

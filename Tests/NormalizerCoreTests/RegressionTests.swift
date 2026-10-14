@@ -829,7 +829,7 @@ extension NormalizerCoreTestsRoot {
 
             let (out, code) = try await runTool(["--version"])
             #expect(code == 0, "\(out)")
-            #expect(out.contains("3.0.0"), "the semantic version leads: \(out)")
+            #expect(out.contains("3.1.0"), "the semantic version leads: \(out)")
             if headCode == 0, !short.isEmpty {
                 #expect(out.contains("+\(short)"), "the version must name the commit it was built from: \(out)")
             }

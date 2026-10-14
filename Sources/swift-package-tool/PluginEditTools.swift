@@ -28,9 +28,11 @@ import MCP
 // the result is RE-PARSED and the write is withheld when the edit would not
 // parse (unless `force` is set), and `dry_run` previews the change — diff
 // included — without touching the file. A selector that matched nothing, or a
-// write withheld by verification, is a real failure and surfaces through the
-// MCP `isError` channel (the EditResult payload rides along verbatim after the
-// `Error: ` prefix). Output is the compact single-line EditResult JSON.
+// write withheld by verification, is a real failure: it surfaces as
+// `isError: true` on the JSON-RPC dialect, while the one-shot plugin dialect
+// renders it as the `result` string prefixed `Error: ` — either way the
+// EditResult payload rides along verbatim. Output is the compact single-line
+// EditResult JSON.
 //
 // Verb-specific parameters are optional in the schema (the wrapper's `@Option`
 // is optional-by-construction); the subcommand validates the combination and
@@ -47,7 +49,7 @@ import MCP
 // `print("a\nb")` would be rewritten into a line break.
 
 @MCPCommand(
-    description: "replace exact text in a Swift source file (every occurrence). a selector that matches nothing, or a result that would not parse, is a real failure, reported through the MCP isError flag; set dry_run to preview the change (diff included) without writing.",
+    description: "replace exact text in a Swift source file (every occurrence). a selector that matches nothing, or a result that would not parse, is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the change (diff included) without writing.",
     name: "pkg_edit_replace"
 )
 struct PkgEditReplace {
@@ -79,7 +81,7 @@ struct PkgEditReplace {
 }
 
 @MCPCommand(
-    description: "rename a symbol and every one of its references in a Swift source file (AST-aware: the token tree is rewritten, not the text). a miss or a result that would not parse is a real failure, reported through the MCP isError flag; set dry_run to preview the diff without writing.",
+    description: "rename a symbol and every one of its references in a Swift source file (AST-aware: the token tree is rewritten, not the text). a miss or a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the diff without writing.",
     name: "pkg_edit_rename"
 )
 struct PkgEditRename {
@@ -110,7 +112,7 @@ struct PkgEditRename {
 }
 
 @MCPCommand(
-    description: "insert code into a Swift source file at a precise location: after the first line containing a pattern, before it, or at an absolute line number. exactly one of after/before/at_line is required. inserted lines inherit the anchor line's indentation. a miss or a result that would not parse is a real failure, reported through the MCP isError flag.",
+    description: "insert code into a Swift source file at a precise location: after the first line containing a pattern, before it, or at an absolute line number. exactly one of after/before/at_line is required. inserted lines inherit the anchor line's indentation. a miss or a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `.",
     name: "pkg_edit_insert"
 )
 struct PkgEditInsert {
@@ -150,7 +152,7 @@ struct PkgEditInsert {
 }
 
 @MCPCommand(
-    description: "remove code from a Swift source file by line range ('10-20'), by symbol name (AST-aware: the declaration and its doc comment go together), or by removing every line matching a pattern. exactly one of lines/symbol/matching is required. a miss or a result that would not parse is a real failure, reported through the MCP isError flag.",
+    description: "remove code from a Swift source file by line range ('10-20'), by symbol name (AST-aware: the declaration and its doc comment go together), or by removing every line matching a pattern. exactly one of lines/symbol/matching is required. a miss or a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `.",
     name: "pkg_edit_delete"
 )
 struct PkgEditDelete {
@@ -185,7 +187,7 @@ struct PkgEditDelete {
 }
 
 @MCPCommand(
-    description: "add code at the beginning of a Swift source file, or (after_imports) immediately after the last import statement. a result that would not parse is a real failure, reported through the MCP isError flag; set dry_run to preview the diff without writing.",
+    description: "add code at the beginning of a Swift source file, or (after_imports) immediately after the last import statement. a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the diff without writing.",
     name: "pkg_edit_prepend"
 )
 struct PkgEditPrepend {
@@ -217,7 +219,7 @@ struct PkgEditPrepend {
 }
 
 @MCPCommand(
-    description: "add code at the end of a Swift source file. a result that would not parse is a real failure, reported through the MCP isError flag; set dry_run to preview the diff without writing.",
+    description: "add code at the end of a Swift source file. a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the diff without writing.",
     name: "pkg_edit_append"
 )
 struct PkgEditAppend {
@@ -272,7 +274,7 @@ struct PkgEditAddImport {
 }
 
 @MCPCommand(
-    description: "add a protocol conformance to a type declaration (AST-aware: it appends to the type's inheritance clause). a type that already conforms is a benign skip (status alreadyCurrent); a type that is not found is a real failure, reported through the MCP isError flag.",
+    description: "add a protocol conformance to a type declaration (AST-aware: it appends to the type's inheritance clause). a type that already conforms is a benign skip (status alreadyCurrent); a type that is not found is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `.",
     name: "pkg_edit_add_conformance"
 )
 struct PkgEditAddConformance {
@@ -303,7 +305,7 @@ struct PkgEditAddConformance {
 }
 
 @MCPCommand(
-    description: "add a member to a type declaration (AST-aware: it inserts before the type's closing brace, indented to match). exactly one of property/method/case_name is required. the method body is taken verbatim. a type that is not found is a real failure, reported through the MCP isError flag.",
+    description: "add a member to a type declaration (AST-aware: it inserts before the type's closing brace, indented to match). exactly one of property/method/case_name is required. the method body is taken verbatim. a type that is not found is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `.",
     name: "pkg_edit_add_member"
 )
 struct PkgEditAddMember {
@@ -359,7 +361,7 @@ struct PkgEditAddMember {
 }
 
 @MCPCommand(
-    description: "wrap a range of lines in a syntactic container: do-catch, if-let, guard-let, or do. variable is required for if-let/guard-let; else_body is the else block for guard-let. the wrapped lines are re-indented inside the container. a range that selects no lines is a real failure, reported through the MCP isError flag.",
+    description: "wrap a range of lines in a syntactic container: do-catch, if-let, guard-let, or do. variable is required for if-let/guard-let; else_body is the else block for guard-let. the wrapped lines are re-indented inside the container. a range that selects no lines is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `.",
     name: "pkg_edit_wrap"
 )
 struct PkgEditWrap {
@@ -401,7 +403,7 @@ struct PkgEditWrap {
 }
 
 @MCPCommand(
-    description: "sort the members of a type declaration (AST-aware). by name (default) orders by member name; by kind groups properties before methods before nested types. a type that is not found is a real failure, reported through the MCP isError flag; an already-sorted type is a benign skip.",
+    description: "sort the members of a type declaration (AST-aware). by name (default) orders by member name; by kind groups properties before methods before nested types. a type that is not found is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; an already-sorted type is a benign skip.",
     name: "pkg_edit_sort"
 )
 struct PkgEditSort {
@@ -432,7 +434,7 @@ struct PkgEditSort {
 }
 
 @MCPCommand(
-    description: "apply a sequence of edit operations to one or more Swift files from a JSON plan file — a single round-trip for a multi-file refactor. the plan is {\"operations\": [ {\"command\": ..., \"file\": ...} ]}, applied in plan order. each command adds its own fields: add-import module; insert content + one anchor (after | before | atLine); replace old + new; append content (at end of file) / prepend content (+ afterImports, which append refuses); delete one selector (pattern | startLine+endLine | symbol); add-member typeName + one of property | method | caseName (plus body, associated, defaultValue, access); add-conformance typeName + protocolName. these are the PLAN's keys, not always the standalone command's flags (the plan spells --type as typeName), and a mistyped key decodes to null, surfacing as that command's 'requires ...' error rather than a hint about the typo. every operation is applied in plan order; a plan with any missed or failed operation is a real failure, reported through the MCP isError flag (each per-operation EditResult rides along). set fail_fast to stop at the first failure. content fields inside the plan are taken verbatim too — backslashes land as written, so a Swift string-literal escape needs no doubling.",
+    description: "apply a sequence of edit operations to one or more Swift files from a JSON plan file — a single round-trip for a multi-file refactor. the plan is {\"operations\": [ {\"command\": ..., \"file\": ...} ]}, applied in plan order. each command adds its own fields: add-import module; insert content + one anchor (after | before | atLine); replace old + new; append content (at end of file) / prepend content (+ afterImports, which append refuses); delete one selector (pattern | startLine+endLine | symbol); add-member typeName + one of property | method | caseName (plus body, associated, defaultValue, access); add-conformance typeName + protocolName. these are the PLAN's keys, not always the standalone command's flags (the plan spells --type as typeName), and a mistyped key decodes to null, surfacing as that command's 'requires ...' error rather than a hint about the typo. every operation is applied in plan order; a plan with any missed or failed operation is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: ` (each per-operation EditResult rides along). set fail_fast to stop at the first failure. content fields inside the plan are taken verbatim too — backslashes land as written, so a Swift string-literal escape needs no doubling.",
     name: "pkg_edit_batch"
 )
 struct PkgEditBatch {

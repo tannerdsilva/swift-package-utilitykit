@@ -19,7 +19,7 @@ struct RenameCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "The current name of the symbol to rename.")
     var oldName: String?
@@ -53,13 +53,16 @@ struct RenameCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
         guard let oldName, let newName else {
             throw ValidationError("--old-name and --new-name are both required")
         }
-        try runSymbolRename(oldName: oldName, newName: newName)
+        try runSymbolRename(file: file, oldName: oldName, newName: newName)
     }
 
-    private func runSymbolRename(oldName: String, newName: String) throws {
+    private func runSymbolRename(file: String, oldName: String, newName: String) throws {
         let resolved = NSString(string: file).standardizingPath
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
@@ -69,7 +72,7 @@ struct RenameCommand: ParsableCommand, EditCommand {
         let modifiedTree = rewriter.rewrite(tree)
 
         guard rewriter.renameCount > 0 else {
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found", status: .missed)
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no references to '\(oldName)' found", status: .missed, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -79,7 +82,7 @@ struct RenameCommand: ParsableCommand, EditCommand {
         let original = source
         if modified == original {
             // a rename to the same name reproduces the file byte-for-byte
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "rename produced no change", status: .alreadyCurrent)
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "rename produced no change", status: .alreadyCurrent, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -98,14 +101,14 @@ struct RenameCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -117,7 +120,7 @@ struct RenameCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied, dryRun: dryRun)
         try emitEditResult(result)
     }
 }

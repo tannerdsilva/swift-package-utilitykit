@@ -11,10 +11,10 @@ struct ReferencesCommand: ParsableCommand {
     )
 
     @Argument(help: "Symbol name to find references for.")
-    var symbol: String
+    var symbol: String?
 
     @Argument(help: "Files or directories to search.")
-    var paths: [String]
+    var paths: [String] = []
 
     @Option(name: .long, help: "Output format: json, compact, csv, short.")
     var outputFormat: OutputFormat = .compact
@@ -41,6 +41,9 @@ struct ReferencesCommand: ParsableCommand {
         if schema {
             print(SymbolReference.jsonSchema)
             return
+        }
+        guard let symbol else {
+            throw ValidationError("Missing expected argument '<symbol>'")
         }
         let files = collectSwiftFiles(
             from: paths.isEmpty ? ["."] : paths,

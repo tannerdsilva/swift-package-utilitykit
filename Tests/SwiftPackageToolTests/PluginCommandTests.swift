@@ -80,13 +80,13 @@ extension SwiftPackageToolTestsRoot {
             #expect(run.status == 0)
             let manifest = try run.stdoutJSON()
             #expect(manifest["name"] as? String == "swift-package-utilitykit")
-            #expect(manifest["version"] as? String == "3.0.0")
+            #expect(manifest["version"] as? String == "3.1.0")
 
             let tools = manifest["tools"] as? [[String: Any]] ?? []
             let names = tools.compactMap { $0["name"] as? String }
             #expect(names == ["pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
                               "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
-                              "pkg_public_api", "pkg_force_unwraps", "pkg_validate",
+                              "pkg_public_api", "pkg_force_unwraps", "pkg_validate", "pkg_read", "pkg_search",
                               "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
                               "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
                               "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",

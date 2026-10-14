@@ -155,7 +155,7 @@ extension NormalizerCoreTestsRoot {
         @Test("--version flag works")
         func versionFlag() async throws {
             let output = try await runCommand(["--version"])
-            #expect(output.contains("3.0.0"))
+            #expect(output.contains("3.1.0"))
         }
 
         // MARK: - comment handling

@@ -17,7 +17,7 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "Text to find.")
     var old: String?
@@ -54,13 +54,16 @@ struct ReplaceCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
         guard let old, let new else {
             throw ValidationError("--old and --new are both required")
         }
-        try runTextReplace(old: old, new: new)
+        try runTextReplace(file: file, old: old, new: new)
     }
 
-    private func runTextReplace(old: String, new: String) throws {
+    private func runTextReplace(file: String, old: String, new: String) throws {
         let processedNew = FileEditor.content(new, literal: literalContent)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force

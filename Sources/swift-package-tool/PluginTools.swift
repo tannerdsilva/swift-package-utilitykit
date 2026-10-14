@@ -64,7 +64,7 @@ func requiredAbsolutePath(_ raw: String) throws -> String {
 // never destroy a consumer's build products through this surface.
 
 @MCPCommand(
-    description: "build a Swift package (or one target) and return a structured verdict: pass/fail, error/warning counts with diagnostics, exit status. a real cold compile in an isolated scratch dir - the slowest tool, seconds to minutes. a failed build reports through the MCP isError flag; the package's real .build is never touched.",
+    description: "build a Swift package (or one target) and return a structured verdict: pass/fail, error/warning counts with diagnostics, exit status. a real cold compile in an isolated scratch dir - the slowest tool, seconds to minutes. a failed build reports through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; the package's real .build is never touched.",
     name: "pkg_build"
 )
 struct PkgBuild {
@@ -157,7 +157,7 @@ struct PkgTargets {
 }
 
 @MCPCommand(
-    description: "run a Swift package's test suite and return a structured verdict: pass/fail, executed/failed test counts, exit status. a real cold compile-and-run in an isolated scratch dir, minutes. a failed run reports through the MCP isError flag; the package's real .build is never touched.",
+    description: "run a Swift package's test suite and return a structured verdict: pass/fail, executed/failed test counts, exit status. a real cold compile-and-run in an isolated scratch dir, minutes. a failed run reports through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; the package's real .build is never touched.",
     name: "pkg_test"
 )
 struct PkgTest {
@@ -269,7 +269,7 @@ struct PkgForceUnwraps {
 }
 
 @MCPCommand(
-    description: "syntax check: parse Swift source files and report parser diagnostics as a pass/fail gate. errors present is a failure, reported through the MCP isError flag. read-only; answers in seconds.",
+    description: "syntax check: parse Swift source files and report parser diagnostics as a pass/fail gate. errors present is a failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `. read-only; answers in seconds.",
     name: "pkg_validate"
 )
 struct PkgValidate {
@@ -286,6 +286,56 @@ struct PkgValidate {
     }
 }
 
+@MCPCommand(
+    description: "read a file's text with line numbers: the way to obtain the exact text an edit needs. bounded output; reports truncation. pass `lines` (e.g. \"10-20\", 1-based inclusive) to read a range. use this BEFORE pkg_edit_replace/_insert/_wrap, and use pkg_search to locate text across a package. read-only.",
+    name: "pkg_read"
+)
+struct PkgRead {
+    @Argument(description: "absolute path to the file to read")
+    var path: String = ""
+
+    @Option(description: "line range, e.g. \"10-20\" (1-based, inclusive); omit for the head")
+    var lines: String? = nil
+
+    @Option(description: "stop after this many lines (default 400)")
+    var maxLines: Int? = nil
+
+    func run() async throws -> String {
+        var argv = ["read", try requiredAbsolutePath(path)]
+        if let lines { argv += ["--lines", lines] }
+        if let maxLines { argv += ["--max-lines", String(maxLines)] }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
+    description: "search a Swift package or source directory for a pattern and return every matching line with its location and surrounding context. plain text unless regex is true. `pattern` is required — pass the text to find. read-only; use it to locate text across a package, then pkg_read for the full text an edit needs.",
+    name: "pkg_search"
+)
+struct PkgSearch {
+    @Argument(description: "absolute path to the package directory or source files to search")
+    var path: String = ""
+
+    @Option(description: "search pattern (plain text unless regex is true)")
+    var pattern: String? = nil
+
+    @Option(description: "lines of context to show before and after each match")
+    var context: Int? = nil
+
+    @Flag(description: "treat the pattern as a regular expression")
+    var regex: Bool = false
+
+    func run() async throws -> String {
+        guard let pattern, !pattern.isEmpty else {
+            throw PluginToolError("'pattern' is required — pass the text to search for")
+        }
+        var argv = ["search", pattern, try requiredAbsolutePath(path)]
+        if let context { argv += ["--context", String(context)] }
+        if regex { argv.append("--regex") }
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
 // MARK: - The one-shot host
 
 /// The compiled harness surface: one `@MCPCommand` per agent-facing tool.
@@ -297,8 +347,8 @@ struct PkgValidate {
 /// manifests keep the `plugin` entry argv.
 @MCPApplication(
     name: "swift-package-utilitykit",
-    version: "3.0.0",
-    description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
+    version: "3.1.0",
+    description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol. exit codes do not report tool outcomes: read `status` on an `EditResult` payload, or the `Error: ` result prefix.",
     interface: .oneShot
 )
 struct SwiftPackageUtilityKitPlugin {
@@ -313,6 +363,8 @@ struct SwiftPackageUtilityKitPlugin {
     @Tool var publicApi = PkgPublicApi()
     @Tool var forceUnwraps = PkgForceUnwraps()
     @Tool var validate = PkgValidate()
+    @Tool var read = PkgRead()
+    @Tool var search = PkgSearch()
     @Tool var editReplace = PkgEditReplace()
     @Tool var editRename = PkgEditRename()
     @Tool var editInsert = PkgEditInsert()
@@ -338,7 +390,7 @@ enum PluginHost {
         await MCPStdinHost(
             name: "swift-package-utilitykit",
             version: SwiftCodeQuery.packageVersion,
-            description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol.",
+            description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol. exit codes do not report tool outcomes: read `status` on an `EditResult` payload, or the `Error: ` result prefix.",
             dispatcher: SwiftPackageUtilityKitPlugin(),
             configuration: configuration
         ).runMain()
@@ -351,10 +403,11 @@ enum PluginHost {
 /// stays the contract, so no analysis logic is duplicated in the tool layer.
 ///
 /// A non-zero subcommand exit is a real failure, not a payload: the runner
-/// THROWS, so the host router reports it through the framework's documented
-/// `isError` channel (the plugin dialect renders the thrown message as
-/// `Error: <payload>`, with the structured payload intact after the prefix).
-/// A consumer never has to parse prose to learn a tool failed.
+/// THROWS, so the router reports it as `isError: true` on the JSON-RPC
+/// dialect; the one-shot plugin dialect renders the thrown message as
+/// `Error: <payload>`. Either way the structured payload rides along intact
+/// after the prefix — a consumer never has to parse prose to learn a tool
+/// failed.
 enum PluginToolRunner {
     static func run(_ argv: [String]) async throws -> String {
         guard let executable = MCPManifestContext.resolveExecutablePath() else {

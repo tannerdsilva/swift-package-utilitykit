@@ -13,11 +13,11 @@ import SubprocessCore
 /// below run the real binary), instead of drifting silently. the rename tables
 /// are the same ones the CHANGELOG publishes as the 2.x → 3.0 migration guide.
 enum SurfaceVocabulary {
-    /// the 23 agent-facing MCP tool names, in declaration order.
+    /// the 25 agent-facing MCP tool names, in declaration order.
     static let mcpTools: [String] = [
         "pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
         "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
-        "pkg_public_api", "pkg_force_unwraps", "pkg_validate",
+        "pkg_public_api", "pkg_force_unwraps", "pkg_validate", "pkg_read", "pkg_search",
         "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
         "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
         "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
@@ -34,7 +34,7 @@ enum SurfaceVocabulary {
     /// then the package, then `edit`, then harness/install). the `edit` group
     /// is one entry: its verbs live on their own page.
     static let cliRootVerbs: [String] = [
-        "find", "declarations", "search", "inspect", "references", "imports",
+        "find", "declarations", "search", "read", "inspect", "references", "imports",
         "members", "tree", "callgraph", "conformances", "complexity", "index",
         "diff", "format", "macro-expand",
         "overview", "targets", "package-dependencies", "security-scan",
@@ -69,6 +69,12 @@ enum SurfaceVocabulary {
         "pkg_edit_replace": ["old": "old_text", "new": "new_text"],
         "pkg_edit_rename": ["symbol": "old_name", "rename": "new_name"],
     ]
+
+    /// verbs that intentionally declare no `--schema`: the operator verbs whose
+    /// only output is prose for a human (`install`, `uninstall`, `path-wire`),
+    /// and `plugin`, which is a stdio host rather than a verb. every other
+    /// pinned verb must print its schema with no other input.
+    static let noSchemaVerbs: Set<String> = ["install", "uninstall", "path-wire", "plugin"]
 }
 
 // MARK: - black-box helpers
@@ -77,6 +83,15 @@ enum SurfaceVocabulary {
 private func surfaceOutput(_ args: [String], timeout: Duration = .seconds(60)) async throws -> String {
     let outcome = try await Subprocess.capture(absoluteToolPath(), args, timeout: timeout)
     return outcome.stdout
+}
+
+/// run the built binary and return the full outcome — for contract probes that
+/// care whether the process said no.
+private func surfaceRun(
+    _ args: [String], timeout: Duration = .seconds(60)
+) async throws -> (status: Int32, stdout: String, stderr: String) {
+    let outcome = try await Subprocess.capture(absoluteToolPath(), args, timeout: timeout)
+    return (status: outcome.exitCode, stdout: outcome.stdout, stderr: outcome.stderr)
 }
 
 /// the tool names the compiled manifest serves, in order.
@@ -129,7 +144,7 @@ private func helpSubcommands(_ stdout: String) -> [String] {
 @Suite("Surface vocabulary (v3)")
 struct SurfaceVocabularyTests {
 
-    @Test("the compiled manifest serves exactly the 23 pinned tool names")
+    @Test("the compiled manifest serves exactly the 25 pinned tool names")
     func manifestServesPinnedToolNames() async throws {
         let names = try manifestToolNames(try await surfaceOutput(["plugin", "--mcp-list"]))
         #expect(names == SurfaceVocabulary.mcpTools)
@@ -152,6 +167,61 @@ struct SurfaceVocabularyTests {
                 #expect(params.contains(new), "\(tool) is missing its \(new) parameter")
                 #expect(!params.contains(old), "\(tool) still exposes the v2 \(old) parameter")
             }
+        }
+    }
+
+    @Test("pkg_read is served and needs only a path")
+    func pkgReadServed() async throws {
+        let stdout = try await surfaceOutput(["plugin", "--mcp-list"])
+        let params = try manifestParameters(stdout, tool: "pkg_read")
+        #expect(params.contains("path"))
+        #expect(params.contains("lines"))
+    }
+
+    @Test("pkg_search is served and needs only a path")
+    func pkgSearchServed() async throws {
+        let stdout = try await surfaceOutput(["plugin", "--mcp-list"])
+        let params = try manifestParameters(stdout, tool: "pkg_search")
+        #expect(params.contains("path"))
+        #expect(params.contains("pattern"))
+    }
+
+    @Test("every pinned verb prints its schema with no other input")
+    func allSchemasPrintWithoutInput() async throws {
+        // the pinned lists, walked exactly as the surface renders them: root
+        // verbs first (the edit group expands to its twelve verbs under their
+        // own entry), then each edit verb. `--schema` must never demand a
+        // subject — capturing a schema needs no file.
+        var invocations: [[String]] = SurfaceVocabulary.cliRootVerbs
+            .filter { $0 != "edit" && !SurfaceVocabulary.noSchemaVerbs.contains($0) }
+            .map { [$0] }
+        invocations += SurfaceVocabulary.editVerbs.map { ["edit", $0] }
+
+        for argv in invocations {
+            let run = try await surfaceRun(argv + ["--schema"])
+            #expect(run.status == 0, "\(argv.joined(separator: " ")) --schema: \(run.stderr)")
+            #expect(run.stdout.contains("\"title\""),
+                    "\(argv.joined(separator: " ")) printed no schema: \(run.stdout.prefix(160))")
+        }
+    }
+
+    @Test("no tool description claims isError without naming the dialect")
+    func descriptionsNameTheDialect() async throws {
+        // the failure contract differs by dialect: JSON-RPC carries isError;
+        // the one-shot plugin dialect folds the failure into `result` prefixed
+        // `Error: `. a description that says only "isError" is a lie on one of
+        // the two wires — measured, this release's original defect.
+        let stdout = try await surfaceOutput(["plugin", "--mcp-list"])
+        guard let json = try JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any],
+              let tools = json["tools"] as? [[String: Any]] else {
+            throw TestError("no manifest envelope in: \(stdout.prefix(300))")
+        }
+        for tool in tools {
+            let name = tool["name"] as? String ?? "?"
+            let description = tool["description"] as? String ?? ""
+            guard description.contains("isError") else { continue }
+            #expect(description.contains("dialect"),
+                    "\(name): the description claims isError but never names the dialect")
         }
     }
 

@@ -17,7 +17,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "Line range to remove (e.g. '10-20').")
     var lines: String?
@@ -54,13 +54,16 @@ struct DeleteCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
         let modes = [lines != nil, symbol != nil, matching != nil].filter { $0 }.count
         guard modes == 1 else {
             throw ValidationError("specify exactly one of --lines, --symbol, or --matching")
         }
 
         if let s = symbol {
-            try runSymbolDelete(name: s)
+            try runSymbolDelete(file: file, name: s)
             return
         }
 
@@ -101,7 +104,7 @@ struct DeleteCommand: ParsableCommand, EditCommand {
         try emitEditResult(result)
     }
 
-    private func runSymbolDelete(name: String) throws {
+    private func runSymbolDelete(file: String, name: String) throws {
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
         ) { source in

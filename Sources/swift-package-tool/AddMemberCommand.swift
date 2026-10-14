@@ -14,10 +14,10 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .customLong("type"), help: "Type name to add the member to.")
-    var typeName: String
+    var typeName: String? = nil
 
     @Option(name: .customLong("property"), help: "Property declaration (e.g. 'var x: Int').")
     var property: String?
@@ -69,6 +69,12 @@ struct AddMemberCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let typeName else {
+            throw ValidationError("Missing expected argument '--type <type>'")
+        }
         let modes = [property != nil, method != nil, caseName != nil].filter { $0 }.count
         guard modes == 1 else {
             throw ValidationError("specify exactly one of --property, --method, or --case")

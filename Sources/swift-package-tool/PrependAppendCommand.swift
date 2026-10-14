@@ -10,10 +10,10 @@ struct PrependCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "Content to prepend. Use \\n for newlines.")
-    var content: String
+    var content: String? = nil
 
     @Flag(name: .customLong("after-imports"), help: "Insert after the last import statement instead of at line 1.")
     var afterImports = false
@@ -47,6 +47,12 @@ struct PrependCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let content else {
+            throw ValidationError("Missing expected argument '--content <content>'")
+        }
         let processedContent = FileEditor.content(content, literal: literalContent)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
@@ -77,10 +83,10 @@ struct AppendCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .long, help: "Content to append. Use \\n for newlines.")
-    var content: String
+    var content: String? = nil
 
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
@@ -111,6 +117,12 @@ struct AppendCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let content else {
+            throw ValidationError("Missing expected argument '--content <content>'")
+        }
         let processedContent = FileEditor.content(content, literal: literalContent)
         let result = try FileEditor.edit(
             file: file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force

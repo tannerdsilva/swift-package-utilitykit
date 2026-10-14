@@ -9,13 +9,13 @@ struct WrapCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .customLong("lines"), help: "Line range to wrap (e.g. '10-20').")
-    var lineRange: String
+    var lineRange: String? = nil
 
     @Option(name: .customLong("in"), help: "Container type: do-catch, if-let, guard-let, do.")
-    var container: String
+    var container: String? = nil
 
     @Option(name: .customLong("variable"), help: "Variable name for if-let/guard-let.")
     var variable: String?
@@ -49,10 +49,16 @@ struct WrapCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
-        let parts = lineRange.split(separator: "-")
-        guard parts.count == 2, let startLine = Int(parts[0]), let endLine = Int(parts[1]) else {
-            throw ValidationError("invalid line range '\(lineRange)'; use format '10-20'")
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
         }
+        guard let lineRange else {
+            throw ValidationError("Missing expected argument '--lines <lines>'")
+        }
+        guard let container else {
+            throw ValidationError("Missing expected argument '--in <in>'")
+        }
+        let (startLine, endLine) = try parseLineRange(lineRange)
 
         guard ["do-catch", "if-let", "guard-let", "do"].contains(container) else {
             throw ValidationError("unsupported container '\(container)'; use do-catch, if-let, guard-let, or do")

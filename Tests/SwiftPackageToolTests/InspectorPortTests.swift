@@ -623,7 +623,7 @@ extension SwiftPackageToolTestsRoot {
     @Suite("Inspector port: tool surface")
     struct InspectorToolSurfacePortTests {
 
-        @Test("the manifest describes all 23 tools with a path-required schema")
+        @Test("the manifest describes all 25 tools with a path-required schema")
         func toolSchemaShape() async throws {
             let output = try await runToolStdout(["plugin", "--mcp-manifest", "arc"])
             let manifest = try #require(
@@ -634,7 +634,7 @@ extension SwiftPackageToolTestsRoot {
             #expect(names == [
                 "pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
                 "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
-                "pkg_public_api", "pkg_force_unwraps", "pkg_validate",
+                "pkg_public_api", "pkg_force_unwraps", "pkg_validate", "pkg_read", "pkg_search",
                 "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
                 "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
                 "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
@@ -730,6 +730,13 @@ extension SwiftPackageToolTestsRoot {
                     "no force unwraps in the fixture")
             #expect(try await array(try pluginTool("pkg_validate", ["path": root])).isEmpty,
                     "a clean fixture validates with no diagnostics")
+
+            // the read path: locate, then read (the loop the read tools exist for)
+            let found = try array(try await pluginTool("pkg_search", ["pattern": "Documented", "path": root]))
+            #expect(found.contains { ($0["lineContent"] as? String)?.contains("Documented") == true },
+                    "\(found)")
+            let readBack = try await pluginTool("pkg_read", ["path": root + "/Sources/Surface/Surface.swift"])
+            #expect(readBack.contains("public struct Surface {}"), "\(readBack.prefix(200))")
 
             // the audit-safe mutating tools (build/test report one result object per phase)
             let buildRun = try array(try await pluginTool("pkg_build", ["path": root]))

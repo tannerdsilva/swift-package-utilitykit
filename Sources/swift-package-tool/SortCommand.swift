@@ -12,10 +12,10 @@ struct SortCommand: ParsableCommand, EditCommand {
     )
 
     @Argument(help: "File to edit.")
-    var file: String
+    var file: String?
 
     @Option(name: .customLong("type"), help: "Type name to sort members of.")
-    var typeName: String
+    var typeName: String? = nil
 
     @Option(name: .customLong("by"), help: "Sort key: name (default) or kind.")
     var sortBy: String = "name"
@@ -46,6 +46,12 @@ struct SortCommand: ParsableCommand, EditCommand {
 
     mutating func run() throws {
         if printSchemaIfRequested() { return }
+        guard let file else {
+            throw ValidationError("Missing expected argument '<file>'")
+        }
+        guard let typeName else {
+            throw ValidationError("Missing expected argument '--type <type>'")
+        }
         let resolved = NSString(string: file).standardizingPath
         let source = try String(contentsOfFile: resolved, encoding: .utf8)
         let tree = Parser.parse(source: source)
@@ -56,11 +62,11 @@ struct SortCommand: ParsableCommand, EditCommand {
 
         guard rewriter.didModify else {
             if rewriter.notFound {
-                let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed)
+                let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed, dryRun: dryRun)
                 try emitEditResult(result)
                 return
             }
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "only one member; nothing to sort", status: .alreadyCurrent)
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "only one member; nothing to sort", status: .alreadyCurrent, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -70,7 +76,7 @@ struct SortCommand: ParsableCommand, EditCommand {
         let original = source
         if modified == original {
             // a sort whose output is byte-identical changed nothing
-            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "members of '\(typeName)' are already sorted", status: .alreadyCurrent)
+            let result = EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "members of '\(typeName)' are already sorted", status: .alreadyCurrent, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -89,14 +95,14 @@ struct SortCommand: ParsableCommand, EditCommand {
         let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
 
         if dryRun {
-            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked)
+            let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
 
         // block the write when verification fails unless --force is set
         guard verified || force else {
-            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked)
+            let result = EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked, dryRun: dryRun)
             try emitEditResult(result)
             return
         }
@@ -108,7 +114,7 @@ struct SortCommand: ParsableCommand, EditCommand {
         let target = outputPath.isEmpty ? resolved : outputPath
         try modified.write(toFile: target, atomically: true, encoding: .utf8)
 
-        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied)
+        let result = EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied, dryRun: dryRun)
         try emitEditResult(result)
     }
 }
