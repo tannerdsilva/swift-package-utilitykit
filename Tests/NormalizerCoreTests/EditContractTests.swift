@@ -463,5 +463,41 @@ extension NormalizerCoreTestsRoot {
             #expect(code != 0, "\(out)")
             #expect(out.contains("typeName"), "the plan's own key must be named: \(out)")
         }
+
+        @Test("a malformed batch plan names its JSON location — never '?' and never Swift's Index")
+        func batchPlanDiagnosticsNameJSONLocations() async throws {
+            // the location has to be the JSON the author wrote. before this, a
+            // top-level array decoded to `... for key '?'` and an array element
+            // was reported as a KEY with Swift's own `Index 0` description.
+            let cases: [(name: String, plan: String, expected: [String])] = [
+                ("bare-array", #"[{"command":"insert","file":"a.swift"}]"#,
+                 ["expected an object like", "at root"]),
+                ("no-operations", #"{}"#, ["missing key 'operations' at root"]),
+                ("operations-not-array", #"{"operations":{}}"#, ["expected array at operations"]),
+                ("operation-not-object", #"{"operations":[42]}"#, ["expected object at operations[0]"]),
+                ("second-op-not-object",
+                 #"{"operations":[{"command":"insert","file":"a.swift"},42]}"#,
+                 ["expected object at operations[1]"]),
+                ("null-command", #"{"operations":[{"command":null,"file":"a.swift"}]}"#,
+                 ["expected string at operations[0].command, found null"]),
+                ("missing-file", #"{"operations":[{"command":"insert"}]}"#,
+                 ["missing key 'file' at operations[0]"]),
+                ("not-json", "not json at all", ["data corrupted"]),
+            ]
+
+            for c in cases {
+                let planPath = try makeTempFile(c.plan, "batch-diag-\(c.name).json")
+                defer { cleanup(planPath) }
+
+                let (out, code) = try await runTool(["edit", "batch", planPath])
+                #expect(code != 0, "\(c.name): a malformed plan must exit non-zero: \(out)")
+                for needle in c.expected {
+                    #expect(out.contains(needle), "\(c.name): expected '\(needle)' in: \(out)")
+                }
+                #expect(!out.contains("'?'"), "\(c.name): the location never falls back to '?': \(out)")
+                #expect(!out.contains("Index "), "\(c.name): never Swift's index vocabulary: \(out)")
+                #expect(!out.contains("Dictionary<"), "\(c.name): JSON shapes, not Swift metatypes: \(out)")
+            }
+        }
     }
 }

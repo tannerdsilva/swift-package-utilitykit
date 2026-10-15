@@ -520,20 +520,59 @@ struct BatchResult: Codable, Sendable {
 }
 
 /// human-readable summary of a JSON decoding failure in a batch plan.
+///
+/// the location is rendered in the plan's own vocabulary — `root`,
+/// `operations`, `operations[0].command` — never a bare `?` and never Swift's
+/// `Index 0` description: whoever reads the message has to see the JSON they
+/// wrote, and a positional array element is not a key.
 func batchDecodingMessage(_ error: DecodingError) -> String {
     switch error {
     case .dataCorrupted(let ctx):
         return "data corrupted: \(ctx.debugDescription)"
     case .keyNotFound(let key, let ctx):
-        let path = ctx.codingPath.map(\.stringValue).joined(separator: ".")
-        return "missing key '\(key.stringValue)' at \(path.isEmpty ? "root" : path)"
+        return "missing key '\(key.stringValue)' at \(batchPlanLocation(ctx.codingPath))"
     case .typeMismatch(let type, let ctx):
-        return "type mismatch (expected \(type)) for key '\(ctx.codingPath.last?.stringValue ?? "?")'"
+        let shape = batchJSONShape(type)
+        // an empty coding path is the document root, and the root has exactly
+        // one legal shape — say what it is instead of naming a key that is not
+        // there (a top-level array decoded to the cryptic `key '?'` before).
+        // the decoder reports the shape it EXPECTED, so the message states that
+        // and never guesses at what the document actually held.
+        if ctx.codingPath.isEmpty {
+            return "expected an object like {\"operations\": [...]} at root"
+        }
+        return "expected \(shape) at \(batchPlanLocation(ctx.codingPath))"
     case .valueNotFound(let type, let ctx):
-        return "missing value (expected \(type)) for key '\(ctx.codingPath.last?.stringValue ?? "?")'"
+        return "expected \(batchJSONShape(type)) at \(batchPlanLocation(ctx.codingPath)), found null"
     @unknown default:
         return "\(error)"
     }
+}
+
+/// render a decoder coding path as the JSON location the plan author wrote:
+/// `root`, `operations`, `operations[0]`, `operations[0].command`.
+func batchPlanLocation(_ path: [CodingKey]) -> String {
+    var location = ""
+    for key in path {
+        if let index = key.intValue {
+            location += "[\(index)]"
+        } else {
+            location += location.isEmpty ? key.stringValue : ".\(key.stringValue)"
+        }
+    }
+    return location.isEmpty ? "root" : location
+}
+
+/// the JSON shape a decoder expected, named the way a JSON author would.
+/// `DecodingError` carries a Swift metatype (`Dictionary<String, Any>`,
+/// `Array<Any>`), which names neither JSON nor the plan's vocabulary.
+func batchJSONShape(_ type: Any.Type) -> String {
+    if type == [String: Any].self { return "object" }
+    if type == [Any].self { return "array" }
+    if type == String.self { return "string" }
+    if type == Bool.self { return "boolean" }
+    if type == Int.self || type == Double.self { return "number" }
+    return "\(type)"
 }
 
 /// format-aware emitter for a BatchResult (honors --output-format).
