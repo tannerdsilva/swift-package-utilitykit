@@ -97,12 +97,13 @@ one — always close stdin when you are done writing frames.
 | `pkg_search` | locate text across a package (every matching line with location and context) |
 | `pkg_read` | a file's text with line numbers — the exact text an edit needs (bounded; reports truncation) |
 | `pkg_edit_replace` | replace literal text (every occurrence) |
+| `pkg_edit_replace_range` | replace lines A-B outright — no matching; the route when a selector will not match |
 | `pkg_edit_rename` | AST-rename a symbol and every reference to it in the file |
 | `pkg_edit_insert`, `pkg_edit_delete` | insert at a line/pattern, or delete by line range / symbol / pattern |
 | `pkg_edit_prepend`, `pkg_edit_append` | add code at the top (optionally after the imports) or the bottom |
 | `pkg_edit_add_import`, `pkg_edit_add_conformance`, `pkg_edit_add_member` | AST-aware: import (alphabetical, idempotent), protocol conformance, member |
 | `pkg_edit_wrap`, `pkg_edit_sort` | wrap lines in do-catch/if-let/guard-let, or sort a type's members |
-| `pkg_edit_batch` | apply a JSON edit plan across one or more files in one round-trip |
+| `pkg_edit_batch` | apply a JSON edit plan across one or more files in one round-trip — inline as `plan` or from a plan file, and `atomic` for all-or-nothing |
 
 ## quick start
 
@@ -203,7 +204,7 @@ hermes mcp remove utilitykit          # if it was registered as an MCP server
 
 ```bash
 swift-package-tool --version         # e.g. 3.1.0+f8aedbd.dirty — see "build provenance" below
-swift-package-tool plugin --mcp-list # the 25-tool surface this binary serves
+swift-package-tool plugin --mcp-list # the 26-tool surface this binary serves
 hermes mcp list | grep utilitykit    # when registered with Hermes
 ```
 

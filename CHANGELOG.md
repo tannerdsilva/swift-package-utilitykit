@@ -1,5 +1,67 @@
 # Changelog
 
+## 3.2.0
+
+**Additive — the apply half of the read-before-write loop, plus the miss-ranking
+fix the 3.1.0 plan asked for. No names break: 12 -> 13 edit verbs, 25 -> 26
+tools. Motivation, method and the measured case:
+`.hermes/plans/apply-side/2026-10-16_140130-apply-side-hardening.md`.**
+
+The measured case: the best recorded mutation arm (71/81) leaves 7/81 draws in
+which the model spends its whole budget trying to make `old_text` match and never
+lands the edit. The route it reaches for instead — `delete` then `insert` —
+converts that class but half-applies whenever the second call misses the turn
+cap (danger 2 -> 7 against a limit of 3: a destructive partial edit). The fix is
+an edit that lands in one call, or not at all.
+
+### Added — `replace-range`, `pkg_edit_replace_range` (12 -> 13 verbs, 25 -> 26 tools)
+
+- **new** `edit replace-range <file> --lines A-B --content <text>` — replace the
+  text of lines A-B. **No matching**: the verb never searches for `old_text`, so
+  the class of edits that cannot be made to match becomes one call with one
+  write. Line numbers are `read`'s (1-based, inclusive; a trailing newline
+  terminates the last line rather than opening an empty one), an end past the
+  file clamps to the last line, and the range is checked before anything is
+  written — a range that selects no lines is a `missed` result (exit 1) with the
+  file untouched. Content inherits the indentation of the range's first line;
+  `\n` expands as it does for every content-bearing verb, and
+  `--literal-content` skips that. Empty `--content` is refused — removing lines
+  is `delete`'s job.
+- **new** `pkg_edit_replace_range` — the MCP tool (`lines`, `content`).
+- the verb pairs with `read`: `read` numbers the lines, `replace-range` names
+  them back. Both now count lines through one shared function (`sourceLines`),
+  so the two cannot drift apart.
+
+### Changed — `batch` is reachable, and can be all-or-nothing
+
+- **`--plan` / `plan`** — the plan inline, beside the existing plan-file
+  argument (exactly one of the two is required). Until now the plan had to
+  already exist as a file, and nothing on either surface can create one: a
+  census of every recorded `pkg_edit_batch` call found the verb had **never once
+  worked** — each call died on a path that did not exist. An inline plan's
+  diagnostics name the same JSON locations a file's do (`operations[2]`, never
+  `?`).
+- **`--atomic` / `atomic`** — all-or-nothing. Operations are staged against
+  in-memory copies (operation N sees N-1's result) and the touched files are
+  written only if every operation applied; on any failure **nothing** is written
+  and every operation's result is still reported. The default is unchanged —
+  sequential, continue-on-failure — and stays pinned by `EditContractTests`.
+  Honest limit: atomicity against operation failure, not cross-file crash
+  atomicity (POSIX cannot write two files as one). A single-file plan is
+  crash-atomic too, since its one write goes through the same atomic-write path
+  every verb uses.
+
+### Fixed — a miss ranks the line that can be retried
+
+- `suggestions` ties now break toward a retryable line: a code line beats a
+  comment line, then the line whose leading token matches the selector's, then
+  the nearest indentation, then line order. Measured, on the bench's own
+  fixture: aiming at `return "50"` in a file whose line 12 says `return "0"`, the
+  doc comment on line 4 (`return \`Int\` but returns a \`String\``) shares one
+  token, ties on score, and won on the old tie-break simply by being earlier —
+  handing the model prose to retry with instead of the code line. It now ranks
+  second, and `warning` names line 12. Carried from the 3.1.0 plan's section 7.1.
+
 ## 3.1.1
 
 **Changed — SwiftSlash 6, and the placement contract that comes with it.

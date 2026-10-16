@@ -585,6 +585,32 @@ Find and replace literal text in a file (every occurrence).
 
 ---
 
+### `edit replace-range`
+
+Replace the text of lines A-B — **no matching**. The verb for an edit whose selector cannot be made to match: it never searches for `old_text`, so it lands in **one call and one write** (no half-applied state, unlike `delete` + `insert`). The line numbers are `read`'s — 1-based and inclusive, and a trailing newline terminates the last line rather than opening an empty one. An end past the file clamps to the last line; `start > end` or `start < 1` is a usage error; a range that selects no lines is `missed` (exit 1) with the file untouched. Every content line inherits the indentation of the range's first line, and empty content is refused — removing lines is `delete`'s job.
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `file` | File to edit (required) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--lines <A-B>` | Line range to replace (required); 1-based, inclusive — the numbers `read` gives |
+| `--content <text>` | Replacement content (required); `\n` expands, empty is refused |
+| `--literal-content` | Take `--content` literally: skip the `\n` and `\\` escape expansion |
+
+**Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
+
+**Output type:** `EditResult` — `{file, modified, diff, verified, warning, status, dryRun, suggestions}`
+
+**Exit codes:** as every edit verb — `0` applied/`alreadyCurrent`; `1` `missed`/`blocked`/`failed` (payload first); `64` bad usage.
+
+---
+
 ### `edit rename`
 
 Rename a symbol and every reference to it in one file (AST-aware: the token tree is rewritten, not the text). this is the home of the `--symbol/--rename` transform that used to be a mode of `replace`.
@@ -787,6 +813,35 @@ Sort members of a type alphabetically or by kind.
 |---|---|
 | `--type <name>` | Type name to sort members of (required) |
 | `--by <key>` | Sort key: `name` (default) or `kind` |
+
+---
+
+### `edit batch`
+
+Apply a sequence of edit operations in one round-trip. The plan is a JSON object `{"operations": [{"command": ..., "file": ...}, ...]}`, applied in plan order. It is given **either** as a plan file (the positional argument) **or** inline with `--plan` — exactly one of the two.
+
+By default operations are sequential and continue-on-failure: a failed operation does not undo its predecessors. `--atomic` makes the plan all-or-nothing — operations are staged against in-memory copies (operation N sees N-1's result) and the touched files are written only if **every** operation applied. That is atomicity against operation failure, not cross-file crash atomicity (a single-file plan is crash-atomic too, since it is one atomic write).
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `plan` | Path to the JSON plan file (omit when passing `--plan`) |
+
+**Options:**
+
+| Option | Description |
+|---|---|
+| `--plan` | The plan itself, inline (the value is the JSON object). Exactly one of the plan file / `--plan` |
+| `--fail-fast` | Stop at the first operation that fails |
+| `--atomic` | Apply every operation or none |
+| `--literal-content` | Take the plan's content fields literally (skip the `\n` / `\\` expansion) |
+
+**Common flags:** `--dry-run`, `--backup`, `--verify`, `--show-diff`, `--output`, `--force`
+
+**Output type:** `BatchResult` — `{results: [EditResult]}` in plan order.
+
+**Exit codes:** `0` when every operation applied; `1` when any did not (every operation's result is still reported); `64` for a usage error or a malformed plan (the message names the JSON location, e.g. `operations[2].command`).
 
 ---
 
