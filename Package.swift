@@ -18,15 +18,15 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax", from: "603.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         // the MCP facade: one-shot stdin tool host + generated tool schemas +
-        // the arc plugin manifest format, consumed as a released version from
-        // origin (2.0.0 — the one-shot facade + tool-pack arc).
-        .package(url: "https://github.com/tannerdsilva/swift-mcp.git", from: "2.0.0"),
-        // subprocess execution. path pin while co-developing: 5.0.2 fixes a
-        // non-ascii argv truncation and is tagged locally but not yet pushed, so a
-        // URL pin cannot see it (`from: "5.0.2"` replaces this once it is).
-        // every spawn in this package goes through SubprocessCore, which is a
-        // thin adapter over this.
-        .package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "5.0.2"..<"6.0.0"),
+        // the arc plugin manifest format. 2.1.2 is the release whose subprocess
+        // transport follows the child's placement — which is what lets a plugin
+        // host installed from this package be reached by the owner's single
+        // group signal instead of escaping into a group of its own.
+        .package(url: "https://github.com/tannerdsilva/swift-mcp.git", "2.1.2"..<"3.0.0"),
+        // subprocess execution. SwiftSlash 6 makes process-group placement part
+        // of the spawn contract; every spawn in this package goes through
+        // SubprocessCore, which is a thin adapter over this.
+        .package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "6.0.0"..<"7.0.0"),
     ],
     targets: [
         // the one subprocess entry point for this package: swift-slash owns the

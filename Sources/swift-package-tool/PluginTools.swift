@@ -347,7 +347,7 @@ struct PkgSearch {
 /// manifests keep the `plugin` entry argv.
 @MCPApplication(
     name: "swift-package-utilitykit",
-    version: "3.1.0",
+    version: "3.1.1",
     description: "Swift package inspection, audit, and source-editing tools (swift-package-tool) served over the plugin stdin/JSON protocol. exit codes do not report tool outcomes: read `status` on an `EditResult` payload, or the `Error: ` result prefix.",
     interface: .oneShot
 )

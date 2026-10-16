@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.1.1
+
+**Changed — SwiftSlash 6, and the placement contract that comes with it.
+No tool, no name, and no payload changes.**
+
+- the SwiftSlash requirement is `"6.0.0"..<"7.0.0"`. v6 makes process-group
+  placement part of the spawn contract, and this package's spawn path
+  (`SubprocessCore`) inherits it unchanged: a process started from inside a
+  launch resolves `.inherited` and joins the enclosing group, so the harness
+  that owns the tree tears it down with one signal instead of it escaping into
+  a group of its own. its timeout/cancel path already used the
+  placement-following teardown, so the pin alone is the change.
+- the swift-mcp requirement is `"2.1.2"..<"3.0.0"` — the release whose
+  subprocess transport targets the child's placement. together the two bumps
+  are what make the cascade hold through the plugin host this package installs.
+
 ## 3.1.0
 
 **Additive — the read half of read-before-write, near-miss teaching, and a

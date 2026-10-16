@@ -80,7 +80,7 @@ extension SwiftPackageToolTestsRoot {
             #expect(run.status == 0)
             let manifest = try run.stdoutJSON()
             #expect(manifest["name"] as? String == "swift-package-utilitykit")
-            #expect(manifest["version"] as? String == "3.1.0")
+            #expect(manifest["version"] as? String == "3.1.1")
 
             let tools = manifest["tools"] as? [[String: Any]] ?? []
             let names = tools.compactMap { $0["name"] as? String }
