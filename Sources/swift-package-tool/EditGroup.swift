@@ -36,6 +36,7 @@ struct EditGroup: ParsableCommand {
         """,
         subcommands: [
             ReplaceCommand.self,
+            ReplaceRangeCommand.self,
             RenameCommand.self,
             InsertCommand.self,
             DeleteCommand.self,

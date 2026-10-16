@@ -133,6 +133,35 @@ extension SwiftPackageToolTestsRoot {
             #expect(readSource(path).contains("let a = 9"))
         }
 
+        @Test("pkg_edit_replace_range replaces the lines pkg_read gave, with no matching")
+        func replaceRangeOverTheTool() async throws {
+            // the loop the verb exists for: read the lines, name them back. the
+            // selector here is intentionally text that does NOT exist in the
+            // file — this verb must not care.
+            let fixture = "import Foundation\n\nstruct Ledger {\n\tfunc balance() -> Int {\n\t\treturn \"0\"\n\t}\n}\n"
+            let path = try makeTempSwift(fixture)
+            defer { cleanup(path) }
+
+            let run = try await callEditTool(
+                "pkg_edit_replace_range", ["path": path, "lines": "5-5", "content": "return 0"])
+            #expect(run.status == 0, "\(run.stderr)")
+            #expect(!run.result.hasPrefix("Error: "), "\(run.result)")
+            #expect(!run.result.contains("\n"), "the MCP payload is compact single-line JSON: \(run.result)")
+            let edit = try run.editResult()
+            #expect(edit["status"] as? String == "applied", "\(run.result)")
+            #expect(readSource(path).contains("\t\treturn 0"), "\(readSource(path))")
+
+            // a range that selects no lines is the same failure channel as any
+            // other miss, and the file stays exactly as it was
+            let before = readSource(path)
+            let miss = try await callEditTool(
+                "pkg_edit_replace_range", ["path": path, "lines": "90-99", "content": "let x = 1"])
+            #expect(miss.result.hasPrefix("Error: "), "\(miss.result)")
+            let missEdit = try miss.editResult()
+            #expect(missEdit["status"] as? String == "missed", "\(miss.result)")
+            #expect(readSource(path) == before, "a miss must not touch the file")
+        }
+
         @Test("dry_run previews the diff without writing")
         func dryRunPreviews() async throws {
             let fixture = "struct S {\n    var value: Int\n}\n"
@@ -388,6 +417,50 @@ extension SwiftPackageToolTestsRoot {
             let out = try await runEdit(["replace", path, "--old", "let value = 2", "--new", "let value = 3"])
             #expect(out.status == 1, "\(out.stderr)")
             #expect(out.stdout.components(separatedBy: "\"n\":").count - 1 <= 3, "\(out.stdout)")
+        }
+
+        @Test("a doc comment that merely shares words never outranks the code line")
+        func codeLineOutranksDocComment() async throws {
+            // the recorded miss, verbatim (the bench's m1-compile fixture): the
+            // model aimed at `return "50"` in a file whose line 12 says
+            // `return "0"`. line 4's doc comment says "return `Int` but returns
+            // a `String`" — it shares exactly one token, ties the code line on
+            // score, and used to win by being earlier. the retry the model needs
+            // is the code line, so it must rank first.
+            let fixture = [
+                "import Foundation",
+                "",
+                "/// a ledger with exactly one compile error: `balanceCents()` is declared to",
+                "/// return `Int` but returns a `String`.",
+                "///",
+                "/// SUCCESS CRITERION: `swift build` exits 0.",
+                "public struct Ledger {",
+                "\tpublic init() {}",
+                "",
+                "\t/// returns the balance in whole cents.",
+                "\tpublic func balanceCents() -> Int {",
+                "\t\treturn \"0\"",
+                "\t}",
+                "}",
+                "",
+            ].joined(separator: "\n")
+            let path = try makeTempSwift(fixture, "M1Compile.swift")
+            defer { cleanup(path) }
+
+            let out = try await runEdit(["replace", path, "--old", "return \"50\"", "--new", "return 0"])
+            #expect(out.status == 1, "\(out.stderr)")
+
+            let payload = try #require(
+                try? JSONSerialization.jsonObject(with: Data(out.stdout.utf8)) as? [String: Any])
+            let suggestions = payload["suggestions"] as? [[String: Any]] ?? []
+            #expect(suggestions.first?["n"] as? Int == 12,
+                    "the code line must rank first: \(out.stdout)")
+            #expect(suggestions.first?["text"] as? String == "return \"0\"",
+                    "the first suggestion is the text to retry with: \(out.stdout)")
+            #expect(suggestions.contains { $0["n"] as? Int == 4 },
+                    "the prose line is still offered, just behind: \(out.stdout)")
+            #expect((payload["warning"] as? String)?.contains("line 12") == true,
+                    "a text-only consumer is told the same line: \(out.stdout)")
         }
     }
 }

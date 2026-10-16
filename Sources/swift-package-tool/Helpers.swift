@@ -93,6 +93,22 @@ public func parseLineRange(_ raw: String) throws -> (start: Int, end: Int) {
     return (start, end)
 }
 
+/// the file's lines, under the one line model the surface numbers.
+///
+/// a trailing newline terminates the last line; it does not open an empty one,
+/// and an empty file has zero lines. `read` numbers these lines, and an edit
+/// that takes line numbers must count them the same way — otherwise a caller
+/// that reads line 12 and edits line 12 edits a different line. `read`'s
+/// numbering and this split used to be the same code in two places; keeping one
+/// function is what stops the two from drifting apart again.
+public func sourceLines(_ content: String) -> [String] {
+    if content.isEmpty { return [] }
+    if content.hasSuffix("\n") {
+        return content.dropLast().components(separatedBy: "\n")
+    }
+    return content.components(separatedBy: "\n")
+}
+
 // MARK: - location helpers
 
 /// convert a utf-8 byte offset (the unit swift-syntax positions use) into a

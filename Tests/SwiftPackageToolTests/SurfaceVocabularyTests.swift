@@ -13,20 +13,20 @@ import SubprocessCore
 /// below run the real binary), instead of drifting silently. the rename tables
 /// are the same ones the CHANGELOG publishes as the 2.x → 3.0 migration guide.
 enum SurfaceVocabulary {
-    /// the 25 agent-facing MCP tool names, in declaration order.
+    /// the 26 agent-facing MCP tool names, in declaration order.
     static let mcpTools: [String] = [
         "pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
         "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
         "pkg_public_api", "pkg_force_unwraps", "pkg_validate", "pkg_read", "pkg_search",
-        "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
+        "pkg_edit_replace", "pkg_edit_replace_range", "pkg_edit_rename", "pkg_edit_insert",
         "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
         "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
         "pkg_edit_wrap", "pkg_edit_sort", "pkg_edit_batch",
     ]
 
-    /// the 12 verbs under the `edit` group, in help order.
+    /// the 13 verbs under the `edit` group, in help order.
     static let editVerbs: [String] = [
-        "replace", "rename", "insert", "delete", "prepend", "append",
+        "replace", "replace-range", "rename", "insert", "delete", "prepend", "append",
         "add-import", "add-conformance", "add-member", "wrap", "sort", "batch",
     ]
 
@@ -144,7 +144,7 @@ private func helpSubcommands(_ stdout: String) -> [String] {
 @Suite("Surface vocabulary (v3)")
 struct SurfaceVocabularyTests {
 
-    @Test("the compiled manifest serves exactly the 25 pinned tool names")
+    @Test("the compiled manifest serves exactly the 26 pinned tool names")
     func manifestServesPinnedToolNames() async throws {
         let names = try manifestToolNames(try await surfaceOutput(["plugin", "--mcp-list"]))
         #expect(names == SurfaceVocabulary.mcpTools)
@@ -189,7 +189,7 @@ struct SurfaceVocabularyTests {
     @Test("every pinned verb prints its schema with no other input")
     func allSchemasPrintWithoutInput() async throws {
         // the pinned lists, walked exactly as the surface renders them: root
-        // verbs first (the edit group expands to its twelve verbs under their
+        // verbs first (the edit group expands to its thirteen verbs under their
         // own entry), then each edit verb. `--schema` must never demand a
         // subject — capturing a schema needs no file.
         var invocations: [[String]] = SurfaceVocabulary.cliRootVerbs
@@ -231,7 +231,7 @@ struct SurfaceVocabularyTests {
         #expect(verbs == SurfaceVocabulary.cliRootVerbs)
     }
 
-    @Test("the edit group has its own help page listing its twelve verbs")
+    @Test("the edit group has its own help page listing its thirteen verbs")
     func editGroupListsItsVerbs() async throws {
         let verbs = helpSubcommands(try await surfaceOutput(["help", "edit"]))
         #expect(verbs == SurfaceVocabulary.editVerbs)

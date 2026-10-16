@@ -4,12 +4,19 @@ import SwiftSyntax
 import SwiftParser
 import SwiftParserDiagnostics
 
-/// Execute multiple edit operations from a JSON plan file.
+/// Execute multiple edit operations from one plan.
 ///
-/// Batch mode accepts a JSON file describing an array of operations to apply
-/// sequentially. Each operation specifies a command, file, and command-specific
-/// arguments. Operations are applied in order; if one fails, the remaining
-/// operations are still attempted unless `--fail-fast` is set.
+/// The plan is a JSON object `{"operations": [...]}`, given either as a plan
+/// file (the positional argument — the human/CI route) or inline with `--plan`
+/// (exactly one of the two). Each operation specifies a command, file, and
+/// command-specific arguments. Operations are applied in order; if one fails,
+/// the remaining operations are still attempted unless `--fail-fast` is set.
+///
+/// `--atomic` changes the landing, not the plan: every operation is staged in
+/// memory and the touched files are written only if every operation applied,
+/// so a plan that fails partway changes nothing. Without the flag a failed
+/// operation leaves its predecessors' writes in place — the 3.0 contract,
+/// pinned by `EditContractTests`, and unchanged.
 ///
 /// ## JSON Format
 ///
@@ -65,6 +72,9 @@ struct BatchCommand: ParsableCommand, EditCommand {
     @Argument(help: "Path to JSON plan file.")
     var plan: String?
 
+    @Option(name: .customLong("plan"), help: "Inline JSON plan instead of a plan file: {\"operations\": [...]}. Exactly one of the two.")
+    var inlinePlan: String?
+
     @Flag(name: .long, help: "Show diff without modifying.")
     var dryRun = false
 
@@ -95,19 +105,37 @@ struct BatchCommand: ParsableCommand, EditCommand {
     @Flag(name: .customLong("fail-fast"), help: "Stop on first operation failure.")
     var failFast = false
 
+    @Flag(name: .customLong("atomic"), help: "Apply every operation or none: stage each change in memory and write only if every operation applied.")
+    var atomic = false
+
     mutating func run() throws {
         if printSchemaIfRequested() { return }
-        guard let plan else {
-            throw ValidationError("Missing expected argument '<plan>'")
+        // the plan arrives one of two ways and never both: a plan file (the
+        // human/CI route) or `--plan <json>` (the route an agent can actually
+        // take — nothing on either surface can create a file, so a plan that
+        // must exist on disk first was unreachable in practice).
+        let data: Data
+        switch (plan, inlinePlan) {
+        case let (file?, nil):
+            data = try Data(contentsOf: URL(fileURLWithPath: NSString(string: file).standardizingPath))
+        case let (nil, json?):
+            data = Data(json.utf8)
+        case (nil, nil):
+            throw ValidationError("provide a plan: a plan file path, or an inline plan with --plan")
+        default:
+            throw ValidationError("provide exactly one of a plan file path or --plan")
         }
-        let resolved = NSString(string: plan).standardizingPath
-        let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
         do {
             let decoded = try JSONDecoder().decode(BatchPlan.self, from: data)
-            try executePlan(decoded)
+            if atomic {
+                try executePlanAtomic(decoded)
+            } else {
+                try executePlan(decoded)
+            }
         } catch let error as DecodingError {
             // a malformed plan must be a readable validation error, not a raw
-            // Swift DecodingError dump on stderr
+            // Swift DecodingError dump on stderr — and an inline plan names its
+            // location exactly as a plan file does (`operations[2]`, never `?`).
             throw ValidationError("invalid batch plan: \(batchDecodingMessage(error))")
         }
     }
@@ -147,312 +175,324 @@ struct BatchCommand: ParsableCommand, EditCommand {
         }
     }
 
-    private func executeOperation(_ op: BatchOperation) throws -> EditResult {
-        switch op.command {
-        case "add-import":
-            return try executeAddImport(op)
-        case "insert":
-            return try executeInsert(op)
-        case "replace":
-            return try executeReplace(op)
-        case "append":
-            return try executeAppend(op)
-        case "prepend":
-            return try executePrepend(op)
-        case "delete":
-            return try executeDelete(op)
-        case "add-member":
-            return try executeAddMember(op)
-        case "add-conformance":
-            return try executeAddConformance(op)
-        default:
-            throw ValidationError("unknown command: '\(op.command)'")
-        }
+private func executeOperation(_ op: BatchOperation) throws -> EditResult {
+        // the transform is built — and its fields validated — before anything
+        // is read, so a malformed operation fails exactly where it used to.
+        let transform = try transform(for: op)
+        return try FileEditor.edit(
+            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force,
+            transform: transform
+        )
     }
 
-    private func executeAddImport(_ op: BatchOperation) throws -> EditResult {
-        guard let module = op.module else {
-            throw ValidationError("add-import requires the plan's 'module' field")
-        }
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            let lines = source.components(separatedBy: "\n")
-            let importLine = "import \(module)"
-
-            if lines.contains(where: { $0 == importLine || $0.hasPrefix(importLine + " ") }) {
-                return FileEditor.alreadyImported(module)
+    /// the transform an operation describes, with its own fields validated.
+    ///
+    /// this is the same edit each standalone verb performs — expressed as a
+    /// text transform rather than a read-verify-write, which is what lets
+    /// `--atomic` apply an operation to an in-memory copy instead of to disk.
+    /// a missing field throws here, before any file is touched.
+    private func transform(for op: BatchOperation) throws -> (inout String) throws -> FileEditor.NoChange? {
+        switch op.command {
+        case "add-import":
+            guard let module = op.module else {
+                throw ValidationError("add-import requires the plan's 'module' field")
             }
+            return { source in
+                let lines = source.components(separatedBy: "\n")
+                let importLine = "import \(module)"
 
-            let importLines = lines.enumerated().filter { $0.element.hasPrefix("import ") }
+                if lines.contains(where: { $0 == importLine || $0.hasPrefix(importLine + " ") }) {
+                    return FileEditor.alreadyImported(module)
+                }
 
-            if importLines.isEmpty {
-                var insertIdx = 0
-                for (i, line) in lines.enumerated() {
-                    if line.hasPrefix("//") || line.isEmpty {
-                        insertIdx = i + 1
-                    } else {
+                let importLines = lines.enumerated().filter { $0.element.hasPrefix("import ") }
+
+                if importLines.isEmpty {
+                    var insertIdx = 0
+                    for (i, line) in lines.enumerated() {
+                        if line.hasPrefix("//") || line.isEmpty {
+                            insertIdx = i + 1
+                        } else {
+                            break
+                        }
+                    }
+                    var newLines = lines
+                    newLines.insert("", at: insertIdx)
+                    newLines.insert(importLine, at: insertIdx)
+                    source = newLines.joined(separator: "\n")
+                    return nil
+                }
+
+                var insertIdx = lines.count
+                for (i, line) in importLines {
+                    let existing = line.trimmingCharacters(in: .whitespaces)
+                    if existing > importLine {
+                        insertIdx = i
                         break
                     }
+                    insertIdx = i + 1
                 }
+
                 var newLines = lines
-                newLines.insert("", at: insertIdx)
                 newLines.insert(importLine, at: insertIdx)
                 source = newLines.joined(separator: "\n")
                 return nil
             }
 
-            var insertIdx = lines.count
-            for (i, line) in importLines {
-                let existing = line.trimmingCharacters(in: .whitespaces)
-                if existing > importLine {
-                    insertIdx = i
+        case "insert":
+            guard let content = op.content else {
+                throw ValidationError("insert requires the plan's 'content' field")
+            }
+            let processedContent = FileEditor.content(content, literal: literalContent)
+
+            return { source in
+                let lines = source.components(separatedBy: "\n")
+                var newLines = lines
+
+                if let pattern = op.after {
+                    guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                        return FileEditor.noLineContaining(pattern)
+                    }
+                    let indent = FileEditor.detectIndent(lines[idx])
+                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                    newLines.insert(contentsOf: [indented], at: idx + 1)
+                } else if let pattern = op.before {
+                    guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
+                        return FileEditor.noLineContaining(pattern)
+                    }
+                    let indent = FileEditor.detectIndent(lines[idx])
+                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                    newLines.insert(contentsOf: [indented], at: idx)
+                } else if let line = op.atLine {
+                    let idx = max(0, min(line - 1, lines.count))
+                    let indent = idx > 0 ? FileEditor.detectIndent(lines[idx - 1]) : ""
+                    let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
+                    newLines.insert(contentsOf: [indented], at: idx)
+                }
+
+                source = newLines.joined(separator: "\n")
+                return nil
+            }
+
+        case "replace":
+            guard let old = op.old, let new = op.new else {
+                throw ValidationError("replace requires the plan's 'old' and 'new' fields")
+            }
+            let processedNew = FileEditor.content(new, literal: literalContent)
+
+            return { source in
+                guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
+                source = source.replacingOccurrences(of: old, with: processedNew)
+                return nil
+            }
+
+        case "append":
+            guard let content = op.content else {
+                throw ValidationError("append requires the plan's 'content' field")
+            }
+            // `afterImports` has meaning for prepend only — the CLI's append has no
+            // such flag. a plan that sets it here is asking for something append
+            // cannot do, so refuse rather than silently writing at the end anyway.
+            guard op.afterImports != true else {
+                throw ValidationError("'afterImports' applies to prepend only; append always writes at the end of the file")
+            }
+            let processedContent = FileEditor.content(content, literal: literalContent)
+
+            return { source in
+                let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
+                source = trimmed + "\n" + processedContent + "\n"
+                return nil
+            }
+
+        case "prepend":
+            guard let content = op.content else {
+                throw ValidationError("prepend requires the plan's 'content' field")
+            }
+            let processedContent = FileEditor.content(content, literal: literalContent)
+
+            return { source in
+                if op.afterImports == true {
+                    let lines = source.components(separatedBy: "\n")
+                    if let lastImport = lines.lastIndex(where: { $0.hasPrefix("import ") }) {
+                        var newLines = lines
+                        newLines.insert("", at: lastImport + 1)
+                        newLines.insert(contentsOf: processedContent.components(separatedBy: "\n"), at: lastImport + 2)
+                        source = newLines.joined(separator: "\n")
+                        return nil
+                    }
+                }
+                source = processedContent + "\n" + source
+                return nil
+            }
+
+        case "delete":
+            // the symbol form is AST-aware and shared with `delete --symbol`; the
+            // line-range and pattern forms are line-based by definition. they used
+            // to be one line-based branch, so a plan's symbol delete removed every
+            // line MENTIONING the name instead of the declaration.
+            if let symbol = op.symbol {
+                return { source in
+                    removeDeclaration(named: symbol, in: &source)
+                }
+            }
+
+            return { source in
+                let lines = source.components(separatedBy: "\n")
+                var newLines = lines
+
+                if let pattern = op.pattern {
+                    let kept = newLines.filter { !$0.contains(pattern) }
+                    guard kept.count != newLines.count else {
+                        return FileEditor.noLineContaining(pattern)
+                    }
+                    newLines = kept
+                } else if let startLine = op.startLine, let endLine = op.endLine {
+                    let start = max(0, startLine - 1)
+                    let end = min(lines.count, endLine)
+                    guard start < end else {
+                        return FileEditor.rangeSelectsNoLines("\(startLine)-\(endLine)")
+                    }
+                    newLines.removeSubrange(start..<end)
+                }
+
+                source = newLines.joined(separator: "\n")
+                return nil
+            }
+
+        case "add-member":
+            guard let typeName = op.typeName else {
+                throw ValidationError("add-member requires the plan's 'typeName' field")
+            }
+            let memberOption: String? = op.property ?? op.method ?? op.caseName
+            guard memberOption != nil else {
+                throw ValidationError("add-member requires one of the plan's 'property', 'method', or 'caseName' fields")
+            }
+
+            let memberDecl: String
+            if let prop = op.property {
+                let accessMod = op.access.map { "\($0) " } ?? ""
+                let defaultVal = op.defaultValue.map { " = \($0)" } ?? ""
+                memberDecl = "\(accessMod)\(prop)\(defaultVal)"
+            } else if let meth = op.method {
+                let accessMod = op.access.map { "\($0) " } ?? ""
+                let bodyContent = FileEditor.content(op.body ?? "", literal: literalContent)
+                if bodyContent.isEmpty {
+                    memberDecl = "\(accessMod)\(meth)"
+                } else {
+                    let indentedBody = bodyContent.components(separatedBy: "\n").map { "    \($0)" }.joined(separator: "\n")
+                    memberDecl = "\(accessMod)\(meth) {\n\(indentedBody)\n}"
+                }
+            } else if let cn = op.caseName {
+                let accessMod = op.access.map { "\($0) " } ?? ""
+                if let assoc = op.associated {
+                    let types = assoc.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
+                    memberDecl = "\(accessMod)case \(cn)(\(types))"
+                } else {
+                    memberDecl = "\(accessMod)case \(cn)"
+                }
+            } else {
+                throw ValidationError("add-member requires a member declaration")
+            }
+
+            return { source in
+                insertMember(memberDecl, intoType: typeName, in: &source)
+            }
+
+        case "add-conformance":
+            guard let typeName = op.typeName, let protocolName = op.protocolName else {
+                throw ValidationError("add-conformance requires the plan's 'typeName' and 'protocolName' fields")
+            }
+
+            return { source in
+                let tree = Parser.parse(source: source)
+                let rewriter = AddConformanceRewriter(targetName: typeName, protocolName: protocolName)
+                let modifiedTree = rewriter.rewrite(tree)
+
+                guard rewriter.didModify else {
+                    if rewriter.alreadyConforms {
+                        return .alreadyCurrent("'\(typeName)' already conforms to '\(protocolName)'")
+                    }
+                    // no selector: a type name is not source text, so the
+                    // near-miss suggestion list would be noise here.
+                    return .missed("no type '\(typeName)' found", selector: nil)
+                }
+
+                source = modifiedTree.description
+                return nil
+            }
+
+        default:
+            throw ValidationError("unknown command: '\(op.command)'")
+        }
+    }
+
+    /// `--atomic`: apply every operation to in-memory copies of the files it
+    /// touches (operation N sees operation N-1's staged result), then write
+    /// every touched file only if EVERY operation applied.
+    ///
+    /// a failure anywhere writes nothing. that is the whole point: the damage
+    /// this answers was a `delete` that landed while its re-insert died at the
+    /// turn cap — the destructive partial edit, measured at 4 of run 019's 7
+    /// danger draws.
+    ///
+    /// the honest limit: this is atomicity against OPERATION failure, not
+    /// cross-file crash atomicity — POSIX offers no way to write two files as
+    /// one. a single-file plan (the measured case) is also crash-atomic, since
+    /// its one write goes through the same atomic-write path every verb uses.
+    private func executePlanAtomic(_ planData: BatchPlan) throws {
+        var results: [EditResult] = []
+        var staged: [String: FileEditor.Staged] = [:]
+        var touched: [String] = []
+
+        for (index, op) in planData.operations.enumerated() {
+            let resolved = NSString(string: op.file).standardizingPath
+            do {
+                let transform = try transform(for: op)
+                let step = try FileEditor.stage(
+                    file: op.file, verify: verify, showDiff: showDiff, dryRun: dryRun,
+                    over: staged[resolved]?.result, transform: transform)
+                if staged[resolved] == nil { touched.append(resolved) }
+                staged[resolved] = step
+                let result = FileEditor.verdict(step, dryRun: dryRun, force: force)
+                results.append(result)
+                if failFast, result.status.isFailure {
                     break
                 }
-                insertIdx = i + 1
+            } catch {
+                results.append(EditResult(
+                    file: op.file,
+                    modified: false,
+                    diff: nil,
+                    verified: false,
+                    warning: "operation \(index + 1) failed: \(readableError(error))",
+                    status: .failed,
+                    dryRun: dryRun
+                ))
+                if failFast { break }
             }
+        }
 
-            var newLines = lines
-            newLines.insert(importLine, at: insertIdx)
-            source = newLines.joined(separator: "\n")
-            return nil
+        // the commit gate: anything less than every operation applying means
+        // nothing is written — and every operation's result is still reported.
+        let failed = results.contains { $0.status.isFailure }
+        if !failed && !dryRun {
+            for path in touched {
+                guard let step = staged[path], step.result != step.onDisk else { continue }
+                try FileEditor.commit(step, backup: backup, outputPath: outputPath)
+            }
+        }
+
+        let output = BatchResult(results: results)
+        try emitBatchResult(output, format: outputFormat ?? .json)
+
+        // print-then-throw: the exit code mirrors the per-op statuses, so an
+        // atomic plan that staged nothing cannot exit 0
+        if failed {
+            throw ExitCode(1)
         }
     }
 
-    private func executeInsert(_ op: BatchOperation) throws -> EditResult {
-        guard let content = op.content else {
-            throw ValidationError("insert requires the plan's 'content' field")
-        }
-        let processedContent = FileEditor.content(content, literal: literalContent)
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            let lines = source.components(separatedBy: "\n")
-            var newLines = lines
-
-            if let pattern = op.after {
-                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
-                    return FileEditor.noLineContaining(pattern)
-                }
-                let indent = FileEditor.detectIndent(lines[idx])
-                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                newLines.insert(contentsOf: [indented], at: idx + 1)
-            } else if let pattern = op.before {
-                guard let idx = lines.firstIndex(where: { $0.contains(pattern) }) else {
-                    return FileEditor.noLineContaining(pattern)
-                }
-                let indent = FileEditor.detectIndent(lines[idx])
-                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                newLines.insert(contentsOf: [indented], at: idx)
-            } else if let line = op.atLine {
-                let idx = max(0, min(line - 1, lines.count))
-                let indent = idx > 0 ? FileEditor.detectIndent(lines[idx - 1]) : ""
-                let indented = processedContent.components(separatedBy: "\n").map { indent + $0 }.joined(separator: "\n")
-                newLines.insert(contentsOf: [indented], at: idx)
-            }
-
-            source = newLines.joined(separator: "\n")
-            return nil
-        }
-    }
-
-    private func executeReplace(_ op: BatchOperation) throws -> EditResult {
-        guard let old = op.old, let new = op.new else {
-            throw ValidationError("replace requires the plan's 'old' and 'new' fields")
-        }
-        let processedNew = FileEditor.content(new, literal: literalContent)
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            guard source.contains(old) else { return FileEditor.noOccurrenceOf(old) }
-            source = source.replacingOccurrences(of: old, with: processedNew)
-            return nil
-        }
-    }
-
-    private func executeAppend(_ op: BatchOperation) throws -> EditResult {
-        guard let content = op.content else {
-            throw ValidationError("append requires the plan's 'content' field")
-        }
-        // `afterImports` has meaning for prepend only — the CLI's append has no
-        // such flag. a plan that sets it here is asking for something append
-        // cannot do, so refuse rather than silently writing at the end anyway.
-        guard op.afterImports != true else {
-            throw ValidationError("'afterImports' applies to prepend only; append always writes at the end of the file")
-        }
-        let processedContent = FileEditor.content(content, literal: literalContent)
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            let trimmed = source.hasSuffix("\n") ? String(source.dropLast()) : source
-            source = trimmed + "\n" + processedContent + "\n"
-            return nil
-        }
-    }
-
-    private func executePrepend(_ op: BatchOperation) throws -> EditResult {
-        guard let content = op.content else {
-            throw ValidationError("prepend requires the plan's 'content' field")
-        }
-        let processedContent = FileEditor.content(content, literal: literalContent)
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            if op.afterImports == true {
-                let lines = source.components(separatedBy: "\n")
-                if let lastImport = lines.lastIndex(where: { $0.hasPrefix("import ") }) {
-                    var newLines = lines
-                    newLines.insert("", at: lastImport + 1)
-                    newLines.insert(contentsOf: processedContent.components(separatedBy: "\n"), at: lastImport + 2)
-                    source = newLines.joined(separator: "\n")
-                    return nil
-                }
-            }
-            source = processedContent + "\n" + source
-            return nil
-        }
-    }
-
-    private func executeDelete(_ op: BatchOperation) throws -> EditResult {
-        // the symbol form is AST-aware and shared with `delete --symbol`; the
-        // line-range and pattern forms are line-based by definition. they used
-        // to be one line-based branch, so a plan's symbol delete removed every
-        // line MENTIONING the name instead of the declaration.
-        if let symbol = op.symbol {
-            return try FileEditor.edit(
-                file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-            ) { source in
-                removeDeclaration(named: symbol, in: &source)
-            }
-        }
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            let lines = source.components(separatedBy: "\n")
-            var newLines = lines
-
-            if let pattern = op.pattern {
-                let kept = newLines.filter { !$0.contains(pattern) }
-                guard kept.count != newLines.count else {
-                    return FileEditor.noLineContaining(pattern)
-                }
-                newLines = kept
-            } else if let startLine = op.startLine, let endLine = op.endLine {
-                let start = max(0, startLine - 1)
-                let end = min(lines.count, endLine)
-                guard start < end else {
-                    return FileEditor.rangeSelectsNoLines("\(startLine)-\(endLine)")
-                }
-                newLines.removeSubrange(start..<end)
-            }
-
-            source = newLines.joined(separator: "\n")
-            return nil
-        }
-    }
-
-    private func executeAddMember(_ op: BatchOperation) throws -> EditResult {
-        guard let typeName = op.typeName else {
-            throw ValidationError("add-member requires the plan's 'typeName' field")
-        }
-        let memberOption: String? = op.property ?? op.method ?? op.caseName
-        guard memberOption != nil else {
-            throw ValidationError("add-member requires one of the plan's 'property', 'method', or 'caseName' fields")
-        }
-
-        let memberDecl: String
-        if let prop = op.property {
-            let accessMod = op.access.map { "\($0) " } ?? ""
-            let defaultVal = op.defaultValue.map { " = \($0)" } ?? ""
-            memberDecl = "\(accessMod)\(prop)\(defaultVal)"
-        } else if let meth = op.method {
-            let accessMod = op.access.map { "\($0) " } ?? ""
-            let bodyContent = FileEditor.content(op.body ?? "", literal: literalContent)
-            if bodyContent.isEmpty {
-                memberDecl = "\(accessMod)\(meth)"
-            } else {
-                let indentedBody = bodyContent.components(separatedBy: "\n").map { "    \($0)" }.joined(separator: "\n")
-                memberDecl = "\(accessMod)\(meth) {\n\(indentedBody)\n}"
-            }
-        } else if let cn = op.caseName {
-            let accessMod = op.access.map { "\($0) " } ?? ""
-            if let assoc = op.associated {
-                let types = assoc.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
-                memberDecl = "\(accessMod)case \(cn)(\(types))"
-            } else {
-                memberDecl = "\(accessMod)case \(cn)"
-            }
-        } else {
-            throw ValidationError("add-member requires a member declaration")
-        }
-
-        return try FileEditor.edit(
-            file: op.file, dryRun: dryRun, backup: backup, verify: verify, showDiff: showDiff, outputPath: outputPath, force: force
-        ) { source in
-            insertMember(memberDecl, intoType: typeName, in: &source)
-        }
-    }
-
-    private func executeAddConformance(_ op: BatchOperation) throws -> EditResult {
-        guard let typeName = op.typeName, let protocolName = op.protocolName else {
-            throw ValidationError("add-conformance requires the plan's 'typeName' and 'protocolName' fields")
-        }
-
-        let resolved = NSString(string: op.file).standardizingPath
-        let source = try String(contentsOfFile: resolved, encoding: .utf8)
-        let tree = Parser.parse(source: source)
-
-        let rewriter = AddConformanceRewriter(targetName: typeName, protocolName: protocolName)
-        let modifiedTree = rewriter.rewrite(tree)
-
-        guard rewriter.didModify else {
-            if rewriter.alreadyConforms {
-                return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "'\(typeName)' already conforms to '\(protocolName)'", status: .alreadyCurrent, dryRun: dryRun)
-            }
-            return EditResult(file: resolved, modified: false, diff: nil, verified: true, warning: "no type '\(typeName)' found", status: .missed, dryRun: dryRun)
-        }
-
-        let modified = modifiedTree.description
-        let original = source
-        var warning: String? = nil
-        var verified = true
-        if verify {
-            let verifyTree = Parser.parse(source: modified)
-            let diags = ParseDiagnosticsGenerator.diagnostics(for: verifyTree)
-            let errors = diags.filter { $0.diagMessage.severity == .error }
-            if !errors.isEmpty {
-                verified = false
-                warning = "edit introduced \(errors.count) syntax error(s); use --force to write anyway"
-            }
-        }
-
-        let diff: String? = (showDiff || dryRun) ? FileEditor.makeDiff(original: original, modified: modified) : nil
-
-        if dryRun {
-            return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: verified ? .applied : .blocked, dryRun: dryRun)
-        }
-
-        // block the write when verification fails unless --force is set
-        guard verified || force else {
-            return EditResult(file: resolved, modified: false, diff: diff, verified: false, warning: warning, status: .blocked, dryRun: dryRun)
-        }
-
-        if backup {
-            try FileEditor.backupFile(resolved)
-        }
-
-        let target = outputPath.isEmpty ? resolved : outputPath
-        try modified.write(toFile: target, atomically: true, encoding: .utf8)
-
-        return EditResult(file: resolved, modified: true, diff: diff, verified: verified, warning: warning, status: .applied, dryRun: dryRun)
-    }
 }
-
 // MARK: - Batch plan model
 
 struct BatchPlan: Codable, Sendable {

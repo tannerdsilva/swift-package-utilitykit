@@ -623,7 +623,7 @@ extension SwiftPackageToolTestsRoot {
     @Suite("Inspector port: tool surface")
     struct InspectorToolSurfacePortTests {
 
-        @Test("the manifest describes all 25 tools with a path-required schema")
+        @Test("the manifest describes all 26 tools with a path-required schema")
         func toolSchemaShape() async throws {
             let output = try await runToolStdout(["plugin", "--mcp-manifest", "arc"])
             let manifest = try #require(
@@ -635,7 +635,7 @@ extension SwiftPackageToolTestsRoot {
                 "pkg_build", "pkg_security_scan", "pkg_dependencies", "pkg_targets",
                 "pkg_test", "pkg_clean", "pkg_doc_coverage", "pkg_overview",
                 "pkg_public_api", "pkg_force_unwraps", "pkg_validate", "pkg_read", "pkg_search",
-                "pkg_edit_replace", "pkg_edit_rename", "pkg_edit_insert",
+                "pkg_edit_replace", "pkg_edit_replace_range", "pkg_edit_rename", "pkg_edit_insert",
                 "pkg_edit_delete", "pkg_edit_prepend", "pkg_edit_append",
                 "pkg_edit_add_import", "pkg_edit_add_conformance", "pkg_edit_add_member",
                 "pkg_edit_wrap", "pkg_edit_sort", "pkg_edit_batch",

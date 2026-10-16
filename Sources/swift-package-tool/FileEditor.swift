@@ -162,69 +162,64 @@ enum FileEditor {
         case alreadyCurrent(String)
     }
 
-    /// Read a file, apply a transform, optionally verify, optionally write.
-    /// Returns an EditResult describing what happened, including the
-    /// machine-readable status the process exit code mirrors.
-    static func edit(
+    /// the pure outcome of applying a transform to a file's text, with nothing
+    /// written yet.
+    ///
+    /// ``edit(file:dryRun:backup:verify:showDiff:outputPath:force:transform:)``
+    /// is `stage` → `verdict` → `commit`, one call; `--atomic` batch is the same
+    /// three steps with the commit deferred until every operation has staged.
+    /// the split exists for that deferred commit and for no other reason.
+    struct Staged {
+        /// the resolved path of the file the operation names.
+        let file: String
+        /// the file's text as it was read, before this operation (or any other)
+        /// changed it in memory — what a commit would be replacing.
+        let onDisk: String
+        /// the text the transform was applied to: `onDisk` on a first touch, or
+        /// a prior staged operation's `result` when operations are chained.
+        let original: String
+        /// the text after the transform; equal to `original` when it changed
+        /// nothing.
+        let result: String
+        /// the transform's own account when it changed nothing.
+        let noChange: NoChange?
+        /// whether syntactic re-validation passed.
+        let verified: Bool
+        /// the verification warning, when re-validation failed.
+        let warning: String?
+        /// the unified diff, when one was asked for.
+        let diff: String?
+    }
+
+    /// read a file (or take a supplied buffer), apply the transform, verify —
+    /// and write nothing.
+    ///
+    /// `over` is the staging chain: when it is non-nil the transform runs
+    /// against that text instead of the file's own, which is how an `--atomic`
+    /// plan's second operation sees the first one's result.
+    static func stage(
         file: String,
-        dryRun: Bool,
-        backup: Bool,
         verify: Bool,
         showDiff: Bool,
-        outputPath: String,
-        force: Bool,
+        dryRun: Bool,
+        over buffer: String? = nil,
         transform: (inout String) throws -> NoChange?
-    ) throws -> EditResult {
+    ) throws -> Staged {
         let resolved = NSString(string: file).standardizingPath
         guard FileManager.default.fileExists(atPath: resolved) else {
             throw ValidationError("file not found: \(resolved)")
         }
 
-        let original = try String(contentsOfFile: resolved, encoding: .utf8)
+        let onDisk = try String(contentsOfFile: resolved, encoding: .utf8)
+        let original = buffer ?? onDisk
         var modified = original
         let noChange = try transform(&modified)
 
-        guard modified != original else {
-            // a transform that changed nothing may still have something to say
-            // — an anchor that did not match, a range that selected no lines.
-            // surface it instead of reporting a silent no-op. a miss is a
-            // failure (exit 1); an already-satisfied state is a benign skip
-            // (exit 0).
-            switch noChange {
-            case .some(.missed(let note, let selector)):
-                // a miss must teach: the closest lines (numbered) turn a dead
-                // end into a retry, and the first one is named in the warning
-                // so a text-only consumer gets the hint too.
-                var warning = note
-                var suggestions: [LineSuggestion]? = nil
-                if let selector {
-                    let closest = SelectorSuggestions.closest(to: selector, in: original)
-                    if !closest.isEmpty {
-                        suggestions = closest
-                        warning += "; nearest: line \(closest[0].n): \(closest[0].text)"
-                    }
-                }
-                return EditResult(
-                    file: resolved, modified: false, diff: nil, verified: true,
-                    warning: warning, status: .missed, dryRun: dryRun, suggestions: suggestions
-                )
-            case .some(.alreadyCurrent(let note)):
-                return EditResult(
-                    file: resolved, modified: false, diff: nil, verified: true,
-                    warning: note, status: .alreadyCurrent, dryRun: dryRun
-                )
-            case .none:
-                return EditResult(
-                    file: resolved, modified: false, diff: nil, verified: true,
-                    warning: nil, status: .alreadyCurrent, dryRun: dryRun
-                )
-            }
-        }
-
-        // Verify syntactic validity if requested
+        // Verify syntactic validity if requested — only when there is something
+        // new to verify: a transform that changed nothing cannot have broken it.
         var verified = true
         var verifyWarning: String? = nil
-        if verify {
+        if modified != original, verify {
             let tree = Parser.parse(source: modified)
             let diags = ParseDiagnosticsGenerator.diagnostics(for: tree)
             if !diags.isEmpty {
@@ -238,40 +233,110 @@ enum FileEditor {
 
         // Compute diff — always show on dry-run, or when --show-diff is set
         var diff: String? = nil
-        if showDiff || dryRun {
+        if modified != original, showDiff || dryRun {
             diff = makeDiff(original: original, modified: modified)
+        }
+
+        return Staged(
+            file: resolved, onDisk: onDisk, original: original, result: modified,
+            noChange: noChange, verified: verified, warning: verifyWarning, diff: diff
+        )
+    }
+
+    /// the EditResult a staged transform describes. writes nothing, and knows
+    /// nothing about backups, output paths or files — the write is ``commit``.
+    static func verdict(_ staged: Staged, dryRun: Bool, force: Bool) -> EditResult {
+        guard staged.result != staged.original else {
+            // a transform that changed nothing may still have something to say
+            // — an anchor that did not match, a range that selected no lines.
+            // surface it instead of reporting a silent no-op. a miss is a
+            // failure (exit 1); an already-satisfied state is a benign skip
+            // (exit 0).
+            switch staged.noChange {
+            case .some(.missed(let note, let selector)):
+                // a miss must teach: the closest lines (numbered) turn a dead
+                // end into a retry, and the first one is named in the warning
+                // so a text-only consumer gets the hint too.
+                var warning = note
+                var suggestions: [LineSuggestion]? = nil
+                if let selector {
+                    let closest = SelectorSuggestions.closest(to: selector, in: staged.original)
+                    if !closest.isEmpty {
+                        suggestions = closest
+                        warning += "; nearest: line \(closest[0].n): \(closest[0].text)"
+                    }
+                }
+                return EditResult(
+                    file: staged.file, modified: false, diff: nil, verified: true,
+                    warning: warning, status: .missed, dryRun: dryRun, suggestions: suggestions
+                )
+            case .some(.alreadyCurrent(let note)):
+                return EditResult(
+                    file: staged.file, modified: false, diff: nil, verified: true,
+                    warning: note, status: .alreadyCurrent, dryRun: dryRun
+                )
+            case .none:
+                return EditResult(
+                    file: staged.file, modified: false, diff: nil, verified: true,
+                    warning: nil, status: .alreadyCurrent, dryRun: dryRun
+                )
+            }
         }
 
         if dryRun {
             // the preview mirrors the real run's verdict: what would land,
             // and whether verification would let it land
             return EditResult(
-                file: resolved, modified: true, diff: diff, verified: verified,
-                warning: verifyWarning, status: verified ? .applied : .blocked, dryRun: dryRun
+                file: staged.file, modified: true, diff: staged.diff, verified: staged.verified,
+                warning: staged.warning, status: staged.verified ? .applied : .blocked, dryRun: dryRun
             )
         }
 
         // Block the write when verification fails unless --force is set
-        if !verified && !force {
+        if !staged.verified && !force {
             return EditResult(
-                file: resolved, modified: false, diff: diff, verified: false,
-                warning: verifyWarning, status: .blocked, dryRun: dryRun
+                file: staged.file, modified: false, diff: staged.diff, verified: false,
+                warning: staged.warning, status: .blocked, dryRun: dryRun
             )
         }
 
-        // Backup
-        if backup {
-            try backupFile(resolved)
-        }
-
-        // Write
-        let target = outputPath.isEmpty ? resolved : outputPath
-        try modified.write(toFile: target, atomically: true, encoding: .utf8)
-
         return EditResult(
-            file: resolved, modified: true, diff: diff, verified: verified,
-            warning: verifyWarning, status: .applied, dryRun: dryRun
+            file: staged.file, modified: true, diff: staged.diff, verified: staged.verified,
+            warning: staged.warning, status: .applied, dryRun: dryRun
         )
+    }
+
+    /// write a staged transform: the backup (when asked) and the atomic write.
+    static func commit(_ staged: Staged, backup: Bool, outputPath: String) throws {
+        if backup {
+            try backupFile(staged.file)
+        }
+        let target = outputPath.isEmpty ? staged.file : outputPath
+        try staged.result.write(toFile: target, atomically: true, encoding: .utf8)
+    }
+
+    /// Read a file, apply a transform, optionally verify, optionally write.
+    /// Returns an EditResult describing what happened, including the
+    /// machine-readable status the process exit code mirrors.
+    static func edit(
+        file: String,
+        dryRun: Bool,
+        backup: Bool,
+        verify: Bool,
+        showDiff: Bool,
+        outputPath: String,
+        force: Bool,
+        transform: (inout String) throws -> NoChange?
+    ) throws -> EditResult {
+        let staged = try stage(
+            file: file, verify: verify, showDiff: showDiff, dryRun: dryRun, transform: transform)
+        let result = verdict(staged, dryRun: dryRun, force: force)
+        // the only write in the package's single-verb edit path, and it happens
+        // exactly when the verdict says the edit applied for real.
+        if !dryRun && result.status == .applied {
+            try commit(staged, backup: backup, outputPath: outputPath)
+        }
+        return result
     }
 
     /// copy `path` to `<path>.bak`, replacing any previous backup. a stale

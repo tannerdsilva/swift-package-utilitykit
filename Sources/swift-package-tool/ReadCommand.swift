@@ -84,15 +84,9 @@ struct ReadCommand: ParsableCommand {
         }
 
         // a trailing newline terminates the last line; it does not open a new
-        // one. an empty file has zero lines.
-        let allLines: [String]
-        if content.isEmpty {
-            allLines = []
-        } else if content.hasSuffix("\n") {
-            allLines = content.dropLast().components(separatedBy: "\n")
-        } else {
-            allLines = content.components(separatedBy: "\n")
-        }
+        // one. an empty file has zero lines. this is the one line model the
+        // surface numbers — `replace-range` counts by it too (`sourceLines`).
+        let allLines = sourceLines(content)
         let total = allLines.count
 
         // the requested window (default: the whole file), clamped to the file,

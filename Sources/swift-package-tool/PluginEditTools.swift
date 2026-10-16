@@ -81,6 +81,38 @@ struct PkgEditReplace {
 }
 
 @MCPCommand(
+    description: "replace the text of lines A-B in a Swift source file with new content — no matching. use when `pkg_read` gave you the lines and `pkg_edit_replace` keeps missing the text: this verb never searches for text, it replaces the named lines and writes once. the line numbers are `pkg_read`'s (1-based, inclusive; a trailing newline does not open a new line), an end past the file clamps to the last line, content is taken verbatim, and every content line inherits the indentation of the range's first line. empty content is refused — use `pkg_edit_delete` to remove lines. a range that selects no lines, or a result that would not parse, is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the change (diff included) without writing.",
+    name: "pkg_edit_replace_range"
+)
+struct PkgEditReplaceRange {
+    @Argument(description: "absolute path to the Swift source file to edit")
+    var path: String = ""
+
+    @Option(description: "the line range to replace, e.g. '10-12' — 1-based and inclusive, the numbers pkg_read gave you")
+    var lines: String? = nil
+
+    @Option(description: "the replacement content (taken verbatim: real newlines land as newlines and backslashes as backslashes)")
+    var content: String? = nil
+
+    @Flag(description: "preview the change without writing")
+    var dry_run: Bool = false
+
+    @Flag(description: "write even if the result does not parse")
+    var force: Bool = false
+
+    func run() async throws -> String {
+        var argv = ["edit", "replace-range", try requiredAbsolutePath(path)]
+        if let lines { argv += ["--lines", lines] }
+        if let content { argv += ["--content", content] }
+        argv.append("--literal-content")
+        if dry_run { argv.append("--dry-run") }
+        if force { argv.append("--force") }
+        argv += ["--output-format", "compact"]
+        return try await PluginToolRunner.run(argv)
+    }
+}
+
+@MCPCommand(
     description: "rename a symbol and every one of its references in a Swift source file (AST-aware: the token tree is rewritten, not the text). a miss or a result that would not parse is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: `; set dry_run to preview the diff without writing.",
     name: "pkg_edit_rename"
 )
@@ -434,12 +466,18 @@ struct PkgEditSort {
 }
 
 @MCPCommand(
-    description: "apply a sequence of edit operations to one or more Swift files from a JSON plan file — a single round-trip for a multi-file refactor. the plan is {\"operations\": [ {\"command\": ..., \"file\": ...} ]}, applied in plan order. each command adds its own fields: add-import module; insert content + one anchor (after | before | atLine); replace old + new; append content (at end of file) / prepend content (+ afterImports, which append refuses); delete one selector (pattern | startLine+endLine | symbol); add-member typeName + one of property | method | caseName (plus body, associated, defaultValue, access); add-conformance typeName + protocolName. these are the PLAN's keys, not always the standalone command's flags (the plan spells --type as typeName), and a mistyped key decodes to null, surfacing as that command's 'requires ...' error rather than a hint about the typo. every operation is applied in plan order; a plan with any missed or failed operation is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: ` (each per-operation EditResult rides along). set fail_fast to stop at the first failure. content fields inside the plan are taken verbatim too — backslashes land as written, so a Swift string-literal escape needs no doubling.",
+    description: "apply a sequence of edit operations to one or more Swift files — a single round-trip for a multi-file refactor. the plan is {\"operations\": [ {\"command\": ..., \"file\": ...} ]}, applied in plan order; pass it inline as `plan`, or name a plan file with `path` (exactly one of the two — nothing on the surface can create a file, so the inline route needs no setup). each command adds its own fields: add-import module; insert content + one anchor (after | before | atLine); replace old + new; append content (at end of file) / prepend content (+ afterImports, which append refuses); delete one selector (pattern | startLine+endLine | symbol); add-member typeName + one of property | method | caseName (plus body, associated, defaultValue, access); add-conformance typeName + protocolName. these are the PLAN's keys, not always the standalone command's flags (the plan spells --type as typeName), and a mistyped key decodes to null, surfacing as that command's 'requires ...' error rather than a hint about the typo. every operation is applied in plan order; a plan with any missed or failed operation is a real failure, reported through `isError` on the JSON-RPC dialect; the one-shot plugin dialect renders the same failure as `result` prefixed `Error: ` (each per-operation EditResult rides along). set fail_fast to stop at the first failure, and atomic to make the whole plan all-or-nothing: every operation is staged in memory and the files are written only if every operation applied, so a plan that fails partway changes nothing (the default stays sequential continue-on-failure). content fields inside the plan are taken verbatim too — backslashes land as written, so a Swift string-literal escape needs no doubling.",
     name: "pkg_edit_batch"
 )
 struct PkgEditBatch {
-    @Argument(description: "absolute path to the JSON edit-plan file to apply")
+    @Argument(description: "absolute path to the JSON edit-plan file to apply (omit this when passing plan)")
     var path: String = ""
+
+    @Option(description: "the JSON plan itself — {\"operations\": [...]} — instead of a plan file; pass exactly one of path/plan. an inline plan's errors name the same JSON locations a plan file's do (operations[2])")
+    var plan: String? = nil
+
+    @Flag(description: "all-or-nothing: stage every operation in memory and write only if every one applied; a partial landing is impossible")
+    var atomic: Bool = false
 
     @Flag(description: "stop at the first operation that fails")
     var fail_fast: Bool = false
@@ -451,8 +489,17 @@ struct PkgEditBatch {
     var force: Bool = false
 
     func run() async throws -> String {
-        var argv = ["edit", "batch", try requiredAbsolutePath(path)]
+        var argv = ["edit", "batch"]
+        if let plan, !plan.isEmpty {
+            guard path.isEmpty else {
+                throw PluginToolError("pass exactly one of 'path' (a plan file) or 'plan' (inline JSON), not both")
+            }
+            argv += ["--plan", plan]
+        } else {
+            argv.append(try requiredAbsolutePath(path))
+        }
         argv.append("--literal-content")
+        if atomic { argv.append("--atomic") }
         if fail_fast { argv.append("--fail-fast") }
         if dry_run { argv.append("--dry-run") }
         if force { argv.append("--force") }

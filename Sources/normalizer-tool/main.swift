@@ -23,7 +23,7 @@ import NormalizerCore
 ///   "changed <path>" or "unchanged <path>".
 struct NormalizerTool {
 
-	let version = "3.1.1"
+	let version = "3.2.0"
 
 	var options = NormalizationOptions.standard
 	var dryRun = false
